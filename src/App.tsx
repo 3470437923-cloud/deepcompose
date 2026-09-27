@@ -33,7 +33,7 @@ export default function App() {
   return (
     <div className="app-shell">
       {view === "settings" ? (
-        <SettingsScreen />
+        <SettingsScreen onBack={() => setView("main")} />
       ) : (
         <MainWorkbench onOpenSettings={() => setView("settings")} />
       )}
