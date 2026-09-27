@@ -151,6 +151,8 @@ def brand(js: str) -> str:
 
 
 def main():
+    import sys
+    css_only = "--css-only" in sys.argv[1:]
     src = io.open(SRC, encoding="utf-8").read()
 
     # ---- 1. 提取 CSS ----
@@ -190,6 +192,13 @@ def main():
             raise SystemExit("转换出错：CSS 第 %d 行出现悬挂选择器碎片 %r" % (ln, line))
 
     # ---- 2. 提取两个界面 ----
+    if css_only:
+        # screens/*.tsx 已被数据驱动实现取代（src/ui/MainWorkbench.tsx、
+        # src/screens/SettingsScreen.tsx），重跑转换只为刷新 screens.css；
+        # 覆盖它们会销毁手写的数据绑定，因此此模式只出 CSS。
+        print("--css-only：跳过 TSX 输出")
+        return
+
     a = extract_block(src, 'id="screenA"')
     b = extract_block(src, 'id="screenB"')
     print("界面 A: %d 字节" % len(a))
