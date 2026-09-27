@@ -598,3 +598,316 @@ debut / newbook / ranking / allrank / qidian
 查询动作：top=查排行Top N；list=查作品列表（支持分类/搜索/排序/连载状态）；categories=查可用分类；dates=查可用数据日期；rank_names=查可用榜单名称；count=查数量；stats=查整体统计概览
 ```
 
+---
+
+## 3. 校验文案全表
+
+检索方法：在四个内容层（`app_so_full_strings.txt`、`app_so_full_utf16.txt`、
+`zh_ui_strings.txt`、`utf16_objects_all.txt`）中按字面匹配，列出**全部偏移**。
+下列每条都是记录内容**恰好等于**该文案（exact match），除非另有标注。
+
+### 3.1 `xxx is required` 族（英文，逐字 + 全部偏移）
+
+| # | 逐字文案 | 全部命中偏移 |
+|---|---|---|
+| 1 | `path is requiredr` | `app_so_full_strings.txt:0028cb20` |
+| 2 | `content is required` | `app_so_full_strings.txt:0027e040`, `app_so_full_strings.txt:00287510`, `app_so_full_strings.txt:003d56e0`, `app_so_full_strings.txt:0040a120` |
+| 3 | `content is required for write operation` | `app_so_full_strings.txt:003d56e0` |
+| 4 | `content is required for append operation` | `app_so_full_strings.txt:0027e040` |
+| 5 | `old_text is required for replace operation` | `app_so_full_strings.txt:003f7e30` |
+| 6 | `new_text is required for insert operation` | `app_so_full_strings.txt:003968b0` |
+| 7 | `search_text is required for search operation` | `app_so_full_strings.txt:0043ee00` |
+| 8 | `new_path is required for copy operation` | `app_so_full_strings.txt:002686f0` |
+| 9 | `new_path is required for rename operation` | `app_so_full_strings.txt:002a9e30` |
+| 10 | `start_line and end_line are required for delete_lines operation` | `app_so_full_strings.txt:002ad350` |
+| 11 | `command is required` | `app_so_full_strings.txt:0026c010` |
+| 12 | `operation is required` | `app_so_full_strings.txt:0027a9c0` |
+| 13 | `skill_name is required` | `app_so_full_strings.txt:002d8060` |
+| 14 | `name is requiredr` | `app_so_full_strings.txt:002ea1a0` |
+| 15 | `description is required` | `app_so_full_strings.txt:004796d0` |
+| 16 | `query is required` | `app_so_full_strings.txt:003ac930` |
+| 17 | `questions is required and must not be empty` | `app_so_full_strings.txt:002f44a0` |
+| 18 | `reference_content is required when reference_name is provided` | `app_so_full_strings.txt:00287510` |
+
+> `path is requiredr` / `name is requiredr` 的尾随 `r` 是真实字符，见 §0.3。
+
+### 3.2 其余英文校验 / 错误文案（逐字 + 全部偏移）
+
+| # | 逐字文案 | 全部命中偏移 |
+|---|---|---|
+| 1 | `Unknown operation: ` | `app_so_full_strings.txt:0034cc50` |
+| 2 | `Unsupported operation: ` | `app_so_full_strings.txt:00257670` |
+| 3 | `Must provide content, reference_name, or delete: true` | `app_so_full_strings.txt:00414f20` |
+| 4 | `Invalid after_line number` | `app_so_full_strings.txt:0043d690` |
+| 5 | `workdir 必须是相对项目根的子目录，不能含 .. 或绝对路径` | `app_so_full_utf16.txt:003e8a98`, `zh_ui_strings.txt:003e8a98`, `utf16_objects_all.txt:003e8a98` |
+
+### 3.3 中文校验 / 限制文案（逐字 + 全部偏移）
+
+| # | 逐字文案 | 全部命中偏移 | 备注 |
+|---|---|---|---|
+| 1 | `KB），不能超过 50KB` | `app_so_full_utf16.txt:00237fe8`, `zh_ui_strings.txt:00237fe8`, `utf16_objects_all.txt:00237fe8` | 技能正文体积上限片段（前缀被切分，见备注） |
+| 2 | `MB），不能超过 3MB` | `app_so_full_utf16.txt:0036ef58`, `zh_ui_strings.txt:0036ef58`, `utf16_objects_all.txt:0036ef58` | 文件包体积上限片段（前缀被切分） |
+| 3 | `文件包体积超过上限（` | `app_so_full_utf16.txt:0032dcc8`, `zh_ui_strings.txt:0032dcc8`, `utf16_objects_all.txt:0032dcc8` | zip 导入校验 |
+| 4 | `路径在项目/skill 目录外，需用户确认，但确认机制未启用: ` | `app_so_full_utf16.txt:00316a38`, `zh_ui_strings.txt:00316a38`, `utf16_objects_all.txt:00316a38` | 路径授权 |
+| 5 | `始终允许将授权目录及其子目录：` | `app_so_full_utf16.txt:00316ec8`, `zh_ui_strings.txt:00316ec8`, `utf16_objects_all.txt:00316ec8` | 路径授权 |
+
+> `KB），不能超过 50KB`（`app_so_full_utf16.txt:00237fe8`）与 `MB），不能超过 3MB`
+> （`app_so_full_utf16.txt:0036ef58`）都是**被切分过的片段**：字符串池中它们以 `KB）` / `MB）`
+> 起始，前面的数值部分不在这条记录里（相邻偏移 `00237fe0` / `0036ef50` 无对应记录）。
+> 本规格按「逐字引用、不补全」原则原样保留，**未**还原成完整句子。
+
+### 3.4 抽卡对比模式下的工具禁用文案（逐字）
+
+- `app_so_full_utf16.txt:00324158`（len=194）：
+
+```
+**重要**：当前为抽卡对比模式，不允许向用户提问或等待确认，file_write、file_manage、create_project、create_skill、update_skill、question 等工具不可用（调用会收到错误结果）。请直接根据已有信息完成创作，创作内容直接输出在回复中。请尽量减少文件读取次数，最多读取1次获取必要信息后立即开始创作，不要反复读取文件浪费时间。
+```
+
+- `zh_ui_strings.txt:00324158`（len=194）：
+
+```
+**重要**：当前为抽卡对比模式，不允许向用户提问或等待确认，file_write、file_manage、create_project、create_skill、update_skill、question 等工具不可用（调用会收到错误结果）。请直接根据已有信息完成创作，创作内容直接输出在回复中。请尽量减少文件读取次数，最多读取1次获取必要信息后立即开始创作，不要反复读取文件浪费时间。
+```
+
+- `utf16_objects_all.txt:00324158`（len=194）：
+
+```
+**重要**：当前为抽卡对比模式，不允许向用户提问或等待确认，file_write、file_manage、create_project、create_skill、update_skill、question 等工具不可用（调用会收到错误结果）。请直接根据已有信息完成创作，创作内容直接输出在回复中。请尽量减少文件读取次数，最多读取1次获取必要信息后立即开始创作，不要反复读取文件浪费时间。
+```
+
+- `app_so_full_utf16.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `zh_ui_strings.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `utf16_objects_all.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `app_so_full_utf16.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+- `zh_ui_strings.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+- `utf16_objects_all.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+
+### 3.5 CONTRACT.md §4.2 引用文案的逐条复核
+
+本次把 `docs/CONTRACT.md §4.2` 列出的 12 条校验文案逐条回原始文件核对，结果：
+
+| CONTRACT 引用 | 原始文件是否存在 | 偏移 | 结论 |
+|---|---|---|---|
+| `path is required` | 是（实为 `path is requiredr`） | `app_so_full_strings.txt:0028cb20` | ✘ **CONTRACT 少了尾随 `r`** |
+| `content is required for write operation` | 是 | `app_so_full_strings.txt:003d56e0` | ✔ 逐字一致 |
+| `content is required for append operation` | 是 | `app_so_full_strings.txt:0027e040` | ✔ 逐字一致 |
+| `old_text is required for replace operation` | 是 | `app_so_full_strings.txt:003f7e30` | ✔ 逐字一致 |
+| `new_text is required for insert operation` | 是 | `app_so_full_strings.txt:003968b0` | ✔ 逐字一致 |
+| `search_text is required for search operation` | 是 | `app_so_full_strings.txt:0043ee00` | ✔ 逐字一致 |
+| `new_path is required for copy operation` | 是 | `app_so_full_strings.txt:002686f0` | ✔ 逐字一致 |
+| `new_path is required for rename operation` | 是 | `app_so_full_strings.txt:002a9e30` | ✔ 逐字一致 |
+| `start_line and end_line are required for delete_lines operation` | 是 | `app_so_full_strings.txt:002ad350` | ✔ 逐字一致 |
+| `Unknown operation: ` | 是 | `app_so_full_strings.txt:0034cc50` | ✔ 逐字一致 |
+| `content is required` | 是 | `app_so_full_strings.txt:0040a120` | ✔ 逐字一致 |
+| `reference_content is required when reference_name is provided` | 是 | `app_so_full_strings.txt:00287510` | ✔ 逐字一致 |
+| `Must provide content, reference_name, or delete: true` | 是 | `app_so_full_strings.txt:00414f20` | ✔ 逐字一致 |
+
+### 3.6 CONTRACT.md 未收录、但本次新发现的校验文案
+
+- `name is requiredr` → `app_so_full_strings.txt:002ea1a0`
+- `description is required` → `app_so_full_strings.txt:004796d0`
+- `skill_name is required` → `app_so_full_strings.txt:002d8060`
+- `command is required` → `app_so_full_strings.txt:0026c010`
+- `operation is required` → `app_so_full_strings.txt:0027a9c0`
+- `query is required` → `app_so_full_strings.txt:003ac930`
+- `Unsupported operation: ` → `app_so_full_strings.txt:00257670`
+- `Invalid after_line number` → `app_so_full_strings.txt:0043d690`
+- `workdir 必须是相对项目根的子目录，不能含 .. 或绝对路径` → `app_so_full_utf16.txt:003e8a98`, `zh_ui_strings.txt:003e8a98`, `utf16_objects_all.txt:003e8a98`
+- `文件包体积超过上限（` → `app_so_full_utf16.txt:0032dcc8`, `zh_ui_strings.txt:0032dcc8`, `utf16_objects_all.txt:0032dcc8`
+- `KB），不能超过 50KB` → `app_so_full_utf16.txt:00237fe8`, `zh_ui_strings.txt:00237fe8`, `utf16_objects_all.txt:00237fe8`
+- `MB），不能超过 3MB` → `app_so_full_utf16.txt:0036ef58`, `zh_ui_strings.txt:0036ef58`, `utf16_objects_all.txt:0036ef58`
+
+---
+
+## 4. 系统提示词与技能注入格式
+
+### 4.1 默认系统提示词全文（逐字）
+
+**这是本次提取最重要的发现。**
+
+线索偏移 `002498f0` 附近确实存在「你是一个创意小说写作助手…」，但它**不在**
+`reference/utf16_objects_all.txt` 里，原因是 `reference/extract_utf16_obj.py` 的
+「8 字节对齐对象 VA + 24」模型不适用于本条。用原始字节直接解码后，得到的是一段
+**完整、未被切分**的提示词：
+
+- 原始字节区间：`app.so` 文件偏移 `0x002498f0` .. `0x002499d8`（含起不含止）
+- 长度：**116 个字符**（232 字节）
+- 证据来源：`S:\dsh\OpenWrite\data\app.so` 原始字节（本次解码）
+- 在 `reference/` 任一文件中：**不存在**（`NOT FOUND`）
+
+全文（逐字，无 `\n`，单段落）：
+
+```
+你是一个创意小说写作助手。你可以读取和写入小说项目目录中的文件。当用户要求你写作、修改或审阅内容时，使用可用工具读取现有章节和资料，然后据此撰写或更新内容。始终保持与现有故事、角色和世界设定的一致性。请使用与用户相同的语言进行回复。
+```
+
+逐字符校验要点：
+
+- 首字符 `你`，末字符 `。`（句号），全文无换行。
+- 出现「可用工具」字样（`0x00249958`）、「小说项目目录」（`0x0024991a`）、
+  「读取现有章节」（`0x00249960`）——均在**同一段 116 字**内，可交叉定位。
+- 「请使用与用户相同的语言进行回复。」是末句。
+
+原始字节转储（供独立复核）：
+
+```
+b"`O/f\x00N*N\x1bR\x0fa\x0f\\\xf4\x8b\x99Q\\O\xa9RKb\x020`O\xefS\xe5N\xfb\x8b\xd6S\x8cT\x99QeQ\x0f\\\xf4\x8by\x98\xeev\xeevU_-N\x84v\x87e\xf6N\x020S_(u7b\x81\x89Bl`O\x99Q\\O\x010\xeeO9e\x16b\xa1[\x05\x96\x85Q\xb9[\xf6e\x0c\xff\x7fO(u\xefS(u\xe5]wQ\xfb\x8b\xd6S\xb0s\tg\xe0z\x82\x82\x8cTD\x8d\x99e\x0c\xff6q\x0eTncdk\xb0d\x99Q\x16b\xf4f\xb0e\x85Q\xb9[\x020\xcbY\xc8~\xddO\x01c\x0eN\xb0s\tgEe\x8bN\x010\xd2\x89r\x82\x8cT\x16NLu\xbe\x8b\x9a[\x84v\x00N\xf4\x81'`\x020\xf7\x8b\x7fO(u\x0eN(u7b\xf8v\x0cT\x84v\xed\x8b\x00\x8a\xdb\x8fL\x88\xdeV\rY\x020" ...
+```
+
+### 4.2 另一个提示词片段（同一区域，独立字符串）
+
+在 `0x00249b38`（UTF-16 对象）有一条独立短句：
+
+- `app_so_full_utf16.txt:00249b38`（len=8）：- 用中文输出。
+
+同偏移对应：`app_so_full_utf16.txt:00249b38`, `zh_ui_strings.txt:00249b38`, `utf16_objects_all.txt:00249b38`
+
+它与 §4.1 的 116 字提示词之间隔着若干条 1 字符记录（`说`、`丑`、`坶`、`菵`），
+**无法证明属于同一提示词**。此处只逐字列出，不做拼接推断。
+
+### 4.3 技能清单注入格式（`## Available Skills` 块）
+
+**块头（逐字）**：
+
+- `app_so_full_utf16.txt:0039d178`（len=157）：
+
+```
+## Available Skills\n\n技能按需加载。当用户请求与某个技能的使用场景匹配时，调用 `skill_lookup` 加载该技能的完整内容。参数 `skill_name` 必须一字不差地使用 `<name>` 中的技能名（不要改写、翻译或添加后缀）。\n\n<available_skills>\n
+```
+
+全部命中偏移：`app_so_full_utf16.txt:0039d178`, `zh_ui_strings.txt:0039d178`, `utf16_objects_all.txt:0039d178`
+
+> 注意：池内记录里首字符是 `#`，位于偏移 `0039d190`；`utf16_objects_all.txt` 记录的
+> 偏移 `0039d178` 是对象头位置。
+
+**每个技能条目的包裹格式（逐字，5 条独立字符串）**：
+
+| 片段 | 逐字内容 | 偏移 |
+|---|---|---|
+| 条目开 | `  <skill>` | `app_so_full_strings.txt:0034f980` |
+| 名字开 | `    <name>` | `app_so_full_strings.txt:0034f98a` |
+| 名字闭 | `</name>` | `app_so_full_strings.txt:00277d30` |
+| 描述开 | `    <description>` | `app_so_full_strings.txt:00277d38` |
+| 描述闭 | `</description>` | `app_so_full_strings.txt:0027d400` |
+| 条目闭 | `  </skill>` | `app_so_full_strings.txt:0027d40f` |
+| 块闭 | `</available_skills>` | `app_so_full_strings.txt:0041d201` |
+
+组合后的完整注入结构（缩进按逐字字符串保留；`技能名` / `技能描述` 为运行时填充位，非逐字串）：
+
+```
+## Available Skills
+
+技能按需加载。当用户请求与某个技能的使用场景匹配时，调用 `skill_lookup` 加载该技能的完整内容。参数 `skill_name` 必须一字不差地使用 `<name>` 中的技能名（不要改写、翻译或添加后缀）。
+
+<available_skills>
+  <skill>
+    <name>技能名</name>
+    <description>技能描述</description>
+  </skill>
+</available_skills>
+```
+
+> **证据强度说明**：块头、`<available_skills>`、`</available_skills>`、`  <skill>`、
+> `    <name>`、`</name>`、`    <description>`、`</description>`、`  </skill>` 九个片段**均为逐字字符串**，
+> 偏移见上表。但**「它们拼在一起时中间是否有换行」需要按各片段自带的 `\n` 判断**：
+> 块头串以 `\n` 结尾，五个条目片段串**自身不含 `\n`**。上面的组合块是按片段自带换行还原的推断，
+> 已在 §6 标为不确定项。
+
+### 4.4 技能正文加载后回注的目录说明（逐字）
+
+`skill_lookup` 命中后注入的目录约定（一条完整记录）：
+
+- `app_so_full_utf16.txt:0027c0a8`（len=127）：
+
+```
+\n- 约定: `scripts/` 存放可执行脚本，`references/` 存放按需读取的文档，`assets/` 存放输出资源。\n- 该目录下的相对路径都基于此目录。\n- 可用文件(排除 SKILL.md，最多10个，完整列表可读目录):\n
+```
+
+- `zh_ui_strings.txt:0027c0a8`（len=127）：
+
+```
+\n- 约定: `scripts/` 存放可执行脚本，`references/` 存放按需读取的文档，`assets/` 存放输出资源。\n- 该目录下的相对路径都基于此目录。\n- 可用文件(排除 SKILL.md，最多10个，完整列表可读目录):\n
+```
+
+- `utf16_objects_all.txt:0027c0a8`（len=127）：
+
+```
+\n- 约定: `scripts/` 存放可执行脚本，`references/` 存放按需读取的文档，`assets/` 存放输出资源。\n- 该目录下的相对路径都基于此目录。\n- 可用文件(排除 SKILL.md，最多10个，完整列表可读目录):\n
+```
+
+全部命中偏移：`app_so_full_utf16.txt:0027c0a8`, `zh_ui_strings.txt:0027c0a8`, `utf16_objects_all.txt:0027c0a8`
+
+---
+
+## 5. 流式事件与错误文案
+
+### 5.1 流式事件名（逐字 + 全部偏移）
+
+| # | 事件名 | 全部命中偏移 |
+|---|---|---|
+| 1 | `ai_run_started` | `app_so_full_strings.txt:0043c3a0` |
+| 2 | `ai_tool_started` | `app_so_full_strings.txt:00462b40` |
+| 3 | `ai_tool_calls_received` | `app_so_full_strings.txt:00391ce0` |
+| 4 | `ai_tool_completed` | `app_so_full_strings.txt:002efde0` |
+| 5 | `ai_text_started` | `app_so_full_strings.txt:003b8520` |
+| 6 | `ai_thinking_started` | `app_so_full_strings.txt:0036bc30` |
+| 7 | `ai_cleanup_started` | `app_so_full_strings.txt:0035f260` |
+| 8 | `ai_cleanup_completed` | `app_so_full_strings.txt:002acfb0` |
+| 9 | `ai_run_completedr` | `app_so_full_strings.txt:00322ef0` |
+
+任务指定的 6 个事件名 **全部命中**，另外额外发现 3 个：`ai_cleanup_started`、
+`ai_cleanup_completed`、`ai_run_completedr`（注意最后一条同样带真实尾随 `r`，同 §0.3 现象）。
+
+补检的未命中项：
+
+- `ai_run_finished` → `NOT FOUND`
+- `ai_error` → `NOT FOUND`
+- 全库正则 `\bai_[a-z_]{3,40}\b` 仅命中上述 9 条（加 1 条 `ai_file_write_`，非事件名）。
+
+完整 `ai_*` 正则命中清单（逐字）：
+
+```
+002acfb0  ai_cleanup_completed
+002efde0  ai_tool_completed
+00322ef0  ai_run_completedr
+0035f260  ai_cleanup_started
+0036bc30  ai_thinking_started
+00391ce0  ai_tool_calls_received
+003b8520  ai_text_started
+0043c3a0  ai_run_started
+00462b40  ai_tool_started
+004a5160  ai_file_write_
+```
+
+### 5.2 错误分类文案（逐字 + 全部偏移，回原文件核对）
+
+`CONTRACT.md §8.3` 列出的 9 条，逐条回原始文件核对——**9 条全部 EXACT 命中**：
+
+| # | 逐字文案 | 全部命中偏移 | 核对 |
+|---|---|---|---|
+| 1 | `API Key 无效或未提供，请检查Key是否正确` | `app_so_full_utf16.txt:00276198`, `zh_ui_strings.txt:00276198`, `utf16_objects_all.txt:00276198` | ✔ EXACT |
+| 2 | `API Key 已过期，请更换Key后重试` | `app_so_full_utf16.txt:002a3598`, `zh_ui_strings.txt:002a3598`, `utf16_objects_all.txt:002a3598` | ✔ EXACT |
+| 3 | `令牌无权访问该模型，请检查Key权限设置` | `app_so_full_utf16.txt:002e8208`, `zh_ui_strings.txt:002e8208`, `utf16_objects_all.txt:002e8208` | ✔ EXACT |
+| 4 | `429错误，可能是当前模型算力紧张，使用人数过多，建议先更换为其他模型使用，或稍后再进行尝试` | `app_so_full_utf16.txt:002c0ea8`, `zh_ui_strings.txt:002c0ea8`, `utf16_objects_all.txt:002c0ea8` | ✔ EXACT |
+| 5 | `对话内容过长，超出了上游模型的上下文限制，请压缩旧上下文或新建对话` | `app_so_full_utf16.txt:002818f8`, `zh_ui_strings.txt:002818f8`, `utf16_objects_all.txt:002818f8` | ✔ EXACT |
+| 6 | `未收到AI响应，服务器可能暂时不可用或Key已失效` | `app_so_full_utf16.txt:003add48`, `zh_ui_strings.txt:003add48`, `utf16_objects_all.txt:003add48` | ✔ EXACT |
+| 7 | `max_tokens 参数无效，请检查模型设置中的最大输出长度` | `app_so_full_utf16.txt:002bd888`, `zh_ui_strings.txt:002bd888`, `utf16_objects_all.txt:002bd888` | ✔ EXACT |
+| 8 | `该模型不存在或暂无可用渠道，请更换模型后重试` | `app_so_full_utf16.txt:002a2638`, `zh_ui_strings.txt:002a2638`, `utf16_objects_all.txt:002a2638` | ✔ EXACT |
+| 9 | `该模型不支持自定义温度，请将温度设为 1 或使用默认值` | `app_so_full_utf16.txt:0036c318`, `zh_ui_strings.txt:0036c318`, `utf16_objects_all.txt:0036c318` | ✔ EXACT |
+
+> 每条均同时出现在 5 个文件中（`zh_ui_strings.txt`、`utf16_objects_all.txt`、
+> `utf16_objects_zh.txt`、`app_so_full_utf16.txt`、`zh_ui_classified.txt`），偏移一致。
+> 上表只列每个文件的首个偏移。
+
+### 5.3 与工具调用相关的错误 / 提示文案
+
+- `app_so_full_utf16.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `zh_ui_strings.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `utf16_objects_all.txt:002bb038`：{"info":"抽卡对比模式下暂不支持写入操作，请根据已有信息创作"}
+- `app_so_full_utf16.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+- `zh_ui_strings.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+- `utf16_objects_all.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
+- `app_so_full_strings.txt:0034cc50`：Unknown operation: 
+- `app_so_full_strings.txt:00257670`：Unsupported operation: 
+
