@@ -75,6 +75,19 @@ Start-Sleep -Milliseconds 400
 [WinCap]::SetForegroundWindow($h) | Out-Null
 Start-Sleep -Milliseconds 900
 
+# Deterministic view: Escape always returns the app to the main screen
+# (App.tsx: keydown Escape -> setView("main")). Without this, whatever the
+# pointer happened to click before the capture decides which screen we get.
+try {
+    $ws = New-Object -ComObject WScript.Shell
+    $ws.SendKeys("{ESC}")
+    Start-Sleep -Milliseconds 600
+} catch {
+    Write-Output "WARN SendKeys failed: $_"
+}
+[WinCap]::SetForegroundWindow($h) | Out-Null
+Start-Sleep -Milliseconds 500
+
 $r = New-Object WinCap+RECT
 [WinCap]::GetWindowRect($h, [ref]$r) | Out-Null
 $w = [int]($r.Right - $r.Left)
