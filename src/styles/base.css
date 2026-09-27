@@ -222,6 +222,8 @@ svg {
 .app-shell .b-left-list::-webkit-scrollbar{width:6px}
 .app-shell .b-left-list::-webkit-scrollbar-thumb{background:#1F1F2A;border-radius:3px}
 .app-shell .b-conv em{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* 用户卡：项目名可能较长，占满剩余宽度并省略（mock 的 44px 是"套…"账号名口径） */
+.app-shell .b-user .uname{flex:1;min-width:0;max-width:none;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .app-shell .b-booksel .bk{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left}
 .app-shell .b-bookmenu{
   position:absolute;left:12px;top:92px;width:184px;max-height:320px;overflow-y:auto;
@@ -245,6 +247,25 @@ svg {
 .app-shell .b-body.hide-left .b-chat{left:0;width:1492px}
 .app-shell .b-body.hide-left .b-right{left:1492px}
 .app-shell .b-body.hide-right .b-right{display:none}
+
+/* 编辑器标签条：z-index 高于 .b-editor 面板（否则面板背景盖住标签）；
+   标签弹性收缩，多开时不溢出编辑器列 */
+.app-shell .b-tabstrip{z-index:2}
+.app-shell .b-tab{width:auto;flex:0 1 265px;min-width:0}
+.app-shell .b-tab .nm{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* 编辑器内容区：标题 + 文本域纵向填充；滚动条统一窄样式 */
+.app-shell .b-editor-body{display:flex;flex-direction:column}
+.app-shell .b-editor-body h1{flex:none}
+.app-shell .editor-area{
+  flex:1;min-height:0;width:100%;margin-top:12px;resize:none;border:0;outline:none;
+  font-family:inherit;font-size:15px;line-height:1.9;color:#E8E8F0;background:transparent;
+}
+.app-shell .editor-area::-webkit-scrollbar{width:8px}
+.app-shell .editor-area::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
+/* 状态栏长文本省略 */
+.app-shell .b-status span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}
+/* 备忘录挂边面板：不得盖住标题栏 */
+.app-shell .memo-box.docked{top:48px}
 
 /* ──────────────────────────────────────────────────────────────
    设置屏卡片与控件（对照真机 shot-ow-set-*.png；色值沿用设计令牌）

@@ -14,9 +14,10 @@
  * 新增控件样式在 base.css（a-card / a-switch / a-seg / a-skill-row 等）。
  */
 
-import { useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
 import logo from "../assets/logo.png";
 import { currentBoot, savePrefs } from "../core/app";
+import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
 import type { Prefs } from "../core/prefs";
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "sync" | "data" | "about";
@@ -37,6 +38,7 @@ export default function SettingsScreen({ onBack }: Props) {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
   const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
 
   if (!boot) {
     return (
@@ -75,6 +77,26 @@ export default function SettingsScreen({ onBack }: Props) {
       setSaving(false);
     }
   };
+
+  // Ctrl+S 保存（真机参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (section === "provider" || section === "params" || section === "theme") void handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const askConfirm = useCallback(
+    (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) =>
+      new Promise<boolean>((resolve) => {
+        setConfirmReq({ title, body, ...opts, resolve });
+      }),
+    [],
+  );
 
   const navItems: { key: NavSection; label: string; top: number; icon: ReactElement }[] = [
     {
@@ -241,9 +263,11 @@ export default function SettingsScreen({ onBack }: Props) {
                 <ThemeSection form={form} update={update} flash={flash} onFlash={setFlash} />
               )}
               {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
-              {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} />}
+              {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} />}
               {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
             </div>
+
+            <ConfirmDialog req={confirmReq} />
           </div>
         </div>
       </div>
@@ -730,10 +754,12 @@ function DataSection({
   form,
   flash,
   onFlash,
+  askConfirm,
 }: {
   form: Prefs;
   flash: string;
   onFlash: (s: string) => void;
+  askConfirm: (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) => Promise<boolean>;
 }) {
   const boot = currentBoot();
   const dirs = boot?.dirs;
@@ -789,8 +815,9 @@ function DataSection({
           <button
             className="a-btn-danger"
             onClick={() => {
-              if (!window.confirm("确定清除软件配置并恢复默认设置吗？作品文件不受影响。")) return;
               void (async () => {
+                const ok = await askConfirm("清除软件配置？", "将恢复默认设置，不会删除作品目录下的任何文件。", { danger: true, confirmLabel: "重置" });
+                if (!ok) return;
                 try {
                   const { parsePrefs, serializePrefs, DEFAULT_PREFS } = await import("../core/prefs");
                   await savePrefs(parsePrefs(serializePrefs({ ...DEFAULT_PREFS })));

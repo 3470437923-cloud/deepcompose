@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "../assets/logo.png";
-import { boot, currentBoot, savePrefs } from "../core/app";
+import { boot, applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
 import { join, projectChaptersDir, projectDocsDir } from "../core/dirs";
 import {
@@ -14,7 +14,6 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
-import { isoMicros } from "../core/ids";
 import { createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat } from "../core/ai/controller";
 import type { AgentEvent } from "../core/ai/agent";
@@ -26,16 +25,10 @@ import {
   type SessionFile,
   type SessionListEntry,
 } from "../core/store/session";
-import {
-  addCategory as memoAddCategory,
-  DEFAULT_CATEGORY,
-  loadMemos,
-  newMemo,
-  removeCategory as memoRemoveCategory,
-  saveMemos,
-  type Memo,
-  type MemoFile,
-} from "../core/store/memo";
+import { recordSnapshot } from "../core/store/snapshot";
+import { scanSkills, mergeSkillList } from "../core/skills/scan";
+import MemoModal from "./MemoModal";
+import { ConfirmDialog, InputDialog, type ConfirmRequest, type InputRequest } from "./Dialogs";
 
 interface OpenTab {
   /** 相对作品根路径（'\\' 分隔） */
@@ -43,6 +36,8 @@ interface OpenTab {
   path: string;
   name: string;
   kind: "doc" | "chapter" | "root";
+  /** 打开时的磁盘内容（写前快照的 previousContent 来源） */
+  baseContent: string;
   content: string;
   dirty: boolean;
 }
@@ -136,13 +131,41 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const chatBottom = useRef<HTMLDivElement | null>(null);
   const transport = useMemo(() => createTauriTransport(), []);
 
-  // ── 备忘录状态（真机：居中模态，可「挂边」为右侧 320px 面板） ──
+  // ── 备忘录与应用内对话框 ──
   const [memoOpen, setMemoOpen] = useState(false);
-  const [memoDocked, setMemoDocked] = useState(false);
-  const [memoData, setMemoData] = useState<MemoFile>({ categories: [DEFAULT_CATEGORY], memos: [] });
-  const [memoScopeAll, setMemoScopeAll] = useState(false);
-  const [memoCat, setMemoCat] = useState<string>("全部");
-  const [memoEditing, setMemoEditing] = useState<string | null>(null);
+  const [inputReq, setInputReq] = useState<InputRequest | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+
+  /** 应用内输入框（替代 window.prompt；resolve 时同步关闭对话框） */
+  const askText = useCallback(
+    (title: string, placeholder?: string) =>
+      new Promise<string | null>((resolve) => {
+        setInputReq({
+          title,
+          placeholder,
+          resolve: (v) => {
+            setInputReq(null);
+            resolve(v);
+          },
+        });
+      }),
+    [],
+  );
+  const askConfirm = useCallback(
+    (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) =>
+      new Promise<boolean>((resolve) => {
+        setConfirmReq({
+          title,
+          body,
+          ...opts,
+          resolve: (ok) => {
+            setConfirmReq(null);
+            resolve(ok);
+          },
+        });
+      }),
+    [],
+  );
 
   const dirs = currentBoot()?.dirs ?? null;
 
@@ -158,12 +181,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
   }, []);
 
-  /** 首次启动：装配桥与目录，然后扫描作品；恢复上次打开的作品（真机行为） */
+  /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品（真机行为） */
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
         const b = await boot();
+        applyAccentFromPrefs(b.prefs);
         const fs = getFs();
         const { scanBooksRoot } = await import("../core/store/project");
         const list = await scanBooksRoot(fs, b.dirs.booksRoot);
@@ -175,6 +199,18 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         if (last) {
           const ref = list.find((p) => p.root.toLowerCase() === last.toLowerCase());
           if (ref) await openProjectRef(ref);
+        }
+        // 技能扫描（只读）：skill_list 为空或目录有变化时刷新
+        try {
+          const scanned = await scanSkills(fs, b.dirs.skillsDir);
+          if (scanned.length > 0) {
+            const { skillList, activeSkillIds } = mergeSkillList(b.prefs.skillList, scanned, b.prefs.activeSkillIds);
+            if (JSON.stringify(skillList) !== JSON.stringify(b.prefs.skillList)) {
+              await savePrefs({ ...b.prefs, skillList, activeSkillIds });
+            }
+          }
+        } catch {
+          // 技能扫描失败不阻断启动
         }
       } catch (e) {
         if (alive) setError(String(e));
@@ -215,21 +251,33 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         return;
       }
       const content = await fs.readText(ref.path);
-      setTabs((prev) => [...prev, { rel: ref.rel, path: ref.path, name: ref.name, kind, content, dirty: false }]);
+      setTabs((prev) => [
+        ...prev,
+        { rel: ref.rel, path: ref.path, name: ref.name, kind, baseContent: content, content, dirty: false },
+      ]);
       setActiveRel(ref.rel);
     },
     [project, tabs],
   );
 
   const closeTab = useCallback(
-    (rel: string) => {
+    async (rel: string) => {
+      const tab = tabs.find((t) => t.rel === rel);
+      if (tab?.dirty) {
+        const ok = await askConfirm(
+          "放弃未保存的修改？",
+          `「${tab.name}」有未保存的修改，关闭后将丢失。`,
+          { danger: true, confirmLabel: "放弃修改" },
+        );
+        if (!ok) return;
+      }
       setTabs((prev) => {
         const next = prev.filter((t) => t.rel !== rel);
         if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
         return next;
       });
     },
-    [activeRel],
+    [tabs, activeRel, askConfirm],
   );
 
   const editContent = useCallback(
@@ -244,8 +292,23 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setSaving(true);
     try {
       const fs = getFs();
+      const b = currentBoot();
+      // 写前快照（硬约束 #2）：手动保存与工具回写同纪律
+      if (b) {
+        await recordSnapshot(fs, b.dirs.snapshotsDir, {
+          sessionId: session?.id ?? "manual-edits",
+          callId: `manual_${Date.now()}`,
+          operation: "write",
+          relativePath: activeTab.rel.replace(/\\/g, "/"),
+          previousContent: activeTab.baseContent,
+          previousExists: true,
+          previousType: "file",
+        });
+      }
       await fs.writeText(activeTab.path, activeTab.content);
-      setTabs((prev) => prev.map((t) => (t.rel === activeTab.rel ? { ...t, dirty: false } : t)));
+      setTabs((prev) =>
+        prev.map((t) => (t.rel === activeTab.rel ? { ...t, baseContent: t.content, dirty: false } : t)),
+      );
       setStatus(`已保存 ${activeTab.name} · ${countWords(activeTab.content)} 字`);
       if (project) {
         const data = await loadProject(fs, project.ref.root, project.ref.name);
@@ -256,7 +319,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     } finally {
       setSaving(false);
     }
-  }, [activeTab, project]);
+  }, [activeTab, project, session]);
 
   /** Ctrl+S 保存 */
   useEffect(() => {
@@ -272,7 +335,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const newProject = useCallback(async () => {
     if (!dirs) return;
-    const name = window.prompt("新书名称");
+    const name = await askText("新书名称", "输入作品名");
     if (!name) return;
     try {
       const ref = await createProject(getFs(), dirs.booksRoot, name);
@@ -281,7 +344,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     } catch (e) {
       setStatus(`新建失败：${String(e)}`);
     }
-  }, [dirs, refreshProjects, openProject]);
+  }, [dirs, refreshProjects, openProject, askText]);
 
   /** 继续写作：打开当前作品的第一个章节（无作品则提示） */
   const continueWriting = useCallback(async () => {
@@ -386,12 +449,30 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     }
   }, [composer, busy, session, project, transport, onAgentEvent, askQuestions, refreshSessions]);
 
-  const openSession = useCallback(async (id: string) => {
-    const b = currentBoot();
-    if (!b) return;
-    const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
-    if (s) setSession(s);
-  }, []);
+  /** 打开会话：若会话绑定了项目则恢复绑定（真机行为） */
+  const openSession = useCallback(
+    async (id: string) => {
+      const b = currentBoot();
+      if (!b) return;
+      const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
+      if (!s) return;
+      setSession(s);
+      const root = s.projectPath?.trim();
+      if (root && project?.ref.root.toLowerCase() !== root.toLowerCase()) {
+        let ref = projects.find((p) => p.root.toLowerCase() === root.toLowerCase());
+        if (!ref) {
+          // 列表过期时重扫一次
+          const { scanBooksRoot } = await import("../core/store/project");
+          const list = await scanBooksRoot(getFs(), b.dirs.booksRoot);
+          setProjects(list);
+          ref = list.find((p) => p.root.toLowerCase() === root.toLowerCase());
+        }
+        if (ref) await openProjectRef(ref);
+        else setStatus(`会话原属作品已不在作品根：${root}`);
+      }
+    },
+    [project, projects, openProjectRef],
+  );
 
   const answerPending = useCallback(() => {
     if (!pending) return;
@@ -404,71 +485,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setSession(newSession(project?.ref.root ?? ""));
     setStatus("新对话");
   }, [project]);
-
-  /** 备忘录：打开时从 writerd_memos.json 装载 */
-  const openMemos = useCallback(async () => {
-    const b = currentBoot();
-    if (!b) return;
-    try {
-      setMemoData(await loadMemos(getFs(), b.dirs.memosFile));
-    } catch (e) {
-      setStatus(`备忘录读取失败：${String(e)}`);
-    }
-    setMemoEditing(null);
-    setMemoOpen(true);
-  }, []);
-
-  const persistMemos = useCallback(
-    async (next: MemoFile) => {
-      setMemoData(next);
-      const b = currentBoot();
-      if (!b) return;
-      try {
-        await saveMemos(getFs(), b.dirs.memosFile, next);
-      } catch (e) {
-        setStatus(`备忘录保存失败：${String(e)}`);
-      }
-    },
-    [],
-  );
-
-  const createMemo = useCallback(() => {
-    const m = newMemo(memoScopeAll ? "" : (project?.ref.root ?? ""));
-    void persistMemos({ ...memoData, memos: [m, ...memoData.memos] });
-    setMemoEditing(m.id);
-  }, [memoData, memoScopeAll, project, persistMemos]);
-
-  const updateMemo = useCallback(
-    (id: string, patch: Partial<Memo>) => {
-      const next: MemoFile = {
-        ...memoData,
-        memos: memoData.memos.map((m) =>
-          m.id === id ? { ...m, ...patch, updated_at: isoMicros() } : m,
-        ),
-      };
-      void persistMemos(next);
-    },
-    [memoData, persistMemos],
-  );
-
-  const deleteMemo = useCallback(
-    (id: string) => {
-      void persistMemos({ ...memoData, memos: memoData.memos.filter((m) => m.id !== id) });
-      if (memoEditing === id) setMemoEditing(null);
-    },
-    [memoData, memoEditing, persistMemos],
-  );
-
-  const visibleMemos = useMemo(() => {
-    const scopeRoot = project?.ref.root ?? "";
-    return memoData.memos.filter((m) => {
-      // 范围：当前作品 或 全部（含全局备忘录）
-      if (!memoScopeAll && m.project_id !== scopeRoot) return false;
-      // 分类
-      if (memoCat !== "全部" && (m.category ?? DEFAULT_CATEGORY) !== memoCat) return false;
-      return true;
-    });
-  }, [memoData, memoScopeAll, project, memoCat]);
 
   const modelLabel = currentBoot()?.prefs.model?.trim() || "未配置模型";
 
@@ -666,7 +682,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                       key={label}
                       className="qbtn"
                       onClick={() => {
-                        if (action === "memo") void openMemos();
+                        if (action === "memo") setMemoOpen(true);
                         else setStatus(`${label}功能建设中`);
                       }}
                     >
@@ -778,6 +794,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     placeholder="写下你的故事…"
                     onChange={(e) => setComposer(e.target.value)}
                     onKeyDown={(e) => {
+                      // 中文 IME 组合中的 Enter 是选词确认，不能当作发送
+                      if (e.nativeEvent.isComposing || e.key === "Process") return;
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
                         void doSend();
@@ -903,20 +921,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     </h1>
                     <textarea
                       ref={editorRef}
+                      className="editor-area"
                       value={activeTab.content}
                       onChange={(e) => editContent(e.target.value)}
                       spellCheck={false}
-                      style={{
-                        width: "100%",
-                        height: "calc(100% - 70px)",
-                        minHeight: 400,
-                        marginTop: 12,
-                        resize: "none",
-                        fontFamily: "inherit",
-                        fontSize: 15,
-                        lineHeight: 1.9,
-                        background: "transparent",
-                      }}
                     />
                   </div>
                 )}
@@ -1089,159 +1097,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </div>
             </div>
 
-            {memoOpen ? (
-              <div className="memo-modal">
-                <div className={memoDocked ? "memo-box docked" : "memo-box"}>
-                  <div className="memo-head">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
-                      <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
-                    </svg>
-                    <span className="ttl">备忘录</span>
-                    <div className="memo-head-tools">
-                      <button
-                        className={memoDocked ? "memo-tool on" : "memo-tool"}
-                        title="挂边为侧栏"
-                        onClick={() => setMemoDocked((v) => !v)}
-                      >
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M6 3.4v13.2M4 3.6h12a.8.8 0 0 1 .8.8v11.2a.8.8 0 0 1-.8.8H4z" />
-                        </svg>
-                        挂边
-                      </button>
-                      <button className="memo-tool accent" onClick={createMemo}>
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M10 4.5v11M4.5 10h11" />
-                        </svg>
-                        新建
-                      </button>
-                      <button className="memo-tool" title="关闭" onClick={() => setMemoOpen(false)}>
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
-                        </svg>
-                      </button>
-                    </div>
-                  </div>
+            <MemoModal open={memoOpen} onClose={() => setMemoOpen(false)} project={project} onStatus={setStatus} askText={askText} />
 
-                  <div className="memo-filterrow">
-                    <span className="lbl">筛选</span>
-                    <button className="memo-scope" onClick={() => setMemoScopeAll((v) => !v)}>
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
-                      </svg>
-                      {memoScopeAll ? "全部作品" : project ? project.ref.name : "未选择作品"}
-                      <em>▾</em>
-                    </button>
-                  </div>
-
-                  <div className="memo-cats">
-                    <button
-                      className={memoCat === "全部" ? "mcat on" : "mcat"}
-                      onClick={() => setMemoCat("全部")}
-                    >
-                      全部
-                    </button>
-                    {memoData.categories.map((c) => (
-                      <button
-                        key={c}
-                        className={memoCat === c ? "mcat on" : "mcat"}
-                        onClick={() => setMemoCat(c)}
-                      >
-                        {c}
-                        {c !== DEFAULT_CATEGORY ? (
-                          <em
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void persistMemos(memoRemoveCategory(memoData, c));
-                              if (memoCat === c) setMemoCat("全部");
-                            }}
-                          >
-                            ×
-                          </em>
-                        ) : null}
-                      </button>
-                    ))}
-                    <button
-                      className="mcat add"
-                      title="新增分类"
-                      onClick={() => {
-                        const name = window.prompt("新分类名称");
-                        if (name) void persistMemos(memoAddCategory(memoData, name));
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-
-                  {memoEditing ? (
-                    (() => {
-                      const m = memoData.memos.find((x) => x.id === memoEditing);
-                      if (!m) return null;
-                      return (
-                        <div className="memo-edit">
-                          <input
-                            className="memo-title"
-                            value={m.title}
-                            onChange={(e) => updateMemo(m.id, { title: e.target.value })}
-                            spellCheck={false}
-                          />
-                          <div className="memo-edit-meta">
-                            <select
-                              value={m.category ?? DEFAULT_CATEGORY}
-                              onChange={(e) => updateMemo(m.id, { category: e.target.value })}
-                            >
-                              {memoData.categories.map((c) => (
-                                <option key={c} value={c}>
-                                  {c}
-                                </option>
-                              ))}
-                            </select>
-                            <button className="memo-del" onClick={() => deleteMemo(m.id)}>
-                              删除
-                            </button>
-                            <button className="memo-back" onClick={() => setMemoEditing(null)}>
-                              返回列表
-                            </button>
-                          </div>
-                          <textarea
-                            className="memo-content"
-                            value={m.content}
-                            placeholder="记下灵感、大纲或常用指令…"
-                            onChange={(e) => updateMemo(m.id, { content: e.target.value })}
-                            spellCheck={false}
-                          />
-                        </div>
-                      );
-                    })()
-                  ) : visibleMemos.length > 0 ? (
-                    <div className="memo-list">
-                      {visibleMemos.map((m) => (
-                        <button key={m.id} className="memo-card" onClick={() => setMemoEditing(m.id)}>
-                          <div className="row1">
-                            <span className="t">{m.title || "无标题"}</span>
-                            <span className="c">{m.category ?? DEFAULT_CATEGORY}</span>
-                          </div>
-                          <div className="s">{m.content.slice(0, 120) || "（空）"}</div>
-                          <div className="d">{m.updated_at.slice(0, 16).replace("T", " ")}</div>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="memo-empty">
-                      <div className="ee-icon">
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                          <path d="M11.4 2.6v3.6H15" />
-                          <path d="M10 9v4M8 11h4" />
-                        </svg>
-                      </div>
-                      <div className="ee-t1">暂无备忘录</div>
-                      <div className="ee-t2">点击右上角「新建」按钮创建</div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            ) : null}
+            <InputDialog req={inputReq} />
+            <ConfirmDialog req={confirmReq} />
 
             {pending ? (
               <div className="qmodal">
