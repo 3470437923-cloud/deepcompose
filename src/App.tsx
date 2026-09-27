@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import MainScreen from "./screens/MainScreen";
+import MainWorkbench from "./ui/MainWorkbench";
 import SettingsScreen from "./screens/SettingsScreen";
 
 type View = "main" | "settings";
@@ -35,7 +35,7 @@ export default function App() {
       {view === "settings" ? (
         <SettingsScreen />
       ) : (
-        <MainScreen onOpenSettings={() => setView("settings")} />
+        <MainWorkbench onOpenSettings={() => setView("settings")} />
       )}
     </div>
   );
