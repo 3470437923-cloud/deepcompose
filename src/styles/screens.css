@@ -222,28 +222,17 @@ svg{display:block}
 /* 中：对话列 */
 .b-chat{position:absolute;left:220px;top:0;width:1492px;height:984px;background:var(--bg-panel)}
 .b-chat-head{position:absolute;left:0;top:0;width:1492px;height:44px;display:flex;align-items:center;padding:0 22px 0 16px;border-bottom:1px solid #191922}
-.b-newchat{display:flex;align-items:center;gap:11px;font-size:14.5px;font-weight:700;color:#F0F0F6;margin-left:44px}
+.b-newchat{display:flex;align-items:center;gap:11px;font-size:14.5px;font-weight:700;color:#F0F0F6;margin-left:28px}
 .b-newchat .ic{color:#B9B9CC;width:17px;height:17px}
-.b-booklbl{position:absolute;left:1085px;display:flex;align-items:center;gap:9px;font-size:13.5px;color:#9A9AB2}
-.b-booklbl .ic{color:#8E8EA6;width:16px;height:16px}
-.b-toolrow{position:absolute;left:378px;top:0;height:44px;display:flex;align-items:center;gap:7px;color:#9E9EB4}
-.b-toolrow .b-icon-btn{width:26px;height:26px}
-/* 编辑器 */
-.b-split{position:absolute;left:794px;top:44px;width:1px;height:924px;background:#1B1B26}
+/* 快捷功能行：真机在头部下方独立一行、图标+文案（2026-09-28 真机截图校准） */
+.b-quickrow{position:absolute;left:0;top:44px;width:795px;height:38px;display:flex;align-items:center;gap:24px;padding:0 22px;border-bottom:1px solid #191922}
+.b-quickrow .qbtn{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#9A9AB4;height:26px;border-radius:6px;padding:0 2px}
+.b-quickrow .qbtn:hover{color:#E2E2EC}
+.b-quickrow .qbtn .ic{width:15px;height:15px}
 
-/* 处理条 */
-.b-chips{position:absolute;left:10px;top:58px;display:flex;align-items:center;gap:6px}
-.chip{
-  height:25px;padding:0 10px;border-radius:7px;background:#1A1A25;color:#A8A8BC;
-  display:flex;align-items:center;gap:6px;font-size:12.5px;
-}
-.chip:hover{background:#23232F;color:#DEDEE9}
-.chip .ic{width:14px;height:14px;color:#8E8EA6}
-
-/* 编辑区 */
-.b-editor{position:absolute;left:795px;top:44px;width:697px;height:732px;background:var(--bg-panel)}
-.b-tabstrip-ghost{position:absolute;left:795px;top:44px;width:697px;height:36px;background:#191922}
-.b-tabstrip{position:absolute;left:0;top:44px;width:795px;height:36px;display:flex;align-items:stretch;background:var(--bg-panel)}
+/* 编辑区（编辑器列在对话列右侧；顶部 36px 标签条 + 内容） */
+.b-editor{position:absolute;left:795px;top:80px;width:697px;height:888px;background:var(--bg-panel)}
+.b-tabstrip{position:absolute;left:795px;top:80px;width:697px;height:36px;display:flex;align-items:stretch;background:var(--bg-panel)}
 .b-tab{
   height:36px;width:265px;flex:none;padding:0 11px;display:flex;align-items:center;gap:8px;
   font-size:13px;color:#9A9AB2;border-right:1px solid #141420;border-top:2px solid transparent;
@@ -253,8 +242,15 @@ svg{display:block}
 .b-tab .nm{flex:1;text-align:left}
 .b-tab:hover{color:#DEDEE9}
 .b-tab.on{background:#191922;color:#F0F0F6;border-top-color:var(--accent)}
-.b-split{display:none}
-.b-editor-body{position:absolute;left:0;top:36px;width:697px;padding:24px 28px;font-size:15px;color:#E8E8F0}
+.b-editor-body{position:absolute;left:0;top:36px;width:697px;bottom:0;padding:24px 28px;font-size:15px;color:#E8E8F0;overflow-y:auto}
+.b-editor-body h1{font-size:19px;font-weight:700}
+.b-editor-body h1 .hash{color:#6E6E85;margin-right:10px;font-weight:600}
+/* 编辑器空态（真机：圆角方形文档图标 + 两行提示） */
+.b-editor-empty{position:absolute;left:0;top:36px;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.b-editor-empty .ee-icon{width:72px;height:72px;border-radius:18px;background:#1A1A25;display:flex;align-items:center;justify-content:center;color:#8E8EA6;margin-bottom:18px}
+.b-editor-empty .ee-icon svg{width:30px;height:30px}
+.b-editor-empty .ee-t1{font-size:13.5px;color:#B9B9CC;margin-bottom:8px}
+.b-editor-empty .ee-t2{font-size:12.5px;color:#6E6E85}
 .b-editor-body h1{font-size:19px;font-weight:700}
 .b-editor-body h1 .hash{color:#6E6E85;margin-right:10px;font-weight:600}
 
@@ -266,9 +262,9 @@ svg{display:block}
 }
 .pchip:hover{background:#23232F;color:#DEDEE9}
 .pchip .ic{width:13px;height:13px}
-.b-quick{position:absolute;right:22px;bottom:142px;width:30px;height:30px;border-radius:50%;background:#1A1A25;color:#C9A227;display:flex;align-items:center;justify-content:center}
+.b-quick{position:absolute;right:716px;bottom:142px;width:30px;height:30px;border-radius:50%;background:#1A1A25;color:#C9A227;display:flex;align-items:center;justify-content:center}
 .b-composer{
-  position:absolute;left:10px;right:19px;bottom:16px;height:118px;border-radius:14px;
+  position:absolute;left:10px;right:716px;bottom:16px;height:118px;border-radius:14px;
   background:var(--bg-rail);border:1px solid #23232F;padding:16px 16px 12px;
   display:flex;flex-direction:column;
 }
@@ -299,18 +295,18 @@ svg{display:block}
 .b-send .ic{width:20px;height:20px;stroke-width:2}
 .b-dice{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8E8EA6}
 .b-dice:hover{background:#1F1F2C;color:#DEDEE9}
-.b-status{position:absolute;left:0;bottom:0;width:1492px;height:16px;display:flex;align-items:center;padding-right:22px}
+.b-status{position:absolute;left:0;bottom:0;width:795px;height:16px;display:flex;align-items:center;padding-right:22px}
 .b-status span{margin-left:auto;font-size:11.5px;color:#5E5E75}
 
-/* 英雄区 */
-.b-hero{position:absolute;left:25px;top:80px;width:1467px;height:740px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+/* 英雄区（真机：居中于对话列，非全宽） */
+.b-hero{position:absolute;left:25px;top:120px;width:745px;height:700px;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .b-hero-logo{
-  width:38px;height:38px;border-radius:11px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);
+  width:64px;height:64px;border-radius:16px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);
   display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 24px rgba(95,73,255,.35);
 }
-.b-hero-logo svg{width:21px;height:21px}
-.b-hero h2{margin-top:22px;font-size:16.5px;font-weight:700;color:#F2F2F7}
-.b-hero p{margin-top:6px;font-size:11.5px;color:#6E6E85}
+.b-hero-logo svg{width:34px;height:34px}
+.b-hero h2{margin-top:24px;font-size:21px;font-weight:700;color:#F2F2F7}
+.b-hero p{margin-top:8px;font-size:15px;color:#6E6E85}
 .b-hero-actions{margin-top:22px;display:flex;flex-direction:column;gap:9px;align-items:center}
 .hbtn{
   min-width:150px;height:35px;border-radius:9px;background:#1A1A25;color:#E2E2EC;

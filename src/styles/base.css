@@ -151,7 +151,7 @@ svg {
 /* ──────────────────────────────────────────────────────────────
    对话区（mock 只复刻了空态 hero，消息渲染按设计令牌新增）
    ────────────────────────────────────────────────────────────── */
-.app-shell .chat-list{position:absolute;left:10px;top:92px;width:775px;bottom:142px;overflow-y:auto;padding-right:6px}
+.app-shell .chat-list{position:absolute;left:10px;top:94px;width:775px;bottom:176px;overflow-y:auto;padding-right:6px}
 .app-shell .chat-list::-webkit-scrollbar{width:8px}
 .app-shell .chat-list::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
 .app-shell .msg{margin:0 0 14px}
@@ -213,3 +213,181 @@ svg {
 .app-shell .a-form-hint{margin-top:16px;font-size:12px;color:#6E6E85;line-height:1.6}
 .app-shell .a-placeholder{position:absolute;left:375px;top:0;width:992px;height:943px;display:flex;align-items:center;justify-content:center}
 .app-shell .a-placeholder-text{font-size:14px;color:#6E6E85}
+
+/* ──────────────────────────────────────────────────────────────
+   主界面交互层（会话滚动列表 / 作品下拉 / 面板开关 / 树折叠）
+   尺寸与色值沿用 screens.css 设计令牌，新增结构与状态在此补齐
+   ────────────────────────────────────────────────────────────── */
+.app-shell .b-left-list{position:absolute;left:0;top:45px;bottom:78px;width:220px;overflow-y:auto;overflow-x:hidden}
+.app-shell .b-left-list::-webkit-scrollbar{width:6px}
+.app-shell .b-left-list::-webkit-scrollbar-thumb{background:#1F1F2A;border-radius:3px}
+.app-shell .b-conv em{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.app-shell .b-booksel .bk{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left}
+.app-shell .b-bookmenu{
+  position:absolute;left:12px;top:92px;width:184px;max-height:320px;overflow-y:auto;
+  background:#16161F;border:1px solid #2A2A3A;border-radius:10px;padding:5px;z-index:30;
+  box-shadow:0 10px 30px rgba(0,0,0,.5);
+}
+.app-shell .b-bookmenu button{
+  display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 9px;
+  border-radius:7px;font-size:12.5px;color:#DEDEE9;text-align:left;
+}
+.app-shell .b-bookmenu button:hover{background:#22222F}
+.app-shell .b-bookmenu button.on{color:#8B7BFF}
+.app-shell .b-bookmenu button .ic{width:14px;height:14px;color:#8E8EA6;flex:none}
+.app-shell .b-bookmenu button.new{color:#8E7DFF;margin-top:3px;border-top:1px solid #23232F;border-radius:0}
+.app-shell .b-bookmenu button.new .ic{color:#8E7DFF}
+.app-shell .b-bookmenu .empty{font-size:12px;color:#6E6E85;padding:8px 9px}
+.app-shell .tnode .caret{transition:transform .12s}
+.app-shell .tnode .caret.open{transform:rotate(90deg)}
+/* 标题栏面板开关：隐藏对应栏并让中栏回填 */
+.app-shell .b-body.hide-left .b-left{display:none}
+.app-shell .b-body.hide-left .b-chat{left:0;width:1492px}
+.app-shell .b-body.hide-left .b-right{left:1492px}
+.app-shell .b-body.hide-right .b-right{display:none}
+
+/* ──────────────────────────────────────────────────────────────
+   设置屏卡片与控件（对照真机 shot-ow-set-*.png；色值沿用设计令牌）
+   ────────────────────────────────────────────────────────────── */
+.app-shell .a-settings-panel{position:absolute;left:375px;top:0;width:992px;height:943px;padding:32px 40px;overflow-y:auto}
+.app-shell .a-card{
+  background:#171622;border:1px solid #22222E;border-radius:14px;
+  padding:20px 24px;margin-bottom:18px;
+}
+.app-shell .a-card.danger{background:#1D1216;border-color:#3A2228}
+.app-shell .a-card-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+.app-shell .a-card-title{font-size:15px;font-weight:700;color:#F0F0F6}
+.app-shell .a-card-side{margin-left:auto;font-size:13px;color:#6C6C86}
+.app-shell .a-card-num{margin-left:auto;font-size:15px;font-weight:700;color:#8B7BFF}
+.app-shell .a-card-desc{font-size:12.5px;color:#82829A;line-height:1.7;margin-bottom:14px}
+.app-shell .a-card-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-top:1px solid #1D1D28;font-size:13.5px;color:#DEDEE9}
+.app-shell .a-card-row.col{flex-direction:column;align-items:flex-start;gap:4px}
+.app-shell .a-path-label{font-size:13px;color:#C9C9DA}
+.app-shell .a-path{font-size:12px;color:#6E6E85;word-break:break-all}
+.app-shell .a-help{width:13px;height:13px;color:#5E5E75;display:inline-block;vertical-align:-2px}
+.app-shell .a-statbar{background:#141420;border:1px solid #22222E;border-radius:9px;padding:10px 14px;font-size:12.5px;color:#9A9AB2}
+
+/* 滑杆（温度） */
+.app-shell .a-slider{
+  -webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:3px;
+  background:#23232F;outline:none;margin:14px 0 4px;
+}
+.app-shell .a-slider::-webkit-slider-thumb{
+  -webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;
+  background:linear-gradient(160deg,#8B7BFF,#5F49FF);border:none;cursor:pointer;
+  box-shadow:0 2px 8px rgba(95,73,255,.5);
+}
+.app-shell .a-slider::-webkit-slider-runnable-track{background:linear-gradient(90deg,#7C6AFF var(--fill,40%),#23232F var(--fill,40%));border-radius:3px;height:5px}
+
+/* 文本域（系统提示词） */
+.app-shell .a-textarea{
+  width:100%;min-height:120px;resize:vertical;padding:12px 14px;border-radius:10px;
+  background:#12121A;border:1px solid #23232F;font-size:13px;line-height:1.8;color:#E8E8F0;
+}
+.app-shell .a-textarea:focus{border-color:#7C6AFF;outline:none}
+
+/* 分段选择（主题模式 / 同步方式） */
+.app-shell .a-seg{display:inline-flex;border:1px solid #23232F;border-radius:10px;overflow:hidden}
+.app-shell .a-seg.wide{display:flex}
+.app-shell .a-seg button{
+  min-width:96px;height:36px;padding:0 18px;font-size:13px;color:#9898B0;background:#141420;
+  display:flex;align-items:center;justify-content:center;gap:6px;
+}
+.app-shell .a-seg button + button{border-left:1px solid #23232F}
+.app-shell .a-seg button:hover{color:#DEDEE9}
+.app-shell .a-seg button.on{background:var(--accent);color:#fff;font-weight:600}
+
+/* 色板（主题颜色，真机采样值） */
+.app-shell .a-swatches{display:flex;align-items:center;gap:12px;padding:4px 0}
+.app-shell .a-swatch{
+  width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);
+}
+.app-shell .a-swatch:hover{transform:scale(1.08)}
+.app-shell .a-swatch .ic{width:14px;height:14px;stroke-width:2.4}
+
+/* 开关（真机：紫色胶囊滑块） */
+.app-shell .a-switch{
+  width:44px;height:24px;border-radius:12px;background:#23232F;position:relative;flex:none;
+  transition:background .15s;
+}
+.app-shell .a-switch i{
+  position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#E8E8F0;
+  transition:transform .15s;
+}
+.app-shell .a-switch.on{background:var(--accent)}
+.app-shell .a-switch.on i{transform:translateX(20px)}
+
+/* Skill 页 */
+.app-shell .a-skill-topline{font-size:13px;color:#9A9AB2;margin-bottom:16px;line-height:1.6}
+.app-shell .a-skill-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.app-shell .a-search{
+  flex:1;height:38px;border-radius:10px;background:#141420;border:1px solid #23232F;
+  display:flex;align-items:center;gap:9px;padding:0 12px;
+}
+.app-shell .a-search .ic{width:15px;height:15px;color:#6E6E85}
+.app-shell .a-search input{flex:1;font-size:13px;color:#E8E8F0;background:none;border:0;outline:none}
+.app-shell .a-search input::placeholder{color:#6E6E85}
+.app-shell .a-toolbtn{
+  height:36px;padding:0 14px;border-radius:9px;background:#141420;border:1px solid #23232F;
+  font-size:13px;color:#C9C9DA;display:flex;align-items:center;gap:7px;
+}
+.app-shell .a-toolbtn:hover{border-color:#35354A;color:#F0F0F6}
+.app-shell .a-toolbtn.on{background:#211E3A;border-color:#34305C;color:#8B7BFF}
+.app-shell .a-group-head{
+  display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#9A9AB2;
+  padding:6px 2px;cursor:pointer;user-select:none;
+}
+.app-shell .a-group-head em{font-style:normal;color:#6E6E85}
+.app-shell .a-group-head .caret{width:12px;height:12px;color:#6E6E85;transition:transform .12s}
+.app-shell .a-group-head .caret.open{transform:rotate(180deg)}
+.app-shell .a-skill-row{
+  display:flex;align-items:center;gap:14px;padding:14px 14px;border-radius:12px;
+  background:#141420;border:1px solid #1E1E2A;margin-bottom:8px;
+}
+.app-shell .a-skill-ava{
+  width:36px;height:36px;border-radius:10px;background:#1F1F2C;color:#B9A9FF;flex:none;
+  display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;
+}
+.app-shell .a-skill-main{flex:1;min-width:0}
+.app-shell .a-skill-name{font-size:14px;font-weight:600;color:#F0F0F6}
+.app-shell .a-skill-desc{
+  font-size:12px;color:#7A7A92;margin-top:3px;
+  overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
+}
+.app-shell .a-empty{font-size:13px;color:#6E6E85;padding:24px 4px;line-height:1.7}
+.app-shell .a-flash{font-size:12.5px;color:#C9A227;margin:6px 0 2px}
+
+/* 参数页脚 */
+.app-shell .a-params-footer{display:flex;align-items:center;gap:14px;margin-top:4px}
+.app-shell .a-params-footer .a-form-hint{margin-top:0;flex:1}
+
+/* 关于页 */
+.app-shell .a-about-hero{display:flex;flex-direction:column;align-items:center;padding:48px 0 28px}
+.app-shell .a-about-logo{
+  width:76px;height:76px;border-radius:20px;overflow:hidden;
+  box-shadow:0 10px 30px rgba(0,0,0,.45);
+}
+.app-shell .a-about-logo img{width:100%;height:100%;object-fit:contain}
+.app-shell .a-about-hero h2{margin-top:16px;font-size:21px;font-weight:700;color:#F2F2F7}
+.app-shell .a-version{
+  margin-top:8px;height:22px;padding:0 12px;border-radius:11px;background:#1F1F2C;
+  font-size:12px;color:#9A9AB2;display:flex;align-items:center;
+}
+.app-shell .a-about-hero p{margin-top:10px;font-size:13px;color:#6E6E85}
+.app-shell .a-list-row{
+  display:flex;align-items:center;justify-content:space-between;width:100%;
+  height:42px;padding:0 4px;font-size:13.5px;color:#DEDEE9;border-top:1px solid #1D1D28;text-align:left;
+}
+.app-shell .a-list-row:first-of-type{border-top:0}
+.app-shell .a-list-row:hover{color:#F0F0F6}
+.app-shell .a-list-row em{font-style:normal;color:#5E5E75;font-size:16px}
+.app-shell .a-btn-danger{
+  height:36px;padding:0 16px;border-radius:9px;margin-left:auto;
+  background:#2A1418;border:1px solid #4A2028;color:#F87171;font-size:13px;font-weight:600;
+}
+.app-shell .a-btn-danger:hover{background:#381A20}
+
+/* 连接徽标（provider 卡片头部；沿用 screens.css 的 .d-badge，补灰色态） */
+.app-shell .d-badge.off{background:#1D1D28;border-color:#2A2A38;color:#7A7A92}
+.app-shell .d-badge.off i{background:#7A7A92}

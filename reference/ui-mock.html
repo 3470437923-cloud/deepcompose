@@ -231,28 +231,17 @@ svg{display:block}
 /* 中：对话列 */
 .b-chat{position:absolute;left:220px;top:0;width:1492px;height:984px;background:var(--bg-panel)}
 .b-chat-head{position:absolute;left:0;top:0;width:1492px;height:44px;display:flex;align-items:center;padding:0 22px 0 16px;border-bottom:1px solid #191922}
-.b-newchat{display:flex;align-items:center;gap:11px;font-size:14.5px;font-weight:700;color:#F0F0F6;margin-left:44px}
+.b-newchat{display:flex;align-items:center;gap:11px;font-size:14.5px;font-weight:700;color:#F0F0F6;margin-left:28px}
 .b-newchat .ic{color:#B9B9CC;width:17px;height:17px}
-.b-booklbl{position:absolute;left:1085px;display:flex;align-items:center;gap:9px;font-size:13.5px;color:#9A9AB2}
-.b-booklbl .ic{color:#8E8EA6;width:16px;height:16px}
-.b-toolrow{position:absolute;left:378px;top:0;height:44px;display:flex;align-items:center;gap:7px;color:#9E9EB4}
-.b-toolrow .b-icon-btn{width:26px;height:26px}
-/* 编辑器 */
-.b-split{position:absolute;left:794px;top:44px;width:1px;height:924px;background:#1B1B26}
+/* 快捷功能行：真机在头部下方独立一行、图标+文案（2026-09-28 真机截图校准） */
+.b-quickrow{position:absolute;left:0;top:44px;width:795px;height:38px;display:flex;align-items:center;gap:24px;padding:0 22px;border-bottom:1px solid #191922}
+.b-quickrow .qbtn{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#9A9AB4;height:26px;border-radius:6px;padding:0 2px}
+.b-quickrow .qbtn:hover{color:#E2E2EC}
+.b-quickrow .qbtn .ic{width:15px;height:15px}
 
-/* 处理条 */
-.b-chips{position:absolute;left:10px;top:58px;display:flex;align-items:center;gap:6px}
-.chip{
-  height:25px;padding:0 10px;border-radius:7px;background:#1A1A25;color:#A8A8BC;
-  display:flex;align-items:center;gap:6px;font-size:12.5px;
-}
-.chip:hover{background:#23232F;color:#DEDEE9}
-.chip .ic{width:14px;height:14px;color:#8E8EA6}
-
-/* 编辑区 */
-.b-editor{position:absolute;left:795px;top:44px;width:697px;height:732px;background:var(--bg-panel)}
-.b-tabstrip-ghost{position:absolute;left:795px;top:44px;width:697px;height:36px;background:#191922}
-.b-tabstrip{position:absolute;left:0;top:44px;width:795px;height:36px;display:flex;align-items:stretch;background:var(--bg-panel)}
+/* 编辑区（编辑器列在对话列右侧；顶部 36px 标签条 + 内容） */
+.b-editor{position:absolute;left:795px;top:80px;width:697px;height:888px;background:var(--bg-panel)}
+.b-tabstrip{position:absolute;left:795px;top:80px;width:697px;height:36px;display:flex;align-items:stretch;background:var(--bg-panel)}
 .b-tab{
   height:36px;width:265px;flex:none;padding:0 11px;display:flex;align-items:center;gap:8px;
   font-size:13px;color:#9A9AB2;border-right:1px solid #141420;border-top:2px solid transparent;
@@ -262,8 +251,15 @@ svg{display:block}
 .b-tab .nm{flex:1;text-align:left}
 .b-tab:hover{color:#DEDEE9}
 .b-tab.on{background:#191922;color:#F0F0F6;border-top-color:var(--accent)}
-.b-split{display:none}
-.b-editor-body{position:absolute;left:0;top:36px;width:697px;padding:24px 28px;font-size:15px;color:#E8E8F0}
+.b-editor-body{position:absolute;left:0;top:36px;width:697px;bottom:0;padding:24px 28px;font-size:15px;color:#E8E8F0;overflow-y:auto}
+.b-editor-body h1{font-size:19px;font-weight:700}
+.b-editor-body h1 .hash{color:#6E6E85;margin-right:10px;font-weight:600}
+/* 编辑器空态（真机：圆角方形文档图标 + 两行提示） */
+.b-editor-empty{position:absolute;left:0;top:36px;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.b-editor-empty .ee-icon{width:72px;height:72px;border-radius:18px;background:#1A1A25;display:flex;align-items:center;justify-content:center;color:#8E8EA6;margin-bottom:18px}
+.b-editor-empty .ee-icon svg{width:30px;height:30px}
+.b-editor-empty .ee-t1{font-size:13.5px;color:#B9B9CC;margin-bottom:8px}
+.b-editor-empty .ee-t2{font-size:12.5px;color:#6E6E85}
 .b-editor-body h1{font-size:19px;font-weight:700}
 .b-editor-body h1 .hash{color:#6E6E85;margin-right:10px;font-weight:600}
 
@@ -275,9 +271,9 @@ svg{display:block}
 }
 .pchip:hover{background:#23232F;color:#DEDEE9}
 .pchip .ic{width:13px;height:13px}
-.b-quick{position:absolute;right:22px;bottom:142px;width:30px;height:30px;border-radius:50%;background:#1A1A25;color:#C9A227;display:flex;align-items:center;justify-content:center}
+.b-quick{position:absolute;right:716px;bottom:142px;width:30px;height:30px;border-radius:50%;background:#1A1A25;color:#C9A227;display:flex;align-items:center;justify-content:center}
 .b-composer{
-  position:absolute;left:10px;right:19px;bottom:16px;height:118px;border-radius:14px;
+  position:absolute;left:10px;right:716px;bottom:16px;height:118px;border-radius:14px;
   background:var(--bg-rail);border:1px solid #23232F;padding:16px 16px 12px;
   display:flex;flex-direction:column;
 }
@@ -308,18 +304,18 @@ svg{display:block}
 .b-send .ic{width:20px;height:20px;stroke-width:2}
 .b-dice{width:26px;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#8E8EA6}
 .b-dice:hover{background:#1F1F2C;color:#DEDEE9}
-.b-status{position:absolute;left:0;bottom:0;width:1492px;height:16px;display:flex;align-items:center;padding-right:22px}
+.b-status{position:absolute;left:0;bottom:0;width:795px;height:16px;display:flex;align-items:center;padding-right:22px}
 .b-status span{margin-left:auto;font-size:11.5px;color:#5E5E75}
 
-/* 英雄区 */
-.b-hero{position:absolute;left:25px;top:80px;width:1467px;height:740px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+/* 英雄区（真机：居中于对话列，非全宽） */
+.b-hero{position:absolute;left:25px;top:120px;width:745px;height:700px;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .b-hero-logo{
-  width:38px;height:38px;border-radius:11px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);
+  width:64px;height:64px;border-radius:16px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);
   display:flex;align-items:center;justify-content:center;color:#fff;box-shadow:0 8px 24px rgba(95,73,255,.35);
 }
-.b-hero-logo svg{width:21px;height:21px}
-.b-hero h2{margin-top:22px;font-size:16.5px;font-weight:700;color:#F2F2F7}
-.b-hero p{margin-top:6px;font-size:11.5px;color:#6E6E85}
+.b-hero-logo svg{width:34px;height:34px}
+.b-hero h2{margin-top:24px;font-size:21px;font-weight:700;color:#F2F2F7}
+.b-hero p{margin-top:8px;font-size:15px;color:#6E6E85}
 .b-hero-actions{margin-top:22px;display:flex;flex-direction:column;gap:9px;align-items:center}
 .hbtn{
   min-width:150px;height:35px;border-radius:9px;background:#1A1A25;color:#E2E2EC;
@@ -562,22 +558,15 @@ svg{display:block}
                   <svg viewBox="0 0 20 20" class="ic"><path d="M4 5.4h7M4 9.4h7M4 13.4h4.5"/><path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z"/></svg>
                   新对话
                 </div>
-                <div class="b-toolrow">
-                  <button class="b-icon-btn" title="备忘录"><svg viewBox="0 0 20 20" class="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2"/><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4"/></svg></button>
-                  <button class="b-icon-btn" title="起名"><svg viewBox="0 0 20 20" class="ic"><path d="M3.4 5.4V3.6h12.2v1.8M9 3.8v12.4M6.6 16.4h4.8"/></svg></button>
-                  <button class="b-icon-btn" title="蒸馏"><svg viewBox="0 0 20 20" class="ic"><path d="M8.4 2.8h3.2M9 2.8v4L4.6 15a1.6 1.6 0 0 0 1.4 2.4h8a1.6 1.6 0 0 0 1.4-2.4L11 6.8v-4"/><path d="M6.4 12.4h7.2"/></svg></button>
-                  <button class="b-icon-btn" title="拆解"><svg viewBox="0 0 20 20" class="ic"><rect x="3" y="3" width="14" height="14" rx="2.2"/><path d="M6.6 7.2h6.8M6.6 10.4h6.8M6.6 13.6h4"/></svg></button>
-                  <button class="b-icon-btn" title="扫榜"><svg viewBox="0 0 20 20" class="ic"><path d="M4 16.6V9.4M9 16.6V4.6M14 16.6v-5"/><path d="M3 16.6h14"/></svg></button>
-                </div>
-                <div class="b-booklbl">
-                  <svg viewBox="0 0 20 20" class="ic"><path d="M2.8 4.4A1.6 1.6 0 0 1 4.4 2.8h3.2c.9 0 1.6.7 1.6 1.6v11.4a1.2 1.2 0 0 0-1.2-1.2H2.8V4.4z"/><path d="M17.2 4.4a1.6 1.6 0 0 0-1.6-1.6h-3.2c-.9 0-1.6.7-1.6 1.6v11.4a1.2 1.2 0 0 1 1.2-1.2h5.2V4.4z"/></svg>
-                  测试书籍
-                </div>
               </div>
 
-              <div class="b-chips">
-                <button class="chip"><svg viewBox="0 0 20 20" class="ic"><circle cx="9" cy="9" r="5.4"/><path d="M13 13l3.6 3.6"/></svg>搜索</button>
-                <button class="chip"><svg viewBox="0 0 20 20" class="ic"><rect x="2.8" y="3.6" width="14.4" height="12.8" rx="2.2"/><path d="M6.4 8l2.2 2.4-2.2 2.4M10.8 12.8h3"/></svg>终端</button>
+              <!-- 快捷功能行（真机：头部下方独立行，图标+文案） -->
+              <div class="b-quickrow">
+                <button class="qbtn"><svg viewBox="0 0 20 20" class="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2"/><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4"/></svg>备忘录</button>
+                <button class="qbtn"><svg viewBox="0 0 20 20" class="ic"><path d="M3.4 5.4V3.6h12.2v1.8M9 3.8v12.4M6.6 16.4h4.8"/></svg>起名</button>
+                <button class="qbtn"><svg viewBox="0 0 20 20" class="ic"><path d="M8.4 2.8h3.2M9 2.8v4L4.6 15a1.6 1.6 0 0 0 1.4 2.4h8a1.6 1.6 0 0 0 1.4-2.4L11 6.8v-4"/><path d="M6.4 12.4h7.2"/></svg>蒸馏</button>
+                <button class="qbtn"><svg viewBox="0 0 20 20" class="ic"><rect x="3" y="3" width="14" height="14" rx="2.2"/><path d="M6.6 7.2h6.8M6.6 10.4h6.8M6.6 13.6h4"/></svg>拆解</button>
+                <button class="qbtn"><svg viewBox="0 0 20 20" class="ic"><path d="M4 16.6V9.4M9 16.6V4.6M14 16.6v-5"/><path d="M3 16.6h14"/></svg>扫榜</button>
               </div>
 
               <!-- 英雄区 -->
@@ -586,7 +575,7 @@ svg{display:block}
                   <svg viewBox="0 0 24 24" class="ic-fill"><path d="M12 2.2l1.7 5.6a3 3 0 0 0 2 2l5.6 1.7-5.6 1.7a3 3 0 0 0-2 2L12 21.8l-1.7-5.6a3 3 0 0 0-2-2L2.7 12.5l5.6-1.7a3 3 0 0 0 2-2L12 2.2z"/><path d="M5 2.4l.6 1.9a1.6 1.6 0 0 0 1 1l1.9.6-1.9.6a1.6 1.6 0 0 0-1 1L5 9.4l-.6-1.9a1.6 1.6 0 0 0-1-1L1.5 5.9l1.9-.6a1.6 1.6 0 0 0 1-1L5 2.4z"/></svg>
                 </div>
                 <h2>OpenWrite</h2>
-                <p>AI 小说与写作助手</p>
+                <p>AI 小说写作助手</p>
                 <div class="b-hero-actions">
                   <button class="hbtn"><svg viewBox="0 0 20 20" class="ic"><path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h4.2c.9 0 1.6.7 1.6 1.6v11.2a1.2 1.2 0 0 0-1.2-1.2H3V4.6z"/><path d="M17 4.6A1.6 1.6 0 0 0 15.4 3h-4.2c-.9 0-1.6.7-1.6 1.6v11.2a1.2 1.2 0 0 1 1.2-1.2H17V4.6z"/></svg>新书启航</button>
                   <button class="hbtn"><svg viewBox="0 0 20 20" class="ic"><path d="M4 5.4h7M4 9.4h7M4 13.4h4.5"/><path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z"/></svg>继续写作</button>
@@ -621,6 +610,12 @@ svg{display:block}
                 </div>
               </div>
               <div class="b-editor">
+                <!-- 空态（真机：未选文件时） -->
+                <div class="b-editor-empty">
+                  <div class="ee-icon"><svg viewBox="0 0 20 20" class="ic"><path d="M5 2.6h6.4l3.6 3.6v11.2H5z"/><path d="M11.4 2.6v3.6H15"/><path d="M7.6 10.4h4.8M7.6 13.2h4.8"/></svg></div>
+                  <div class="ee-t1">选择文件查看内容</div>
+                  <div class="ee-t2">从右侧目录面板选择文件</div>
+                </div>
                 <div class="b-editor-body">
                   <h1><span class="hash">#</span>世界观</h1>
                 </div>
