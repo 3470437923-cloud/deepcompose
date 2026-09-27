@@ -391,3 +391,86 @@ svg {
 /* 连接徽标（provider 卡片头部；沿用 screens.css 的 .d-badge，补灰色态） */
 .app-shell .d-badge.off{background:#1D1D28;border-color:#2A2A38;color:#7A7A92}
 .app-shell .d-badge.off i{background:#7A7A92}
+
+/* ──────────────────────────────────────────────────────────────
+   备忘录模态（结构对照真机 shot-ow-memo.png；编辑视图为合理外推）
+   ────────────────────────────────────────────────────────────── */
+.app-shell .memo-modal{position:absolute;inset:0;background:rgba(4,4,8,.55);display:flex;align-items:center;justify-content:center;z-index:40}
+.app-shell .memo-box{
+  width:840px;height:680px;background:#12121A;border:1px solid #23232F;border-radius:16px;
+  display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.55);
+}
+.app-shell .memo-box.docked{
+  position:absolute;right:208px;top:0;bottom:0;left:auto;width:320px;height:auto;
+  border-radius:0;border:0;border-left:1px solid #23232F;transform:none;
+}
+.app-shell .memo-head{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;flex:none}
+.app-shell .memo-head .ic{color:#8E7DFF;width:17px;height:17px}
+.app-shell .memo-head .ttl{font-size:15px;font-weight:700;color:#F0F0F6}
+.app-shell .memo-head-tools{margin-left:auto;display:flex;align-items:center;gap:6px}
+.app-shell .memo-tool{
+  height:28px;padding:0 9px;border-radius:7px;display:flex;align-items:center;gap:6px;
+  font-size:12.5px;color:#9A9AB4;
+}
+.app-shell .memo-tool .ic{width:14px;height:14px;color:currentColor}
+.app-shell .memo-tool:hover{background:#1A1A24;color:#E2E2EC}
+.app-shell .memo-tool.accent{color:#8E7DFF}
+.app-shell .memo-tool.on{color:#8E7DFF;background:#211E3A}
+.app-shell .memo-filterrow{display:flex;align-items:center;gap:10px;padding:0 16px 10px;flex:none}
+.app-shell .memo-filterrow .lbl{font-size:12.5px;color:#7A7A92;display:flex;align-items:center;gap:6px}
+.app-shell .memo-filterrow .lbl .ic{width:14px;height:14px}
+.app-shell .memo-scope{
+  height:26px;padding:0 10px;border-radius:7px;background:#211E3A;color:#8E7DFF;
+  display:flex;align-items:center;gap:6px;font-size:12.5px;
+}
+.app-shell .memo-scope .ic{width:13px;height:13px}
+.app-shell .memo-scope em{font-style:normal;font-size:10px;color:#8E7DFF}
+.app-shell .memo-cats{display:flex;align-items:center;gap:8px;padding:2px 16px 12px;border-bottom:1px solid #191922;flex:none;flex-wrap:wrap}
+.app-shell .mcat{
+  height:26px;padding:0 11px;border-radius:13px;background:#1A1A25;color:#B9B9CC;
+  display:flex;align-items:center;gap:6px;font-size:12.5px;
+}
+.app-shell .mcat:hover{background:#23232F}
+.app-shell .mcat.on{background:#211E3A;color:#8E7DFF;font-weight:600}
+.app-shell .mcat em{font-style:normal;color:#6E6E85;font-size:13px}
+.app-shell .mcat em:hover{color:#F87171}
+.app-shell .mcat.add{width:26px;padding:0;justify-content:center;font-size:15px;color:#8E8EA6}
+.app-shell .memo-list{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.app-shell .memo-list::-webkit-scrollbar{width:8px}
+.app-shell .memo-list::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
+.app-shell .memo-card{
+  text-align:left;background:#171622;border:1px solid #22222E;border-radius:12px;padding:12px 14px;
+}
+.app-shell .memo-card:hover{border-color:#34305C}
+.app-shell .memo-card .row1{display:flex;align-items:center;gap:10px}
+.app-shell .memo-card .t{font-size:13.5px;font-weight:600;color:#F0F0F6;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.app-shell .memo-card .c{font-size:11px;color:#8E7DFF;background:#211E3A;border-radius:5px;padding:1px 7px;flex:none}
+.app-shell .memo-card .s{font-size:12.5px;color:#9A9AB2;margin-top:6px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.app-shell .memo-card .d{font-size:11px;color:#5E5E75;margin-top:6px}
+.app-shell .memo-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.app-shell .memo-empty .ee-icon{
+  width:64px;height:64px;border-radius:16px;background:#1A1A25;color:#8E8EA6;
+  display:flex;align-items:center;justify-content:center;margin-bottom:14px;
+}
+.app-shell .memo-empty .ee-icon .ic{width:26px;height:26px}
+.app-shell .memo-empty .ee-t1{font-size:13.5px;color:#B9B9CC;margin-bottom:8px}
+.app-shell .memo-empty .ee-t2{font-size:12.5px;color:#6E6E85}
+/* 编辑视图（外推：真机编辑视图未取证） */
+.app-shell .memo-edit{flex:1;display:flex;flex-direction:column;padding:14px 16px;gap:10px;min-height:0}
+.app-shell .memo-title{
+  height:38px;padding:0 12px;border-radius:9px;background:#171622;border:1px solid #23232F;
+  font-size:14px;font-weight:600;color:#F0F0F6;
+}
+.app-shell .memo-title:focus{border-color:#7C6AFF;outline:none}
+.app-shell .memo-edit-meta{display:flex;align-items:center;gap:10px}
+.app-shell .memo-edit-meta select{
+  height:28px;padding:0 8px;border-radius:7px;background:#1A1A25;border:1px solid #23232F;
+  color:#B9B9CC;font-size:12px;
+}
+.app-shell .memo-del{margin-left:auto;height:28px;padding:0 12px;border-radius:7px;background:#2A1418;border:1px solid #4A2028;color:#F87171;font-size:12px}
+.app-shell .memo-back{height:28px;padding:0 12px;border-radius:7px;background:#1A1A25;color:#B9B9CC;font-size:12px}
+.app-shell .memo-content{
+  flex:1;resize:none;padding:12px 14px;border-radius:10px;background:#171622;border:1px solid #23232F;
+  font-size:13px;line-height:1.8;color:#E8E8F0;min-height:0;
+}
+.app-shell .memo-content:focus{border-color:#7C6AFF;outline:none}

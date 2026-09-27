@@ -14,6 +14,7 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
+import { isoMicros } from "../core/ids";
 import { createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat } from "../core/ai/controller";
 import type { AgentEvent } from "../core/ai/agent";
@@ -25,6 +26,16 @@ import {
   type SessionFile,
   type SessionListEntry,
 } from "../core/store/session";
+import {
+  addCategory as memoAddCategory,
+  DEFAULT_CATEGORY,
+  loadMemos,
+  newMemo,
+  removeCategory as memoRemoveCategory,
+  saveMemos,
+  type Memo,
+  type MemoFile,
+} from "../core/store/memo";
 
 interface OpenTab {
   /** 相对作品根路径（'\\' 分隔） */
@@ -124,6 +135,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [qSel, setQSel] = useState<Record<number, string[]>>({});
   const chatBottom = useRef<HTMLDivElement | null>(null);
   const transport = useMemo(() => createTauriTransport(), []);
+
+  // ── 备忘录状态（真机：居中模态，可「挂边」为右侧 320px 面板） ──
+  const [memoOpen, setMemoOpen] = useState(false);
+  const [memoDocked, setMemoDocked] = useState(false);
+  const [memoData, setMemoData] = useState<MemoFile>({ categories: [DEFAULT_CATEGORY], memos: [] });
+  const [memoScopeAll, setMemoScopeAll] = useState(false);
+  const [memoCat, setMemoCat] = useState<string>("全部");
+  const [memoEditing, setMemoEditing] = useState<string | null>(null);
 
   const dirs = currentBoot()?.dirs ?? null;
 
@@ -386,6 +405,71 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setStatus("新对话");
   }, [project]);
 
+  /** 备忘录：打开时从 writerd_memos.json 装载 */
+  const openMemos = useCallback(async () => {
+    const b = currentBoot();
+    if (!b) return;
+    try {
+      setMemoData(await loadMemos(getFs(), b.dirs.memosFile));
+    } catch (e) {
+      setStatus(`备忘录读取失败：${String(e)}`);
+    }
+    setMemoEditing(null);
+    setMemoOpen(true);
+  }, []);
+
+  const persistMemos = useCallback(
+    async (next: MemoFile) => {
+      setMemoData(next);
+      const b = currentBoot();
+      if (!b) return;
+      try {
+        await saveMemos(getFs(), b.dirs.memosFile, next);
+      } catch (e) {
+        setStatus(`备忘录保存失败：${String(e)}`);
+      }
+    },
+    [],
+  );
+
+  const createMemo = useCallback(() => {
+    const m = newMemo(memoScopeAll ? "" : (project?.ref.root ?? ""));
+    void persistMemos({ ...memoData, memos: [m, ...memoData.memos] });
+    setMemoEditing(m.id);
+  }, [memoData, memoScopeAll, project, persistMemos]);
+
+  const updateMemo = useCallback(
+    (id: string, patch: Partial<Memo>) => {
+      const next: MemoFile = {
+        ...memoData,
+        memos: memoData.memos.map((m) =>
+          m.id === id ? { ...m, ...patch, updated_at: isoMicros() } : m,
+        ),
+      };
+      void persistMemos(next);
+    },
+    [memoData, persistMemos],
+  );
+
+  const deleteMemo = useCallback(
+    (id: string) => {
+      void persistMemos({ ...memoData, memos: memoData.memos.filter((m) => m.id !== id) });
+      if (memoEditing === id) setMemoEditing(null);
+    },
+    [memoData, memoEditing, persistMemos],
+  );
+
+  const visibleMemos = useMemo(() => {
+    const scopeRoot = project?.ref.root ?? "";
+    return memoData.memos.filter((m) => {
+      // 范围：当前作品 或 全部（含全局备忘录）
+      if (!memoScopeAll && m.project_id !== scopeRoot) return false;
+      // 分类
+      if (memoCat !== "全部" && (m.category ?? DEFAULT_CATEGORY) !== memoCat) return false;
+      return true;
+    });
+  }, [memoData, memoScopeAll, project, memoCat]);
+
   const modelLabel = currentBoot()?.prefs.model?.trim() || "未配置模型";
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
@@ -571,17 +655,20 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 <div className="b-quickrow">
                   {(
                     [
-                      ["备忘录", <svg key="i1" viewBox="0 0 20 20" className="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2" /><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" /></svg>, "备忘录"],
+                      ["备忘录", <svg key="i1" viewBox="0 0 20 20" className="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2" /><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" /></svg>, "memo"],
                       ["起名", <svg key="i2" viewBox="0 0 20 20" className="ic"><path d="M3.4 5.4V3.6h12.2v1.8M9 3.8v12.4M6.6 16.4h4.8" /></svg>, "起名"],
                       ["蒸馏", <svg key="i3" viewBox="0 0 20 20" className="ic"><path d="M8.4 2.8h3.2M9 2.8v4L4.6 15a1.6 1.6 0 0 0 1.4 2.4h8a1.6 1.6 0 0 0 1.4-2.4L11 6.8v-4" /><path d="M6.4 12.4h7.2" /></svg>, "蒸馏"],
                       ["拆解", <svg key="i4" viewBox="0 0 20 20" className="ic"><rect x="3" y="3" width="14" height="14" rx="2.2" /><path d="M6.6 7.2h6.8M6.6 10.4h6.8M6.6 13.6h4" /></svg>, "拆解"],
                       ["扫榜", <svg key="i5" viewBox="0 0 20 20" className="ic"><path d="M4 16.6V9.4M9 16.6V4.6M14 16.6v-5" /><path d="M3 16.6h14" /></svg>, "扫榜"],
                     ] as [string, React.ReactNode, string][]
-                  ).map(([label, icon]) => (
+                  ).map(([label, icon, action]) => (
                     <button
                       key={label}
                       className="qbtn"
-                      onClick={() => setStatus(`${label}功能建设中`)}
+                      onClick={() => {
+                        if (action === "memo") void openMemos();
+                        else setStatus(`${label}功能建设中`);
+                      }}
                     >
                       {icon}
                       {label}
@@ -1001,6 +1088,160 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 </div>
               </div>
             </div>
+
+            {memoOpen ? (
+              <div className="memo-modal">
+                <div className={memoDocked ? "memo-box docked" : "memo-box"}>
+                  <div className="memo-head">
+                    <svg viewBox="0 0 20 20" className="ic">
+                      <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
+                      <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
+                    </svg>
+                    <span className="ttl">备忘录</span>
+                    <div className="memo-head-tools">
+                      <button
+                        className={memoDocked ? "memo-tool on" : "memo-tool"}
+                        title="挂边为侧栏"
+                        onClick={() => setMemoDocked((v) => !v)}
+                      >
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <path d="M6 3.4v13.2M4 3.6h12a.8.8 0 0 1 .8.8v11.2a.8.8 0 0 1-.8.8H4z" />
+                        </svg>
+                        挂边
+                      </button>
+                      <button className="memo-tool accent" onClick={createMemo}>
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <path d="M10 4.5v11M4.5 10h11" />
+                        </svg>
+                        新建
+                      </button>
+                      <button className="memo-tool" title="关闭" onClick={() => setMemoOpen(false)}>
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="memo-filterrow">
+                    <span className="lbl">筛选</span>
+                    <button className="memo-scope" onClick={() => setMemoScopeAll((v) => !v)}>
+                      <svg viewBox="0 0 20 20" className="ic">
+                        <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
+                      </svg>
+                      {memoScopeAll ? "全部作品" : project ? project.ref.name : "未选择作品"}
+                      <em>▾</em>
+                    </button>
+                  </div>
+
+                  <div className="memo-cats">
+                    <button
+                      className={memoCat === "全部" ? "mcat on" : "mcat"}
+                      onClick={() => setMemoCat("全部")}
+                    >
+                      全部
+                    </button>
+                    {memoData.categories.map((c) => (
+                      <button
+                        key={c}
+                        className={memoCat === c ? "mcat on" : "mcat"}
+                        onClick={() => setMemoCat(c)}
+                      >
+                        {c}
+                        {c !== DEFAULT_CATEGORY ? (
+                          <em
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void persistMemos(memoRemoveCategory(memoData, c));
+                              if (memoCat === c) setMemoCat("全部");
+                            }}
+                          >
+                            ×
+                          </em>
+                        ) : null}
+                      </button>
+                    ))}
+                    <button
+                      className="mcat add"
+                      title="新增分类"
+                      onClick={() => {
+                        const name = window.prompt("新分类名称");
+                        if (name) void persistMemos(memoAddCategory(memoData, name));
+                      }}
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {memoEditing ? (
+                    (() => {
+                      const m = memoData.memos.find((x) => x.id === memoEditing);
+                      if (!m) return null;
+                      return (
+                        <div className="memo-edit">
+                          <input
+                            className="memo-title"
+                            value={m.title}
+                            onChange={(e) => updateMemo(m.id, { title: e.target.value })}
+                            spellCheck={false}
+                          />
+                          <div className="memo-edit-meta">
+                            <select
+                              value={m.category ?? DEFAULT_CATEGORY}
+                              onChange={(e) => updateMemo(m.id, { category: e.target.value })}
+                            >
+                              {memoData.categories.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                            <button className="memo-del" onClick={() => deleteMemo(m.id)}>
+                              删除
+                            </button>
+                            <button className="memo-back" onClick={() => setMemoEditing(null)}>
+                              返回列表
+                            </button>
+                          </div>
+                          <textarea
+                            className="memo-content"
+                            value={m.content}
+                            placeholder="记下灵感、大纲或常用指令…"
+                            onChange={(e) => updateMemo(m.id, { content: e.target.value })}
+                            spellCheck={false}
+                          />
+                        </div>
+                      );
+                    })()
+                  ) : visibleMemos.length > 0 ? (
+                    <div className="memo-list">
+                      {visibleMemos.map((m) => (
+                        <button key={m.id} className="memo-card" onClick={() => setMemoEditing(m.id)}>
+                          <div className="row1">
+                            <span className="t">{m.title || "无标题"}</span>
+                            <span className="c">{m.category ?? DEFAULT_CATEGORY}</span>
+                          </div>
+                          <div className="s">{m.content.slice(0, 120) || "（空）"}</div>
+                          <div className="d">{m.updated_at.slice(0, 16).replace("T", " ")}</div>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="memo-empty">
+                      <div className="ee-icon">
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
+                          <path d="M11.4 2.6v3.6H15" />
+                          <path d="M10 9v4M8 11h4" />
+                        </svg>
+                      </div>
+                      <div className="ee-t1">暂无备忘录</div>
+                      <div className="ee-t2">点击右上角「新建」按钮创建</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             {pending ? (
               <div className="qmodal">
