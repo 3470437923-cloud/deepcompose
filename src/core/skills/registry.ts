@@ -23,11 +23,12 @@ export const AVAILABLE_SKILLS_HEADER =
 export const SKILL_DIR_NOTE =
   "\n- 约定: `scripts/` 存放可执行脚本，`references/` 存放按需读取的文档，`assets/` 存放输出资源。\n- 该目录下的相对路径都基于此目录。\n- 可用文件(排除 SKILL.md，最多10个，完整列表可读目录):\n";
 
-/** 技能清单注入块（无技能时返回空串，不注入空块） */
+/** 技能清单注入块（无技能时返回空串，不注入空块）
+ *  开关语义（真机「已开启 7 / 共 8」）：activeIds 非空 = 恰好注入这些；
+ *  空 = 未做过选择，默认全部注入。 */
 export function availableSkillsBlock(skills: SkillMeta[], activeIds?: string[]): string {
-  const list = activeIds && activeIds.length > 0
-    ? skills.filter((s) => activeIds.includes(s.id) || s.isBuiltIn)
-    : skills;
+  const list =
+    activeIds && activeIds.length > 0 ? skills.filter((s) => activeIds.includes(s.id)) : skills;
   if (list.length === 0) return "";
 
   let out = AVAILABLE_SKILLS_HEADER;

@@ -57,3 +57,9 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
   await invoke("prefs_save", { json: serializePrefs(prefs) });
   if (booted) booted = { ...booted, prefs };
 }
+
+/** 把配置里的强调色（ARGB int，真机键 custom_accent_color）应用到 CSS 令牌 */
+export function applyAccentFromPrefs(prefs: Prefs): void {
+  const hex = `#${(prefs.customAccentColor & 0xffffff).toString(16).padStart(6, "0")}`;
+  document.documentElement.style.setProperty("--accent", hex);
+}
