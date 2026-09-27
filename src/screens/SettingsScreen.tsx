@@ -1,19 +1,28 @@
 /**
- * 设置屏 —— AI 提供商配置（数据驱动版）。
+ * 设置屏 —— 数据驱动版（2026-09-28 按真机截图重建）。
  *
- * 机械转换的视觉基座已替换为真实数据绑定：
- * - 读取 prefs（启动时由 app.ts boot() 装配）
- * - 保存即写 shared_preferences.json（savePrefs）
- * - 切除 CONTRACT §11 的 VIP/套餐卡
- * - 布局与色值严格沿用 mock（screens.css），新增输入控件样式在 base.css
+ * 结构对照 OpenWrite v2.0.1 真机（reference/shot-ow-set-*.png 一手证据）：
+ * - 左导航 7 项（VIP 按 CONTRACT §11 切除）
+ * - AI 提供商 = 自定义接入表单（切除内置供应商/公益模型/套餐卡）
+ * - Skill = 清单 + 开关（真机口径：开启项注入系统提示词）
+ * - 参数 = 温度滑杆 + 系统提示词 + 上下文压缩（仅已实证键）
+ * - 主题 = 模式切换 + 强调色（5 色取自真机截图像素采样）
+ * - 数据 / 关于 = 本地信息与维护操作
+ * - 同步 = WebDAV / 局域网（配置层占位，传输层未实现，如实标注）
+ *
+ * 读取 prefs（boot() 装配），保存即写 shared_preferences.json（savePrefs）。
+ * 新增控件样式在 base.css（a-card / a-switch / a-seg / a-skill-row 等）。
  */
 
-import { useState, type ReactElement } from "react";
+import { useMemo, useState, type ReactElement } from "react";
 import logo from "../assets/logo.png";
 import { currentBoot, savePrefs } from "../core/app";
 import type { Prefs } from "../core/prefs";
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "sync" | "data" | "about";
+
+/** 真机主题色采样（shot-ow-set-主题.png (347..470,333)，首位与令牌 --accent 一致） */
+const ACCENT_SWATCHES = [0xff7c6aff, 0xff3b82f6, 0xff0891b2, 0xff059669, 0xffec4899];
 
 interface Props {
   onBack: () => void;
@@ -27,6 +36,7 @@ export default function SettingsScreen({ onBack }: Props) {
   }));
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState("");
+  const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
 
   if (!boot) {
     return (
@@ -169,7 +179,6 @@ export default function SettingsScreen({ onBack }: Props) {
                 <button className="tbtn" title="最大化">
                   <svg viewBox="0 0 20 20" className="ic">
                     <rect x="4" y="4.5" width="11" height="11" rx="2" />
-                    <path d="M6 4.5V4a1.5 1.5 0 0 1 1.5-1.5H15A1.5 1.5 0 0 1 16.5 4v7.5A1.5 1.5 0 0 1 15 13h-.5" />
                   </svg>
                 </button>
                 <button className="tbtn" title="关闭">
@@ -206,7 +215,10 @@ export default function SettingsScreen({ onBack }: Props) {
                   key={item.key}
                   className={`a-nav-item ${section === item.key ? "on" : ""}`}
                   style={{ top: `${item.top}px` }}
-                  onClick={() => setSection(item.key)}
+                  onClick={() => {
+                    setSection(item.key);
+                    setFlash("");
+                  }}
                 >
                   {item.icon}
                   {item.label}
@@ -219,20 +231,18 @@ export default function SettingsScreen({ onBack }: Props) {
               {section === "provider" && (
                 <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
               )}
+              {section === "skill" && (
+                <SkillSection form={form} flash={flash} onFlash={setFlash} />
+              )}
               {section === "params" && (
                 <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
               )}
-              {section !== "provider" && section !== "params" && (
-                <div className="a-placeholder">
-                  <div className="a-placeholder-text">
-                    {section === "skill" && "Skill 管理（待实现）"}
-                    {section === "theme" && "主题设置（待实现）"}
-                    {section === "sync" && "同步设置（待实现）"}
-                    {section === "data" && "数据管理（待实现）"}
-                    {section === "about" && "关于 writerD（待实现）"}
-                  </div>
-                </div>
+              {section === "theme" && (
+                <ThemeSection form={form} update={update} flash={flash} onFlash={setFlash} />
               )}
+              {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
+              {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} />}
+              {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
             </div>
           </div>
         </div>
@@ -241,7 +251,7 @@ export default function SettingsScreen({ onBack }: Props) {
   );
 }
 
-/* ── AI 提供商配置分节 ── */
+/* ── AI 提供商配置分节（自定义接入；切除内置供应商/公益模型/套餐） ── */
 function ProviderSection({
   form,
   update,
@@ -255,96 +265,235 @@ function ProviderSection({
   saveMsg: string;
   onSave: () => void;
 }) {
+  const connected = Boolean(form.llmBaseUrl?.trim() && form.apiKey?.trim());
   return (
     <div className="a-settings-panel">
-      <div className="a-settings-title">AI 提供商</div>
-      <div className="a-settings-desc">配置自定义接入的 API 端点与密钥。选用后点下方「保存」生效。</div>
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">自定义接入</span>
+          {connected ? (
+            <span className="d-badge"><i />已连接</span>
+          ) : (
+            <span className="d-badge off"><i />未连接</span>
+          )}
+          <span className="a-card-side">{form.model?.trim() || "未配置模型"}</span>
+        </div>
+        <div className="a-card-desc">
+          配置任意 OpenAI / Anthropic 兼容端点。选用后点下方「保存」生效，重启后自动加载。
+        </div>
 
-      <div className="a-form-row">
-        <label className="a-form-label">接口地址（Base URL）</label>
-        <input
-          className="a-form-input"
-          type="text"
-          placeholder="https://api.deepseek.com/v1"
-          value={form.llmBaseUrl}
-          onChange={(e) => update("llmBaseUrl", e.target.value)}
-          spellCheck={false}
-        />
-      </div>
-
-      <div className="a-form-row">
-        <label className="a-form-label">API Key</label>
-        <input
-          className="a-form-input"
-          type="password"
-          placeholder="sk-..."
-          value={form.apiKey}
-          onChange={(e) => update("apiKey", e.target.value)}
-          spellCheck={false}
-        />
-      </div>
-
-      <div className="a-form-row">
-        <label className="a-form-label">模型名称</label>
-        <input
-          className="a-form-input"
-          type="text"
-          placeholder="deepseek-chat"
-          value={form.model}
-          onChange={(e) => update("model", e.target.value)}
-          spellCheck={false}
-        />
-      </div>
-
-      <div className="a-form-row a-form-row-inline">
-        <div className="a-form-col">
-          <label className="a-form-label">Temperature</label>
+        <div className="a-form-row">
+          <label className="a-form-label">接口地址（Base URL）</label>
           <input
             className="a-form-input"
-            type="number"
-            min={0}
-            max={2}
-            step={0.1}
-            value={form.temperature}
-            onChange={(e) => update("temperature", parseFloat(e.target.value) || 0.8)}
+            type="text"
+            placeholder="https://api.deepseek.com/v1"
+            value={form.llmBaseUrl}
+            onChange={(e) => update("llmBaseUrl", e.target.value)}
+            spellCheck={false}
           />
         </div>
-        <div className="a-form-col">
-          <label className="a-form-label">协议格式</label>
-          <div className="a-form-toggle">
-            <button
-              className={`a-toggle-btn ${!form.useAnthropicFormat ? "on" : ""}`}
-              onClick={() => update("useAnthropicFormat", false)}
-            >
-              OpenAI
-            </button>
-            <button
-              className={`a-toggle-btn ${form.useAnthropicFormat ? "on" : ""}`}
-              onClick={() => update("useAnthropicFormat", true)}
-            >
-              Anthropic
-            </button>
+
+        <div className="a-form-row">
+          <label className="a-form-label">API Key</label>
+          <input
+            className="a-form-input"
+            type="password"
+            placeholder="sk-..."
+            value={form.apiKey}
+            onChange={(e) => update("apiKey", e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+
+        <div className="a-form-row">
+          <label className="a-form-label">模型名称</label>
+          <input
+            className="a-form-input"
+            type="text"
+            placeholder="deepseek-chat"
+            value={form.model}
+            onChange={(e) => update("model", e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+
+        <div className="a-form-row a-form-row-inline">
+          <div className="a-form-col">
+            <label className="a-form-label">Temperature</label>
+            <input
+              className="a-form-input"
+              type="number"
+              min={0}
+              max={2}
+              step={0.1}
+              value={form.temperature}
+              onChange={(e) => update("temperature", parseFloat(e.target.value) || 0.8)}
+            />
+          </div>
+          <div className="a-form-col">
+            <label className="a-form-label">协议格式</label>
+            <div className="a-form-toggle">
+              <button
+                className={`a-toggle-btn ${!form.useAnthropicFormat ? "on" : ""}`}
+                onClick={() => update("useAnthropicFormat", false)}
+              >
+                OpenAI
+              </button>
+              <button
+                className={`a-toggle-btn ${form.useAnthropicFormat ? "on" : ""}`}
+                onClick={() => update("useAnthropicFormat", true)}
+              >
+                Anthropic
+              </button>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div className="a-form-actions">
-        <button className="a-btn-primary" onClick={onSave} disabled={saving}>
-          {saving ? "保存中..." : "保存"}
-        </button>
-        {saveMsg && (
-          <span className={`a-save-msg ${saveMsg.includes("失败") ? "error" : ""}`}>{saveMsg}</span>
-        )}
-      </div>
-
-      <div className="a-form-hint">
-        保存后立即生效。当前配置将写入 shared_preferences.json，重启后自动加载。
+        <div className="a-form-actions">
+          <button className="a-btn-primary" onClick={onSave} disabled={saving}>
+            {saving ? "保存中..." : "保存"}
+          </button>
+          {saveMsg && (
+            <span className={`a-save-msg ${saveMsg.includes("失败") ? "error" : ""}`}>{saveMsg}</span>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-/* ── 参数配置分节 ── */
+/* ── Skill 管理分节（真机：清单 + 开关，开启项注入系统提示词） ── */
+function SkillSection({
+  form,
+  flash,
+  onFlash,
+}: {
+  form: Prefs;
+  flash: string;
+  onFlash: (s: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [onlyOn, setOnlyOn] = useState(false);
+  const [active, setActive] = useState<string[]>(form.activeSkillIds ?? []);
+  const [collapsed, setCollapsed] = useState<{ builtin: boolean; custom: boolean }>({
+    builtin: false,
+    custom: false,
+  });
+
+  const skills = form.skillList ?? [];
+  const match = (s: Prefs["skillList"][number]) => {
+    const q = query.trim().toLowerCase();
+    if (q && !s.name.toLowerCase().includes(q) && !s.description.toLowerCase().includes(q)) return false;
+    if (onlyOn && !active.includes(s.id)) return false;
+    return true;
+  };
+  const builtin = skills.filter((s) => s.isBuiltIn && match(s));
+  const custom = skills.filter((s) => !s.isBuiltIn && match(s));
+  const onCount = skills.filter((s) => active.includes(s.id)).length;
+
+  const toggle = async (id: string) => {
+    const next = active.includes(id) ? active.filter((x) => x !== id) : [...active, id];
+    setActive(next);
+    try {
+      await savePrefs({ ...form, activeSkillIds: next });
+      onFlash("");
+    } catch (e) {
+      onFlash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const Row = ({ s }: { s: Prefs["skillList"][number] }) => {
+    const on = active.includes(s.id);
+    return (
+      <div className="a-skill-row">
+        <div className="a-skill-ava">{s.name.slice(0, 1).toUpperCase()}</div>
+        <div className="a-skill-main">
+          <div className="a-skill-name">{s.name}</div>
+          <div className="a-skill-desc">{s.description || "（无描述）"}</div>
+        </div>
+        <button
+          className={on ? "a-switch on" : "a-switch"}
+          title={on ? "点击停用" : "点击启用"}
+          onClick={() => void toggle(s.id)}
+        >
+          <i />
+        </button>
+      </div>
+    );
+  };
+
+  const GroupHead = ({ label, n, which }: { label: string; n: number; which: "builtin" | "custom" }) => (
+    <div className="a-group-head" onClick={() => setCollapsed((c) => ({ ...c, [which]: !c[which] }))}>
+      <span>
+        {label} <em>{n}</em>
+      </span>
+      <svg
+        viewBox="0 0 12 12"
+        className={collapsed[which] ? "caret" : "caret open"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 4.5L6 7.5l3-3" />
+      </svg>
+    </div>
+  );
+
+  return (
+    <div className="a-settings-panel">
+      <div className="a-skill-topline">
+        Skill 定义了 AI 的工作流程和行为规范，开关打开的 Skill 会注入到系统提示词。已开启 {onCount} / 共 {skills.length}。
+      </div>
+      <div className="a-skill-toolbar">
+        <div className="a-search">
+          <svg viewBox="0 0 20 20" className="ic">
+            <circle cx="9" cy="9" r="5.4" />
+            <path d="M13 13l3.6 3.6" />
+          </svg>
+          <input
+            placeholder="搜索 Skill"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            spellCheck={false}
+          />
+        </div>
+        <button className={onlyOn ? "a-toolbtn on" : "a-toolbtn"} onClick={() => setOnlyOn((v) => !v)}>
+          已开启
+        </button>
+        <button className="a-toolbtn" onClick={() => onFlash("导入：将在后续批次提供（需要 ZIP 处理）")}>
+          导入
+        </button>
+        <button className="a-toolbtn" onClick={() => onFlash("导出：将在后续批次提供（需要 ZIP 处理）")}>
+          导出
+        </button>
+      </div>
+      {flash ? <div className="a-flash">{flash}</div> : null}
+
+      {builtin.length > 0 ? (
+        <>
+          <GroupHead label="内置" n={builtin.length} which="builtin" />
+          {!collapsed.builtin && builtin.map((s) => <Row key={s.id} s={s} />)}
+        </>
+      ) : null}
+      {custom.length > 0 ? (
+        <>
+          <GroupHead label="自定义" n={custom.length} which="custom" />
+          {!collapsed.custom && custom.map((s) => <Row key={s.id} s={s} />)}
+        </>
+      ) : null}
+      {skills.length === 0 ? (
+        <div className="a-empty">
+          技能清单为空。内置技能位于 Documents\skills\，首次扫描后将出现在这里。
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* ── 参数分节（真机：温度滑杆 + 系统提示词 + 上下文压缩） ── */
 function ParamsSection({
   form,
   update,
@@ -360,61 +509,331 @@ function ParamsSection({
 }) {
   return (
     <div className="a-settings-panel">
-      <div className="a-settings-title">参数</div>
-      <div className="a-settings-desc">上下文与输出限制。参数保存后立即生效。</div>
-
-      <div className="a-form-row">
-        <label className="a-form-label">上下文长度（tokens）</label>
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">温度</span>
+          <span className="a-card-num">{form.temperature}</span>
+        </div>
+        <div className="a-card-desc">控制回复的随机性：越低越稳定确定，越高越多样随机。</div>
         <input
-          className="a-form-input"
-          type="number"
-          min={1000}
-          step={1000}
-          value={form.contextLimit}
-          onChange={(e) => update("contextLimit", parseInt(e.target.value, 10) || 1000000)}
+          className="a-slider"
+          type="range"
+          min={0}
+          max={2}
+          step={0.1}
+          value={form.temperature}
+          onChange={(e) => update("temperature", parseFloat(e.target.value))}
         />
       </div>
 
-      <div className="a-form-row">
-        <label className="a-form-label">预留输出 tokens</label>
-        <input
-          className="a-form-input"
-          type="number"
-          min={100}
-          step={100}
-          value={form.reservedOutputTokens}
-          onChange={(e) => update("reservedOutputTokens", parseInt(e.target.value, 10) || 16000)}
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">系统提示词</span>
+        </div>
+        <div className="a-card-desc">自定义 AI 助手的行为，留空则使用默认的小说写作助手提示词。</div>
+        <textarea
+          className="a-textarea"
+          value={form.systemPrompt}
+          rows={5}
+          onChange={(e) => update("systemPrompt", e.target.value)}
+          spellCheck={false}
         />
       </div>
 
-      <div className="a-form-row a-form-row-inline">
-        <div className="a-form-col">
-          <label className="a-form-label">自动清理上下文</label>
-          <div className="a-form-toggle">
-            <button
-              className={`a-toggle-btn ${form.autoClearContext ? "on" : ""}`}
-              onClick={() => update("autoClearContext", true)}
-            >
-              开启
-            </button>
-            <button
-              className={`a-toggle-btn ${!form.autoClearContext ? "on" : ""}`}
-              onClick={() => update("autoClearContext", false)}
-            >
-              关闭
-            </button>
-          </div>
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">上下文自动压缩</span>
+        </div>
+        <div className="a-card-desc">
+          当对话内容超过设定阈值时，自动把更早的对话压缩成摘要，只影响发给 AI 的上下文，不删除聊天记录。
+        </div>
+        <div className="a-card-row">
+          <span>启用自动压缩</span>
+          <button
+            className={form.autoClearContext ? "a-switch on" : "a-switch"}
+            onClick={() => update("autoClearContext", !form.autoClearContext)}
+          >
+            <i />
+          </button>
+        </div>
+        <div className="a-card-row">
+          <span>
+            上下文窗口 (K){" "}
+            <svg viewBox="0 0 20 20" className="ic a-help">
+              <circle cx="10" cy="10" r="7.5" />
+              <path d="M10 13.6v.05" />
+              <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
+            </svg>
+          </span>
+          <input
+            className="a-form-input a-num"
+            type="number"
+            min={1}
+            value={Math.round(form.contextLimit / 1000)}
+            onChange={(e) => update("contextLimit", (parseInt(e.target.value, 10) || 1000) * 1000)}
+          />
+        </div>
+        <div className="a-card-row">
+          <span>
+            输出预留 (K){" "}
+            <svg viewBox="0 0 20 20" className="ic a-help">
+              <circle cx="10" cy="10" r="7.5" />
+              <path d="M10 13.6v.05" />
+              <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
+            </svg>
+          </span>
+          <input
+            className="a-form-input a-num"
+            type="number"
+            min={1}
+            value={Math.round(form.reservedOutputTokens / 1000)}
+            onChange={(e) => update("reservedOutputTokens", (parseInt(e.target.value, 10) || 16) * 1000)}
+          />
         </div>
       </div>
 
-      <div className="a-form-actions">
+      <div className="a-params-footer">
+        <span className="a-form-hint">参数保存后立即生效，也可以按 Ctrl+S 保存</span>
         <button className="a-btn-primary" onClick={onSave} disabled={saving}>
-          {saving ? "保存中..." : "保存"}
+          {saving ? "保存中..." : "保存参数"}
         </button>
         {saveMsg && (
           <span className={`a-save-msg ${saveMsg.includes("失败") ? "error" : ""}`}>{saveMsg}</span>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ── 主题分节（真机：模式 + 强调色；色值取自真机截图像素采样） ── */
+function ThemeSection({
+  form,
+  update,
+  flash,
+  onFlash,
+}: {
+  form: Prefs;
+  update: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
+  flash: string;
+  onFlash: (s: string) => void;
+}) {
+  const hex = useMemo(() => `#${(form.customAccentColor & 0xffffff).toString(16).padStart(6, "0")}`, [
+    form.customAccentColor,
+  ]);
+  return (
+    <div className="a-settings-panel">
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">主题模式</span>
+        </div>
+        <div className="a-card-desc">跟随系统时自动适配 Windows 的深浅色设置。</div>
+        <div className="a-seg">
+          <button onClick={() => onFlash("跟随系统：暂不支持，已保持当前模式")}>跟随系统</button>
+          <button
+            className={!form.isDarkMode ? "on" : ""}
+            onClick={() => update("isDarkMode", false)}
+          >
+            浅色
+          </button>
+          <button
+            className={form.isDarkMode ? "on" : ""}
+            onClick={() => update("isDarkMode", true)}
+          >
+            深色
+          </button>
+        </div>
+        {flash ? <div className="a-flash">{flash}</div> : null}
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">主题颜色</span>
+        </div>
+        <div className="a-card-desc">界面强调色：按钮、链接、选中态等都会跟随变化。</div>
+        <div className="a-swatches">
+          {ACCENT_SWATCHES.map((argb) => {
+            const c = `#${(argb & 0xffffff).toString(16).padStart(6, "0")}`;
+            const on = c.toLowerCase() === hex.toLowerCase();
+            return (
+              <button
+                key={c}
+                className="a-swatch"
+                style={{ background: c }}
+                title={c}
+                onClick={() => {
+                  update("customAccentColor", argb);
+                  document.documentElement.style.setProperty("--accent", c);
+                }}
+              >
+                {on ? (
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+                  </svg>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="a-form-actions">
+        <button
+          className="a-btn-primary"
+          onClick={async () => {
+            try {
+              await savePrefs(form);
+              onFlash("主题已保存");
+            } catch (e) {
+              onFlash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+            }
+          }}
+        >
+          保存主题
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── 同步分节（WebDAV / 局域网；传输层未实现，如实占位） ── */
+function SyncSection({ flash, onFlash }: { flash: string; onFlash: (s: string) => void }) {
+  const [tab, setTab] = useState<"cloud" | "lan">("cloud");
+  return (
+    <div className="a-settings-panel">
+      <div className="a-card">
+        <div className="a-seg wide">
+          <button className={tab === "cloud" ? "on" : ""} onClick={() => setTab("cloud")}>
+            云同步
+          </button>
+          <button className={tab === "lan" ? "on" : ""} onClick={() => setTab("lan")}>
+            局域网同步
+          </button>
+        </div>
+        <div className="a-card-desc">
+          {tab === "cloud"
+            ? "通过 WebDAV 把小说、技能、备忘录、会话与快照同步到云端。（传输层未实现，本分页为配置占位）"
+            : "同一局域网内的两台设备通过 8917 端口互传数据。（传输层未实现，本分页为配置占位）"}
+        </div>
+        {flash ? <div className="a-flash">{flash}</div> : null}
+        <div className="a-form-actions">
+          <button className="a-toolbtn" onClick={() => onFlash("同步功能将在后续批次实现")}>
+            同步
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 数据分节（存储位置为真实路径；重置配置可用） ── */
+function DataSection({
+  form,
+  flash,
+  onFlash,
+}: {
+  form: Prefs;
+  flash: string;
+  onFlash: (s: string) => void;
+}) {
+  const boot = currentBoot();
+  const dirs = boot?.dirs;
+  const skillCount = form.skillList?.length ?? 0;
+  return (
+    <div className="a-settings-panel">
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">数据管理</span>
+        </div>
+        <div className="a-card-desc">管理作品与 Skill 的存储位置，以及本地应用数据。</div>
+        <div className="a-statbar">{dirs ? "作品与技能数据统计以目录实况为准" : ""}</div>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">存储位置</span>
+        </div>
+        <div className="a-card-row col">
+          <span className="a-path-label">小说作品目录</span>
+          <span className="a-path">{dirs?.booksRoot ?? "（未加载）"}</span>
+        </div>
+        <div className="a-card-row col">
+          <span className="a-path-label">Skill 目录</span>
+          <span className="a-path">{dirs?.skillsDir ?? "（未加载）"}</span>
+        </div>
+        <div className="a-card-desc">
+          当前统计：{skillCount} 个 Skill。{flash}
+        </div>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">备份与恢复</span>
+        </div>
+        <div className="a-card-desc">备份包含小说作品、Skill、备忘录、会话记录与快照，不含软件设置。建议定期导出，保存到网盘或移动硬盘。</div>
+        <div className="a-form-actions">
+          <button className="a-toolbtn" onClick={() => onFlash("导出全部数据：将在后续批次实现")}>
+            导出全部数据
+          </button>
+          <button className="a-toolbtn" onClick={() => onFlash("从备份恢复：将在后续批次实现")}>
+            从备份恢复
+          </button>
+        </div>
+      </div>
+
+      <div className="a-card danger">
+        <div className="a-card-head">
+          <span className="a-card-title">危险操作</span>
+        </div>
+        <div className="a-card-desc">清除软件配置（恢复默认设置），不会删除作品目录下的任何文件。</div>
+        <div className="a-form-actions">
+          <button
+            className="a-btn-danger"
+            onClick={() => {
+              if (!window.confirm("确定清除软件配置并恢复默认设置吗？作品文件不受影响。")) return;
+              void (async () => {
+                try {
+                  const { parsePrefs, serializePrefs, DEFAULT_PREFS } = await import("../core/prefs");
+                  await savePrefs(parsePrefs(serializePrefs({ ...DEFAULT_PREFS })));
+                  onFlash("配置已重置为默认（重启应用后完全生效）");
+                } catch (e) {
+                  onFlash(`重置失败：${e instanceof Error ? e.message : String(e)}`);
+                }
+              })();
+            }}
+          >
+            重置数据
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── 关于分节（自更新按 CONTRACT §11 阻断：返回"已是最新"） ── */
+function AboutSection({ flash, onFlash }: { flash: string; onFlash: (s: string) => void }) {
+  return (
+    <div className="a-settings-panel">
+      <div className="a-about-hero">
+        <div className="a-about-logo"><img src={logo} alt="" /></div>
+        <h2>writerD</h2>
+        <span className="a-version">版本 2.0.1</span>
+        <p>你的 AI 小说写作助手</p>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">帮助与维护</span>
+        </div>
+        <button className="a-list-row" onClick={() => onFlash("已是最新版本")}>
+          <span>检查更新</span>
+          <em>›</em>
+        </button>
+        <button className="a-list-row" onClick={() => onFlash("使用教程将在后续批次提供")}>
+          <span>使用教程</span>
+          <em>›</em>
+        </button>
+      </div>
+      {flash ? <div className="a-flash">{flash}</div> : null}
     </div>
   );
 }
