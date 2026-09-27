@@ -173,3 +173,43 @@ svg {
 .app-shell .qopt .d{display:block;font-size:12px;color:var(--tx-3);margin-top:3px}
 .app-shell .qopt.on{background:#26234A;border:1px solid #5F49FF}
 .app-shell .qsubmit{margin-top:12px;height:34px;padding:0 16px;border-radius:9px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);color:#fff;font-size:13px}
+
+/* ──────────────────────────────────────────────────────────────
+   设置屏表单控件（mock 未提供，按设计令牌新增）
+   ────────────────────────────────────────────────────────────── */
+.app-shell .a-settings-panel{position:absolute;left:375px;top:0;width:992px;height:943px;padding:32px 40px;overflow-y:auto}
+.app-shell .a-settings-title{font-size:20px;font-weight:700;color:#F0F0F6;margin-bottom:8px}
+.app-shell .a-settings-desc{font-size:13px;color:#9898B0;margin-bottom:28px;line-height:1.6}
+.app-shell .a-form-row{margin-bottom:20px}
+.app-shell .a-form-row-inline{display:flex;gap:20px}
+.app-shell .a-form-col{flex:1}
+.app-shell .a-form-label{display:block;font-size:13px;font-weight:600;color:#C9C9DA;margin-bottom:8px}
+.app-shell .a-form-input{
+  width:100%;height:38px;padding:0 12px;border-radius:8px;
+  background:#1A1A25;border:1px solid #23232F;
+  font-size:13.5px;color:#E8E8F0;
+  transition:border-color .15s;
+}
+.app-shell .a-form-input:focus{border-color:#7C6AFF;outline:none}
+.app-shell .a-form-input::placeholder{color:#6E6E85}
+.app-shell .a-form-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #23232F}
+.app-shell .a-toggle-btn{
+  flex:1;height:38px;font-size:13px;color:#9898B0;
+  background:#1A1A25;transition:all .15s;
+}
+.app-shell .a-toggle-btn:hover{color:#C9C9DA}
+.app-shell .a-toggle-btn.on{background:#211E3A;color:#8B7BFF;font-weight:600}
+.app-shell .a-form-actions{display:flex;align-items:center;gap:14px;margin-top:32px}
+.app-shell .a-btn-primary{
+  height:38px;padding:0 20px;border-radius:9px;
+  background:linear-gradient(160deg,#8B7BFF,#5F49FF);
+  color:#fff;font-size:13.5px;font-weight:600;
+  transition:opacity .15s;
+}
+.app-shell .a-btn-primary:hover{opacity:.9}
+.app-shell .a-btn-primary:disabled{opacity:.5;cursor:not-allowed}
+.app-shell .a-save-msg{font-size:12.5px;color:#3AD07A}
+.app-shell .a-save-msg.error{color:#F87171}
+.app-shell .a-form-hint{margin-top:16px;font-size:12px;color:#6E6E85;line-height:1.6}
+.app-shell .a-placeholder{position:absolute;left:375px;top:0;width:992px;height:943px;display:flex;align-items:center;justify-content:center}
+.app-shell .a-placeholder-text{font-size:14px;color:#6E6E85}
