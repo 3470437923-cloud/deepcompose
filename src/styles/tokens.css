@@ -1,0 +1,28 @@
+/* writerD 设计令牌
+ * 来源：OpenWrite v2.0.1 逆向实证（三条证据链一致）
+ *   1. 截图像素实测（measure_shot*.py）
+ *   2. reference/ui-mock.html 声明值
+ *   3. 本机 shared_preferences.json: custom_accent_color = 4286343935 = 0xFF7C6AFF
+ * 严禁自行改动色值。
+ */
+:root {
+  /* 强调色（三方验证一致） */
+  --accent: #7c6aff;
+  --accent-2: #624dff;
+
+  /* 背景层级 */
+  --bg-window: #0a0a0f;
+  --bg-bar: #0e0e16;
+  --bg-panel: #12121a;
+  --bg-rail: #1a1a25;
+
+  /* 文本层级 */
+  --tx-1: #e8e8f0;
+  --tx-2: #9898b0;
+  --tx-3: #6e6e85;
+
+  /* 线与圆角 */
+  --line: #22222e;
+  --line-soft: #1c1c26;
+  --radius: 10px;
+}

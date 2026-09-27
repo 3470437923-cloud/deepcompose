@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Token Audit V9 - Full directory scan with refs/scripts detection"""
+import os, sys
+
+SKILLS_DIR = os.path.expanduser("~/.workbuddy/skills")
+
+def kb(b):
+    return f"{b/1024:.1f}"
+
+def dir_size(path):
+    if not os.path.isdir(path): return 0
+    total = 0
+    for root, dirs, files in os.walk(path):
+        for f in files:
+            fp = os.path.join(root, f)
+            try: total += os.path.getsize(fp)
+            except: pass
+    return total
+
+print("=== Token Audit V9 - Full Directory Scan ===")
+print()
+
+skills = []
+for name in os.listdir(SKILLS_DIR):
+    d = os.path.join(SKILLS_DIR, name)
+    sf = os.path.join(d, "SKILL.md")
+    if not os.path.isdir(d) or not os.path.isfile(sf):
+        continue
+    md_sz = os.path.getsize(sf)
+    ref_sz = dir_size(os.path.join(d, "references"))
+    sc_sz = dir_size(os.path.join(d, "scripts"))
+    total = md_sz + ref_sz + sc_sz
+    
+    # Category detection
+    try:
+        with open(sf, 'r', encoding='utf-8', errors='ignore') as f:
+            head = f.read(2000).lower()
+    except:
+        head = ""
+    
+    cat = "other"
+    if any(k in head for k in ['novel','fiction','story','write','author','chapter','plot','character']):
+        cat = "novel"
+    elif any(k in head for k in ['code','dev','frontend','backend','api','react','vue','programming']):
+        cat = "coding"
+    elif any(k in head for k in ['finance','stock','trading','market']):
+        cat = "finance"
+    elif any(k in head for k in ['office','document','word','ppt','excel']):
+        cat = "office"
+    elif any(k in head for k in ['ai','gpt','llm','model','intelligence','agent']):
+        cat = "ai"
+    
+    skills.append((name, md_sz, ref_sz, sc_sz, total, cat))
+
+# Sort by total size descending
+skills.sort(key=lambda x: -x[4])
+
+# Display threshold-filtered
+for name, md_sz, ref_sz, sc_sz, total, cat in skills:
+    if total < 25600 and ref_sz <= 10240:
+        continue
+    tag = "[OK]   "
+    if total >= 102400: tag = "[BLOAT]"
+    elif total >= 51200: tag = "[EMERG]"
+    elif total >= 35840: tag = "[CRIT] "
+    elif total >= 25600: tag = "[WARN] "
+    
+    hidden = ""
+    if ref_sz > 10240:
+        hidden = f" HIDDEN:{kb(ref_sz)}KB-refs"
+    
+    print(f"  {tag} {name:<30} SKL:{kb(md_sz):>5} + REF:{kb(ref_sz):>5} = {kb(total):>5} KB{hidden}")
+
+total_md = sum(s[1] for s in skills)
+total_ref = sum(s[2] for s in skills)
+total_sc = sum(s[3] for s in skills)
+total_all = total_md + total_ref + total_sc
+hidden_count = sum(1 for s in skills if s[2] > 10240)
+
+print()
+print("=== Summary ===")
+print(f"  Skills scanned:      {len(skills)}")
+print(f"  SKILL.md only:       {kb(total_md)} KB")
+print(f"  References/ hidden:  {kb(total_ref)} KB  <- BLIND SPOT")
+print(f"  Scripts/:            {kb(total_sc)} KB")
+print(f"  GRAND TOTAL:         {kb(total_all)} KB (~{total_all//4} tokens)")
+print(f"  Hidden refs >10KB:   {hidden_count} skills")
+print()
+
+cats = {}
+for _, _, _, _, _, cat in skills:
+    cats[cat] = cats.get(cat, 0) + 1
+print(f"  Categories: {cats}")
+print()
+
+# Self-check
+self_d = os.path.join(SKILLS_DIR, "token-optimizer")
+self_md = os.path.getsize(os.path.join(self_d, "SKILL.md"))
+self_sc = dir_size(os.path.join(self_d, "scripts"))
+self_total = self_md + self_sc
+print(f"  TO self-cost: {kb(self_total)} KB (~{self_total//4} tokens)")
+print()
+print("Done.")

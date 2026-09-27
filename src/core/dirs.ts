@@ -1,0 +1,153 @@
+/**
+ * 目录权威（唯一真源）。
+ *
+ * 依据 CONTRACT §3.1 / §3.2，逐字对齐真机实测目录：
+ *   作品根 <booksRoot>\<书名>\小说资料\*.md  +  章节内容\第N章.md
+ *   回收站 <booksRoot>\.openwrite_recycle\<id>\...  + recycle_manifest.json
+ *   应用数据 <Documents>\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}
+ *   配置     %APPDATA%\com.writerd\writerD\shared_preferences.json
+ *
+ * 命名对照（CONTRACT §3.2）：openwrite_sessions → writerd_sessions 等；
+ * skills 目录沿用真机名 `skills`（真机即 Documents\skills）。
+ */
+
+/** 作品目录协议里用到的固定名（逐字，不得改） */
+export const PROJECT_DIRS = {
+  /** 维护文档目录 */
+  docs: "小说资料",
+  /** 章节目录 */
+  chapters: "章节内容",
+  /** 回收站根（位于作品根下） */
+  recycle: ".openwrite_recycle",
+  /** 作品清单（显示名/排序） */
+  manifest: ".openwrite_manifest.json",
+  /** 回收站清单 */
+  recycleManifest: "recycle_manifest.json",
+} as const;
+
+/** 默认维护文档三件套（新建作品时生成，逐字） */
+export const DEFAULT_DOCS = ["世界观.md", "人物库.md", "章节摘要.md"] as const;
+
+export const APP_DATA_NAMES = {
+  sessions: "writerd_sessions",
+  snapshots: "writerd_snapshots",
+  memos: "writerd_memos.json",
+  skills: "skills",
+  prefsDir: ["com.writerd", "writerD"],
+  logDir: "diagnostics",
+  logFile: "diagnostic.log",
+} as const;
+
+/** 真机默认作品根：%USERPROFILE%\AI写小说（实测路径，非推测） */
+export const DEFAULT_BOOKS_DIR_NAME = "AI写小说";
+
+export interface AppDirs {
+  /** 作品根（用户可改，见 prefs `custom_novels_dir`） */
+  booksRoot: string;
+  /** 技能根 */
+  skillsDir: string;
+  /** 会话根 */
+  sessionsDir: string;
+  /** 快照根 */
+  snapshotsDir: string;
+  /** 备忘录单文件 */
+  memosFile: string;
+  /** 配置单文件 */
+  prefsFile: string;
+  /** 配置目录 */
+  prefsDir: string;
+  /** 诊断日志目录 */
+  logDir: string;
+  /** 诊断日志文件 */
+  logFile: string;
+}
+
+export interface DirsInput {
+  /** 用户主目录（Rust 侧 home_dir） */
+  home: string;
+  /** 文档目录（Rust 侧 document_dir） */
+  documents: string;
+  /** 漫游配置目录（Rust 侧 config_dir = %APPDATA%） */
+  appData: string;
+  /** 覆盖项：来自 prefs */
+  booksRoot?: string | null;
+  skillsDir?: string | null;
+}
+
+/** Windows 风格拼接：统一 '\'，去掉重复分隔符与尾部分隔符 */
+export function join(...parts: string[]): string {
+  const cleaned = parts
+    .filter((p) => p !== undefined && p !== null && p !== "")
+    .map((p, i) =>
+      i === 0 ? p.replace(/[\\/]+$/, "") : p.replace(/^[\\/]+/, "").replace(/[\\/]+$/, ""),
+    );
+  const joined = cleaned.join("\\");
+  // 保留盘符根的形态 C:\
+  return joined.replace(/([A-Za-z]:)$/, "$1\\");
+}
+
+/** 校验：不得选择磁盘根目录（CONTRACT §10 逐字文案的判定条件） */
+export function isDriveRoot(path: string): boolean {
+  const p = path.replace(/[\\/]+$/, "");
+  return /^[A-Za-z]:$/.test(p) || /^[\\/]{1,2}$/.test(path);
+}
+
+export function basename(path: string): string {
+  const p = path.replace(/[\\/]+$/, "");
+  const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  return i < 0 ? p : p.slice(i + 1);
+}
+
+export function dirname(path: string): string {
+  const p = path.replace(/[\\/]+$/, "");
+  const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
+  if (i < 0) return "";
+  if (i === 2 && /^[A-Za-z]:/.test(p)) return p.slice(0, 3);
+  return p.slice(0, i);
+}
+
+/** 计算 relative 相对 base 的路径（'\' 分隔）；不在 base 内返回 null */
+export function relative(base: string, target: string): string | null {
+  const b = base.replace(/[\\/]+$/, "").toLowerCase();
+  const t = target.replace(/[\\/]+$/, "");
+  const tl = t.toLowerCase();
+  if (tl === b) return "";
+  if (!tl.startsWith(b + "\\")) return null;
+  return t.slice(b.length + 1);
+}
+
+export function resolveDirs(input: DirsInput): AppDirs {
+  const prefsDir = join(input.appData, ...APP_DATA_NAMES.prefsDir);
+  const logDir = join(prefsDir, APP_DATA_NAMES.logDir);
+  return {
+    booksRoot: input.booksRoot || join(input.home, DEFAULT_BOOKS_DIR_NAME),
+    skillsDir: input.skillsDir || join(input.documents, APP_DATA_NAMES.skills),
+    sessionsDir: join(input.documents, APP_DATA_NAMES.sessions),
+    snapshotsDir: join(input.documents, APP_DATA_NAMES.snapshots),
+    memosFile: join(input.documents, APP_DATA_NAMES.memos),
+    prefsDir,
+    prefsFile: join(prefsDir, "shared_preferences.json"),
+    logDir,
+    logFile: join(logDir, APP_DATA_NAMES.logFile),
+  };
+}
+
+export function projectDocsDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.docs);
+}
+
+export function projectChaptersDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.chapters);
+}
+
+export function projectManifestFile(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.manifest);
+}
+
+export function recycleRoot(booksRoot: string): string {
+  return join(booksRoot, PROJECT_DIRS.recycle);
+}
+
+export function recycleManifestFile(booksRoot: string): string {
+  return join(recycleRoot(booksRoot), PROJECT_DIRS.recycleManifest);
+}
