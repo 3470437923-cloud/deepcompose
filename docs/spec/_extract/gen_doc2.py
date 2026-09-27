@@ -20,6 +20,10 @@ def F(fn, off):
     return "`%s:%s`" % (fn, off)
 
 
+def ptr_of(res):
+    return F(ev2.FILES[res[0]][1], res[1])
+
+
 def all_containing(text, maxlen=4000, keys=("full_str", "full_obj", "zh_ui", "obj_all")):
     out, seen = [], set()
     for k in keys:
@@ -106,9 +110,12 @@ REQ = [
 ]
 for i, t in enumerate(REQ, 1):
     offs = dup_offsets(t)
-    W("| %d | `%s` | %s |" % (i, cell(t), offs or "**NOT FOUND**"))
+    mark = " ⚠" if t.endswith("r") else ""
+    W("| %d | `%s`%s | %s |" % (i, cell(t), mark, offs or "**NOT FOUND**"))
 W("")
-W("> `path is requiredr` / `name is requiredr` 的尾随 `r` 是真实字符，见 §0.3。")
+W("> ⚠ `path is requiredr` / `name is requiredr` 的尾随 `r` **未决**——它是全库 179 条系统性")
+W("> 尾随 `r` 现象中的两条，无法判定属于文案内容还是提取伪影。详见 §0.3 与 §6。")
+W("> 实现建议用不带 `r` 的形态。上表按原始文件逐字引用，故保留了 `r`。")
 W("")
 
 W("### 3.2 其余英文校验 / 错误文案（逐字 + 全部偏移）")
@@ -192,10 +199,20 @@ for cited, actual in CONTRACT_CHECKS:
     if cited == actual and exact:
         W("| `%s` | 是 | %s | ✔ 逐字一致 |" % (cell(cited), F(exact[0][0], exact[0][1])))
     elif exact:
-        W("| `%s` | 是（实为 `%s`） | %s | ✘ **CONTRACT 少了尾随 `r`** |"
+        W("| `%s` | 是（原始文件实为 `%s`） | %s | ⚠ CONTRACT 少了尾随 `r`；该 `r` 未决，见 §0.3 |"
           % (cell(cited), cell(actual), F(exact[0][0], exact[0][1])))
     else:
         W("| `%s` | **否** | — | ✘ **NOT FOUND** |" % cell(cited))
+W("")
+W("新增复核（`CONTRACT.md §4.5` 的两条终端文案）：")
+W("")
+for t in ["【高危命令】命中内置风险词表，请逐字核对命令内容后再允许",
+          "（无白名单条目，添加后 AI 执行时不再确认）"]:
+    e = all_exact(t)
+    if e:
+        W("- ✔ `%s` → %s" % (cell(t), ", ".join(F(fn, off) for fn, off in e)))
+    else:
+        W("- ✘ `%s` → **NOT FOUND**（全库无「高危命令」「内置风险词表」「命中内置」任何子串）" % cell(t))
 W("")
 W("### 3.6 CONTRACT.md 未收录、但本次新发现的校验文案")
 W("")
@@ -219,6 +236,48 @@ for t in NEW:
         W("- `%s` → %s" % (cell(t), ", ".join(F(fn, off) for fn, off in e)))
     else:
         W("- `%s` → 片段，%s" % (cell(t), dup_offsets(t)))
+W("")
+W("### 3.7 本次新发现的参数 / 枚举描述串（CONTRACT 未收录）")
+W("")
+NEWP = [
+    ('"read" to read file content, "list" to list directory contents', "file_read 的 mode 枚举"),
+    ('Operation type: "search" to find text in files, "delete" to remove file, "rename" to rename file, "copy" to duplicate file', "file_manage 的 operation 枚举"),
+    ('Directory to search in (for "search" operation, default is entire project)', "file_manage 参数"),
+    ("Content to write, append, or insert", "file_write 参数"),
+    ("Text to find and replace (for \"replace\" operation)", "file_write 参数"),
+    ("New text for replace or insert operations", "file_write 参数"),
+    ("Where to insert: \"start\", \"end\", or \"after_line\"", "file_write 参数（含 insert position 枚举）"),
+    ("Line number after which to insert (for \"insert\" with position \"after_line\")", "file_write 参数"),
+    ("Start line number for delete (1-based)", "file_write 参数"),
+    ("End line number for delete (1-based, inclusive)", "file_write 参数"),
+    ("For \"replace\" operation: if true, replace ALL occurrences; if false (default), replace first occurrence only", "replace_all 参数"),
+    ("Invalid after_line number", "校验文案"),
+    ("Optional timeout in milliseconds. Default 120000, max 600000.", "terminal timeout 参数"),
+    ("Optional working directory, relative to the current project root. Use this instead of `cd <dir> && <cmd>`.", "terminal workdir 参数"),
+    ("Optional arguments for the command. Use this for script paths and parameters.", "terminal args 参数"),
+    ("The command to execute", "terminal command 参数"),
+    ("Questions to ask the user", "question 参数"),
+    ("The complete question to ask the user", "question 参数"),
+    ("The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice.", "question 参数"),
+    ("Set to true to allow the user to select multiple options instead of just one.", "question 参数"),
+    ("The name of the new novel project (book title)", "create_project 参数"),
+    ("The skill name exactly as shown in Available Skills, or the skill ID", "skill 参数"),
+    ("The skill name exactly as shown in Available Skills", "skill 参数（短版）"),
+    ("Skill name in English, lowercase with hyphens (e.g. \"novel-reviewer\", \"translation-helper\"). English names avoid path encoding issues across platforms.", "skill 命名规范"),
+    ("New full SKILL.md content (including --- frontmatter). Use this to update the main skill file.", "update_skill 参数"),
+    ("Content for the reference file. Required when reference_name is provided without delete.", "update_skill 参数"),
+    ("With reference_name: delete that single resource file. Without reference_name: delete (uninstall) the whole skill. Built-in skills cannot be deleted.", "update_skill 参数"),
+    ("Path of the bundled resource to create, update or delete, relative to the skill root.", "skill 资源路径参数"),
+    ("File or directory path. Relative paths resolve against the current project root; absolute paths are also accepted.", "路径参数"),
+    ("Pagination start. read: 1-based line number (default 1). list: entry index (default 0).", "offset 参数"),
+    ("Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).", "limit 参数"),
+]
+for t, note in NEWP:
+    r = best(t)
+    if r:
+        W("- %s（%s，len=%d）：`%s`" % (note, ptr_of(r), len(r[2]), cell(r[2])))
+    else:
+        W("- %s：**NOT FOUND**" % note)
 W("")
 
 # ===========================================================================

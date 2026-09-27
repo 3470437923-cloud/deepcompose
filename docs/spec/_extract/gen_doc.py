@@ -96,6 +96,10 @@ W(">    `45cffe64c02abab5ccc4dbcef9f643dea5611476224cf9b63959fa637bd5c888`），
 W(">    产物 `_extract/app_so_full_strings.txt`。**偏移空间与原文件完全一致**（96,162 条中")
 W(">    96,152 条逐字节相同，余下 10 条是原文件的中间截断片段）。凡引用")
 W(">    `app_so_full_strings.txt` 处，均同时标注 `WIN_app.so.strings.txt` 的同偏移对应。")
+W(">    **本次实际受影响的业务文案只有 2 条**，长度都恰好 401：")
+W(">    `terminal` 工具描述（`003c7980`，真实 612 字符 → reference 文件**缺中间 211 字符**）、")
+W(">    `create_skill` 的 `resources` 参数描述（`00248820`，真实 433 字符 → reference 文件缺尾部 32 字符）。")
+W(">    其余长度为 401 的记录都是 Flutter / Office XML 噪声，非业务文案。")
 W("> 2. `reference/utf16_objects_all.txt` 由 `reference/extract_utf16_obj.py` 生成，它假设")
 W(">    「字符数据起始 = 8 字节对齐对象 VA + 24」且 `length == 字符数*2`。**系统提示词不满足该模型，")
 W(">    因此完全不在该文件里**；本次改以原始字节直接解码恢复（见 §4.1）。")
@@ -136,24 +140,58 @@ W("- UTF-16 层文件中**真实换行已在落盘时转义为字面 `\\n`**（�
 W("  本规格沿用该表示，未展开成真实换行，也未做任何清理。")
 W("")
 
-W("### 0.3 字节级细节：两条校验文案确实以字符 `r` 结尾")
+W("### 0.3 尾随 `r` 现象：**已推翻**先前假设，按未决处理")
 W("")
-W("这不是抓取伪影，也不是 `\\r`（回车）——原始二进制里就是可打印字符 `r`：")
+W("`path is required` / `name is required` 在 ASCII 串文件里显示为带尾随 `r`：")
 W("")
 block("\n".join("0x%08x : %r" % (BIN.find(t), BIN[BIN.find(t):BIN.find(t) + 20])
                 for t in (b"path is requiredr", b"name is requiredr")))
 W("")
-W("对照同族文案（均为 NUL 填充结尾，无尾随 `r`）：")
+W("**但这不足以判定 UI 文案本身带 `r`。** 全量普查显示该现象**系统性存在**，不是这两条的例外：")
 W("")
-block("\n".join("0x%08x : %r" % (BIN.find(t), BIN[BIN.find(t):BIN.find(t) + 30])
-                for t in (b"command is required", b"query is required",
-                          b"description is required")))
+W("- `app_so_full_strings.txt` 中**以 `r` 结尾**且含空格的「散文式」记录共 **179 条**。")
+W("- 同一现象大量出现在 **Flutter 框架自带字符串**上，与 OpenWrite 业务无关，例如：")
 W("")
-W("Dart 对象头亦可验证：`VA=0x0028cb08` 处 `tags,hash,length` 三元组给出 `length=34`，")
-W("恰为 17 字符 × 2 字节 —— 即对象本身就是 17 字符（含尾随 `r`），不是 16。")
+CENSUS = [
+    "Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).r",
+    "Unexpected start tag (%(originalName)s). Treated as %(newName)s.r",
+    "Unexpected end of file. Expected foreign contentr",
+    "We should never reach this pointr",
+    "Data uri must not have authorityr",
+    "Trailing solidus not allowed on element %(name)sr",
+    "Source contains non-ASCII bytes.r",
+    "operation failedr",
+    "Bearer anonymousr",
+    "Invalid enveloper",
+    "Connection resetr",
+    "Assertion failedr",
+    "Gateway Time-outr",
+    "Payment Requiredr",
+    "Afficher le menur",
+    "Pesquisar na Webr",
+]
+for t in CENSUS:
+    for fn, off in all_exact(t):
+        W("  - %s  %s" % (F(fn, off), t))
 W("")
-W("**逐字复现要求**：writerD 应写作 `path is requiredr` / `name is requiredr`，")
-W("或在 ADR 中显式记录为有意修正。")
+W("上面每条都是「句子 + 单个 `r`」。这更像**提取/布局层面的系统性伪影**（例如 Dart 字符串池")
+W("按 8 字节对齐排布时，提取正则多吃进了一个相邻字节），而非 179 处真实拼写错误。")
+W("")
+W("**两条判据互相矛盾，故本规格不下结论**：")
+W("")
+W("| 判据 | 指向 |")
+W("|---|---|")
+W("| 同族 15 条 `xxx is required` 全部以 NUL 填充结尾，只有这两条在文本后**没有 NUL**，`r` 紧贴 | 支持「`r` 是内容」 |")
+W("| 179 条含 Flutter 框架串同样带尾随 `r` | 支持「`r` 是系统性伪影」 |")
+W("| 用 `tags,hash,length` 对象头复核：`VA=0x0028cb08` 读到 `q2=0x20`（32 字节），与 17 字符不符 | 该模型在此区域不成立，**不能**作判据 |")
+W("")
+W("**本规格的处理**：§3.1 / §3.3 按**原始文件内容逐字引用**（即写作 `path is requiredr`、")
+W("`name is requiredr`），同时在 §6 把它标为**未决项**。")
+W("")
+W("**给 writerD 的建议**：实现时采用**不带**尾随 `r` 的 `path is required` / `name is required`")
+W("（与同族 15 条 `xxx is required` 形态一致），并在 ADR 记录该判断与依据；")
+W("**不要**照抄尾随 `r`，除非后续拿到 `dart` 层证据（反编译 `kernel_blob.bin` 或直接解码字符串池）")
+W("证明它就是文案内容。")
 W("")
 W("### 0.4 全部偏移的列法")
 W("")
@@ -264,8 +302,16 @@ for p in ["File or directory path. Relative paths resolve against the current pr
         W("- %s（%s，len=%d）：" % (p.split(".")[0], ptr_of(r), len(r[2])))
         block(r[2])
 W("")
-W("**operation / mode 枚举**：证据中**没有**把 `read`/`list` 作为独立枚举值字符串列出；")
-W("仅能由参数描述串反推（见上）。故枚举值本身记 `NOT FOUND`，见 §6。")
+W("**operation / mode 枚举（逐字）**——本次找到独立枚举串：")
+W("")
+r = best('"read" to read file content, "list" to list directory contents')
+W("- %s（len=%d）：" % (ptr_of(r), len(r[2])))
+W("")
+block(r[2])
+W("")
+W("```")
+W("read / list")
+W("```")
 W("")
 
 # ---- 2.2 file_write
@@ -291,6 +337,7 @@ W("**参数（逐字）**：")
 W("")
 FWP = [
     "File or directory path. Relative paths resolve against the current project root",
+    "Content to write, append, or insert",
     "Text to find and replace (for \"replace\" operation)",
     "New text for replace or insert operations",
     "For \"replace\" operation: if true, replace ALL occurrences; if false (default), replace first occurrence only",
@@ -313,6 +360,7 @@ W('"start", "end", or "after_line"')
 W("```")
 W("")
 W("> 证据：`app_so_full_strings.txt:004791a0`（即 `Where to insert: \"start\", \"end\", or \"after_line\"`）。")
+W("> **注意**：该枚举串在二进制中同样带真实尾随 `r`（`...after_line\"r`），同 §0.3 现象。")
 W("")
 
 # ---- 2.3 file_manage
@@ -328,7 +376,12 @@ block(d[2])
 W("")
 W("  同偏移对应：`WIN_app.so.strings.txt:%s`" % d[1])
 W("")
-W("**operation 枚举（逐字，取自描述串中的动作短语）**：")
+W("**operation 枚举（逐字）**——本次找到以 `Operation type:` 开头的独立枚举串：")
+W("")
+r = best('Operation type: "search" to find text in files')
+W("- %s（len=%d）：" % (ptr_of(r), len(r[2])))
+W("")
+block(r[2])
 W("")
 W("```")
 W("search / delete / rename / copy")
@@ -339,6 +392,7 @@ W("")
 for p in ["File or directory path. Relative paths resolve against the current project root",
           "New path/name for rename or copy operation",
           "Text to search for (for \"search\" operation)",
+          "Directory to search in (for \"search\" operation, default is entire project)",
           "New text for replace or insert operations"]:
     r = best(p)
     if r:

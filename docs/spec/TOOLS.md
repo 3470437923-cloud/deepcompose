@@ -17,6 +17,10 @@
 >    产物 `_extract/app_so_full_strings.txt`。**偏移空间与原文件完全一致**（96,162 条中
 >    96,152 条逐字节相同，余下 10 条是原文件的中间截断片段）。凡引用
 >    `app_so_full_strings.txt` 处，均同时标注 `WIN_app.so.strings.txt` 的同偏移对应。
+>    **本次实际受影响的业务文案只有 2 条**，长度都恰好 401：
+>    `terminal` 工具描述（`003c7980`，真实 612 字符 → reference 文件**缺中间 211 字符**）、
+>    `create_skill` 的 `resources` 参数描述（`00248820`，真实 433 字符 → reference 文件缺尾部 32 字符）。
+>    其余长度为 401 的记录都是 Flutter / Office XML 噪声，非业务文案。
 > 2. `reference/utf16_objects_all.txt` 由 `reference/extract_utf16_obj.py` 生成，它假设
 >    「字符数据起始 = 8 字节对齐对象 VA + 24」且 `length == 字符数*2`。**系统提示词不满足该模型，
 >    因此完全不在该文件里**；本次改以原始字节直接解码恢复（见 §4.1）。
@@ -46,28 +50,55 @@
 - UTF-16 层文件中**真实换行已在落盘时转义为字面 `\n`**（反斜杠 + `n` 两个字符）。
   本规格沿用该表示，未展开成真实换行，也未做任何清理。
 
-### 0.3 字节级细节：两条校验文案确实以字符 `r` 结尾
+### 0.3 尾随 `r` 现象：**已推翻**先前假设，按未决处理
 
-这不是抓取伪影，也不是 `\r`（回车）——原始二进制里就是可打印字符 `r`：
+`path is required` / `name is required` 在 ASCII 串文件里显示为带尾随 `r`：
 
 ```
 0x0028cb20 : b'path is requiredr\xf2\x05\x00'
 0x002ea1a0 : b'name is requiredr\xe2\x05\x00'
 ```
 
-对照同族文案（均为 NUL 填充结尾，无尾随 `r`）：
+**但这不足以判定 UI 文案本身带 `r`。** 全量普查显示该现象**系统性存在**，不是这两条的例外：
 
-```
-0x0026c010 : b'command is required\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-0x003ac930 : b'query is required\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00'
-0x004796d0 : b'description is required\x00\x00\x00\x00\x00\x00\x00'
-```
+- `app_so_full_strings.txt` 中**以 `r` 结尾**且含空格的「散文式」记录共 **179 条**。
+- 同一现象大量出现在 **Flutter 框架自带字符串**上，与 OpenWrite 业务无关，例如：
 
-Dart 对象头亦可验证：`VA=0x0028cb08` 处 `tags,hash,length` 三元组给出 `length=34`，
-恰为 17 字符 × 2 字节 —— 即对象本身就是 17 字符（含尾随 `r`），不是 16。
+  - `app_so_full_strings.txt:0025fb80`  Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).r
+  - `app_so_full_strings.txt:00245570`  Unexpected start tag (%(originalName)s). Treated as %(newName)s.r
+  - `app_so_full_strings.txt:0028b6c0`  Unexpected end of file. Expected foreign contentr
+  - `app_so_full_strings.txt:0028d3c0`  We should never reach this pointr
+  - `app_so_full_strings.txt:002b1750`  Data uri must not have authorityr
+  - `app_so_full_strings.txt:002e63b0`  Trailing solidus not allowed on element %(name)sr
+  - `app_so_full_strings.txt:002e40c0`  Source contains non-ASCII bytes.r
+  - `app_so_full_strings.txt:0024a6a0`  operation failedr
+  - `app_so_full_strings.txt:0028d8c0`  Bearer anonymousr
+  - `app_so_full_strings.txt:0028d980`  Invalid enveloper
+  - `app_so_full_strings.txt:002ec7f0`  Connection resetr
+  - `app_so_full_strings.txt:002dd9d0`  Assertion failedr
+  - `app_so_full_strings.txt:002bc380`  Gateway Time-outr
+  - `app_so_full_strings.txt:002ce470`  Payment Requiredr
+  - `app_so_full_strings.txt:0026be50`  Afficher le menur
+  - `app_so_full_strings.txt:002ceb10`  Pesquisar na Webr
 
-**逐字复现要求**：writerD 应写作 `path is requiredr` / `name is requiredr`，
-或在 ADR 中显式记录为有意修正。
+上面每条都是「句子 + 单个 `r`」。这更像**提取/布局层面的系统性伪影**（例如 Dart 字符串池
+按 8 字节对齐排布时，提取正则多吃进了一个相邻字节），而非 179 处真实拼写错误。
+
+**两条判据互相矛盾，故本规格不下结论**：
+
+| 判据 | 指向 |
+|---|---|
+| 同族 15 条 `xxx is required` 全部以 NUL 填充结尾，只有这两条在文本后**没有 NUL**，`r` 紧贴 | 支持「`r` 是内容」 |
+| 179 条含 Flutter 框架串同样带尾随 `r` | 支持「`r` 是系统性伪影」 |
+| 用 `tags,hash,length` 对象头复核：`VA=0x0028cb08` 读到 `q2=0x20`（32 字节），与 17 字符不符 | 该模型在此区域不成立，**不能**作判据 |
+
+**本规格的处理**：§3.1 / §3.3 按**原始文件内容逐字引用**（即写作 `path is requiredr`、
+`name is requiredr`），同时在 §6 把它标为**未决项**。
+
+**给 writerD 的建议**：实现时采用**不带**尾随 `r` 的 `path is required` / `name is required`
+（与同族 15 条 `xxx is required` 形态一致），并在 ADR 记录该判断与依据；
+**不要**照抄尾随 `r`，除非后续拿到 `dart` 层证据（反编译 `kernel_blob.bin` 或直接解码字符串池）
+证明它就是文案内容。
 
 ### 0.4 全部偏移的列法
 
@@ -163,8 +194,17 @@ Pagination start. read: 1-based line number (default 1). list: entry index (defa
 Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).r
 ```
 
-**operation / mode 枚举**：证据中**没有**把 `read`/`list` 作为独立枚举值字符串列出；
-仅能由参数描述串反推（见上）。故枚举值本身记 `NOT FOUND`，见 §6。
+**operation / mode 枚举（逐字）**——本次找到独立枚举串：
+
+- `app_so_full_strings.txt:002b2fd0`（len=62）：
+
+```
+"read" to read file content, "list" to list directory contents
+```
+
+```
+read / list
+```
 
 ### 2.2 `file_write`
 
@@ -189,6 +229,12 @@ write / append / replace / insert / delete_lines
 
 ```
 File or directory path. Relative paths resolve against the current project root; absolute paths are also accepted.
+```
+
+- （`app_so_full_strings.txt:00356f20`，len=35）：
+
+```
+Content to write, append, or insert
 ```
 
 - （`app_so_full_strings.txt:0038c220`，len=50）：
@@ -240,6 +286,7 @@ End line number for delete (1-based, inclusive)
 ```
 
 > 证据：`app_so_full_strings.txt:004791a0`（即 `Where to insert: "start", "end", or "after_line"`）。
+> **注意**：该枚举串在二进制中同样带真实尾随 `r`（`...after_line"r`），同 §0.3 现象。
 
 ### 2.3 `file_manage`
 
@@ -252,7 +299,13 @@ File modification operations: search content in files, delete file/directory, re
 
   同偏移对应：`WIN_app.so.strings.txt:004805e0`
 
-**operation 枚举（逐字，取自描述串中的动作短语）**：
+**operation 枚举（逐字）**——本次找到以 `Operation type:` 开头的独立枚举串：
+
+- `app_so_full_strings.txt:0045c1c0`（len=122）：
+
+```
+Operation type: "search" to find text in files, "delete" to remove file, "rename" to rename file, "copy" to duplicate file
+```
 
 ```
 search / delete / rename / copy
@@ -276,6 +329,12 @@ New path/name for rename or copy operation
 
 ```
 Text to search for (for "search" operation)
+```
+
+- （`app_so_full_strings.txt:002eb240`，len=74）：
+
+```
+Directory to search in (for "search" operation, default is entire project)
 ```
 
 - （`app_so_full_strings.txt:00472a10`，len=41）：
@@ -610,7 +669,7 @@ debut / newbook / ranking / allrank / qidian
 
 | # | 逐字文案 | 全部命中偏移 |
 |---|---|---|
-| 1 | `path is requiredr` | `app_so_full_strings.txt:0028cb20` |
+| 1 | `path is requiredr` ⚠ | `app_so_full_strings.txt:0028cb20` |
 | 2 | `content is required` | `app_so_full_strings.txt:0027e040`, `app_so_full_strings.txt:00287510`, `app_so_full_strings.txt:003d56e0`, `app_so_full_strings.txt:0040a120` |
 | 3 | `content is required for write operation` | `app_so_full_strings.txt:003d56e0` |
 | 4 | `content is required for append operation` | `app_so_full_strings.txt:0027e040` |
@@ -623,13 +682,15 @@ debut / newbook / ranking / allrank / qidian
 | 11 | `command is required` | `app_so_full_strings.txt:0026c010` |
 | 12 | `operation is required` | `app_so_full_strings.txt:0027a9c0` |
 | 13 | `skill_name is required` | `app_so_full_strings.txt:002d8060` |
-| 14 | `name is requiredr` | `app_so_full_strings.txt:002ea1a0` |
+| 14 | `name is requiredr` ⚠ | `app_so_full_strings.txt:002ea1a0` |
 | 15 | `description is required` | `app_so_full_strings.txt:004796d0` |
 | 16 | `query is required` | `app_so_full_strings.txt:003ac930` |
 | 17 | `questions is required and must not be empty` | `app_so_full_strings.txt:002f44a0` |
 | 18 | `reference_content is required when reference_name is provided` | `app_so_full_strings.txt:00287510` |
 
-> `path is requiredr` / `name is requiredr` 的尾随 `r` 是真实字符，见 §0.3。
+> ⚠ `path is requiredr` / `name is requiredr` 的尾随 `r` **未决**——它是全库 179 条系统性
+> 尾随 `r` 现象中的两条，无法判定属于文案内容还是提取伪影。详见 §0.3 与 §6。
+> 实现建议用不带 `r` 的形态。上表按原始文件逐字引用，故保留了 `r`。
 
 ### 3.2 其余英文校验 / 错误文案（逐字 + 全部偏移）
 
@@ -689,7 +750,7 @@ debut / newbook / ranking / allrank / qidian
 
 | CONTRACT 引用 | 原始文件是否存在 | 偏移 | 结论 |
 |---|---|---|---|
-| `path is required` | 是（实为 `path is requiredr`） | `app_so_full_strings.txt:0028cb20` | ✘ **CONTRACT 少了尾随 `r`** |
+| `path is required` | 是（原始文件实为 `path is requiredr`） | `app_so_full_strings.txt:0028cb20` | ⚠ CONTRACT 少了尾随 `r`；该 `r` 未决，见 §0.3 |
 | `content is required for write operation` | 是 | `app_so_full_strings.txt:003d56e0` | ✔ 逐字一致 |
 | `content is required for append operation` | 是 | `app_so_full_strings.txt:0027e040` | ✔ 逐字一致 |
 | `old_text is required for replace operation` | 是 | `app_so_full_strings.txt:003f7e30` | ✔ 逐字一致 |
@@ -702,6 +763,11 @@ debut / newbook / ranking / allrank / qidian
 | `content is required` | 是 | `app_so_full_strings.txt:0040a120` | ✔ 逐字一致 |
 | `reference_content is required when reference_name is provided` | 是 | `app_so_full_strings.txt:00287510` | ✔ 逐字一致 |
 | `Must provide content, reference_name, or delete: true` | 是 | `app_so_full_strings.txt:00414f20` | ✔ 逐字一致 |
+
+新增复核（`CONTRACT.md §4.5` 的两条终端文案）：
+
+- ✘ `【高危命令】命中内置风险词表，请逐字核对命令内容后再允许` → **NOT FOUND**（全库无「高危命令」「内置风险词表」「命中内置」任何子串）
+- ✔ `（无白名单条目，添加后 AI 执行时不再确认）` → `app_so_full_utf16.txt:002dbcc8`, `zh_ui_strings.txt:002dbcc8`, `utf16_objects_all.txt:002dbcc8`
 
 ### 3.6 CONTRACT.md 未收录、但本次新发现的校验文案
 
@@ -717,6 +783,40 @@ debut / newbook / ranking / allrank / qidian
 - `文件包体积超过上限（` → `app_so_full_utf16.txt:0032dcc8`, `zh_ui_strings.txt:0032dcc8`, `utf16_objects_all.txt:0032dcc8`
 - `KB），不能超过 50KB` → `app_so_full_utf16.txt:00237fe8`, `zh_ui_strings.txt:00237fe8`, `utf16_objects_all.txt:00237fe8`
 - `MB），不能超过 3MB` → `app_so_full_utf16.txt:0036ef58`, `zh_ui_strings.txt:0036ef58`, `utf16_objects_all.txt:0036ef58`
+
+### 3.7 本次新发现的参数 / 枚举描述串（CONTRACT 未收录）
+
+- file_read 的 mode 枚举（`app_so_full_strings.txt:002b2fd0`，len=62）：`"read" to read file content, "list" to list directory contents`
+- file_manage 的 operation 枚举（`app_so_full_strings.txt:0045c1c0`，len=122）：`Operation type: "search" to find text in files, "delete" to remove file, "rename" to rename file, "copy" to duplicate file`
+- file_manage 参数（`app_so_full_strings.txt:002eb240`，len=74）：`Directory to search in (for "search" operation, default is entire project)`
+- file_write 参数（`app_so_full_strings.txt:00356f20`，len=35）：`Content to write, append, or insert`
+- file_write 参数（`app_so_full_strings.txt:0038c220`，len=50）：`Text to find and replace (for "replace" operation)`
+- file_write 参数（`app_so_full_strings.txt:00472a10`，len=41）：`New text for replace or insert operations`
+- file_write 参数（含 insert position 枚举）（`app_so_full_strings.txt:004791a0`，len=49）：`Where to insert: "start", "end", or "after_line"r`
+- file_write 参数（`app_so_full_strings.txt:00466900`，len=75）：`Line number after which to insert (for "insert" with position "after_line")`
+- file_write 参数（`app_so_full_strings.txt:00285020`，len=38）：`Start line number for delete (1-based)`
+- file_write 参数（`app_so_full_strings.txt:00482ff0`，len=47）：`End line number for delete (1-based, inclusive)`
+- replace_all 参数（`app_so_full_strings.txt:0033c340`，len=108）：`For "replace" operation: if true, replace ALL occurrences; if false (default), replace first occurrence only`
+- 校验文案（`app_so_full_strings.txt:0043d690`，len=25）：`Invalid after_line number`
+- terminal timeout 参数（`app_so_full_strings.txt:004246b0`，len=61）：`Optional timeout in milliseconds. Default 120000, max 600000.`
+- terminal workdir 参数（`app_so_full_strings.txt:00465ac0`，len=106）：`Optional working directory, relative to the current project root. Use this instead of `cd <dir> && <cmd>`.`
+- terminal args 参数（`app_so_full_strings.txt:0048b9e0`，len=77）：`Optional arguments for the command. Use this for script paths and parameters.`
+- terminal command 参数（`app_so_full_strings.txt:00376c10`，len=22）：`The command to execute`
+- question 参数（`app_so_full_strings.txt:002ac300`，len=25）：`Questions to ask the user`
+- question 参数（`app_so_full_strings.txt:0035b020`，len=37）：`The complete question to ask the user`
+- question 参数（`app_so_full_strings.txt:004a3570`，len=124）：`The available choices for this question. Must have 2-4 options. Each option should be a distinct, mutually exclusive choice.`
+- question 参数（`app_so_full_strings.txt:00400410`，len=77）：`Set to true to allow the user to select multiple options instead of just one.`
+- create_project 参数（`app_so_full_strings.txt:00482b70`，len=46）：`The name of the new novel project (book title)`
+- skill 参数（`app_so_full_strings.txt:00408770`，len=68）：`The skill name exactly as shown in Available Skills, or the skill ID`
+- skill 参数（短版）（`app_so_full_strings.txt:00408770`，len=68）：`The skill name exactly as shown in Available Skills, or the skill ID`
+- skill 命名规范（`app_so_full_strings.txt:003eb1a0`，len=151）：`Skill name in English, lowercase with hyphens (e.g. "novel-reviewer", "translation-helper"). English names avoid path encoding issues across platforms.`
+- update_skill 参数（`app_so_full_strings.txt:00423630`，len=94）：`New full SKILL.md content (including --- frontmatter). Use this to update the main skill file.`
+- update_skill 参数（`app_so_full_strings.txt:00450b40`，len=88）：`Content for the reference file. Required when reference_name is provided without delete.`
+- update_skill 参数（`app_so_full_strings.txt:003a7630`，len=149）：`With reference_name: delete that single resource file. Without reference_name: delete (uninstall) the whole skill. Built-in skills cannot be deleted.`
+- skill 资源路径参数（`app_so_full_utf16.txt:003d1438`，len=425）：`Path of the bundled resource to create, update or delete, relative to the skill root. Use scripts/... for executable helpers, references/... for documents, or assets/... for output resources. Nested paths are supported. TIP: prefer the full path with directory prefix (e.g. "references/rule.md", "scripts/helper.py") — a bare filename is resolved by basename match, which may fail if the file sits in an unexpected directory.`
+- 路径参数（`app_so_full_strings.txt:002734f0`，len=114）：`File or directory path. Relative paths resolve against the current project root; absolute paths are also accepted.`
+- offset 参数（`app_so_full_strings.txt:00256d70`，len=87）：`Pagination start. read: 1-based line number (default 1). list: entry index (default 0).`
+- limit 参数（`app_so_full_strings.txt:0025fb80`，len=97）：`Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).r`
 
 ---
 
@@ -910,4 +1010,218 @@ b"`O/f\x00N*N\x1bR\x0fa\x0f\\\xf4\x8b\x99Q\\O\xa9RKb\x020`O\xefS\xe5N\xfb\x8b\xd
 - `utf16_objects_all.txt:003d6a98`：{"info":"抽卡对比模式下无法交互提问，请直接创作"}
 - `app_so_full_strings.txt:0034cc50`：Unknown operation: 
 - `app_so_full_strings.txt:00257670`：Unsupported operation: 
+
+---
+
+## 6. 未找到 / 不确定项（NOT FOUND 清单）
+
+> 本章是**必读**部分：上面每一节只写「找到了什么」，本章写「**什么没找到、什么不敢下结论**」。
+> 严禁把本章条目当常识补全。
+
+### 6.1 工具描述串：NOT FOUND
+
+| 工具 | 缺口 | 检索范围 | 结论 |
+|---|---|---|---|
+| `edit_file` | 工具描述全文 | 全库 7 个层（含 Android APK 层） | **NOT FOUND** |
+| `file_read` | 独立 operation/mode 枚举之外的语义说明 | 同上 | 仅找到枚举串，无更详细描述 |
+
+`edit_file` 的完整检索证据：`edit_file` 在 `app_so_full_strings.txt` 只命中 1 条，
+即 `app_so_full_strings.txt:00371250`，内容恰好为工具名 `edit_file`；
+`WIN_app.so.strings.txt:00371250` 同为唯一命中。`zh_ui_strings.txt`、`utf16_objects_all.txt`、
+`utf16_objects_zh.txt`、`APK_libapp.so.strings.txt` **零命中**。
+
+### 6.2 operation / action 枚举：部分 NOT FOUND
+
+| 工具 | 枚举项 | 状态 | 证据 |
+|---|---|---|---|
+| `file_read` | `read` / `list` | 已找到 | `app_so_full_strings.txt:002b2fd0` |
+| `file_write` | `write` / `append` / `replace` / `insert` / `delete_lines` | 已找到 | `app_so_full_strings.txt:00442010` |
+| `edit_file` | `write` / `append` / `replace` / `insert` / `delete_lines` | 与 file_write 同源 | `app_so_full_strings.txt:00442010` |
+| `file_manage` | `search` / `delete` / `rename` / `copy` | 已找到 | `app_so_full_strings.txt:0045c1c0` |
+| `file_write insert position` | `start` / `end` / `after_line` | 已找到 | `app_so_full_strings.txt:004791a0` |
+| `terminal` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `web_search` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `skill_lookup` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `create_skill` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `update_skill` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `create_project` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+| `question` | （无 operation 枚举） | **NOT FOUND**（无此参数） | — |
+
+### 6.3 参数描述串：NOT FOUND
+
+以下参数在 Dart schema 中存在**参数名**（如 `path` / `content` / `operation`），
+但本次**未能找到任何以它们为主语的描述串**。已用下列候选词形逐一试检，全部 NOT FOUND：
+
+- `The operation to perform` → **NOT FOUND**
+- `Operation to perform` → **NOT FOUND**
+- `The file content` → **NOT FOUND**
+- `The path of the file` → **NOT FOUND**
+- `Absolute path of the file` → **NOT FOUND**
+- `The name of the skill` → **NOT FOUND**
+- `The new name` → **NOT FOUND**
+- `delete flag` → **NOT FOUND**
+- `Name of the new novel project` → **NOT FOUND**
+- `The directory` → **NOT FOUND**
+- `The target path` → **NOT FOUND**
+- `Source path` → **NOT FOUND**
+- `Destination path` → **NOT FOUND**
+
+**已找到的**参数描述串反证了这个缺口不是检索方式问题——同一批 schema 里
+`Content to write, append, or insert`、`File or directory path. ...` 等都能找到：
+
+- ✔ Content to write, append, or insert → `app_so_full_strings.txt:00356f20`
+- ✔ File or directory path. Relative paths resolve against the current project root → 
+
+因此结论是：`operation`、`path`、`content`（在 `file_write` 语境下）、`skill_name`
+这几个参数**很可能根本没有独立描述串**，其 schema 只写了名字与类型。
+**这是推断，不是逐字证据**，故列入本清单。
+
+### 6.4 尾随 `r` 现象：未决项（本规格最重要的不确定点）
+
+| 项 | 状态 |
+|---|---|
+| `path is requiredr` | ⚠ **未决**：原始文件逐字如此，但可能是提取伪影 |
+| `name is requiredr` | ⚠ **未决**：同上 |
+| `ai_run_completedr` | ⚠ **未决**：同上 |
+| `Where to insert: "start", "end", or "after_line"r` | ⚠ **未决**：同上 |
+
+量化：`app_so_full_strings.txt` 中「以 `r` 结尾且含空格」的散文式记录共 **179 条**，
+其中大量是 Flutter 框架串（`Assertion failedr`、`Connection resetr`、`Payment Requiredr`、
+`Afficher le menur` …），与 OpenWrite 无关。
+
+**未能解决的原因**：需要 Dart 字符串池解码或 `kernel_blob.bin` 反编译才能定论，
+本次只做字符串层提取，**没有**做这一层，故不下结论。
+
+**给 writerD 的行动项**：按不带 `r` 的形态实现，并在 ADR 记录本项与本节的依据。
+
+### 6.5 系统提示词：已找到主体，但整体拼装顺序不确定
+
+| 项 | 状态 |
+|---|---|
+| 默认系统提示词 116 字主体 | ✔ 已逐字恢复（§4.1） |
+| 该 116 字在 `reference/` 任一文件中的记录 | ✘ **NOT FOUND**（提取器模型不覆盖） |
+| 该提示词**完整的**运行时拼装结果（各段顺序、每段间换行） | ⚠ **不确定** |
+| `- 用中文输出。` 是否属于同一提示词 | ⚠ **不确定**（中间隔着 4 条 1 字符记录） |
+| 提示词注入「工具说明」的具体段落 | ✘ **NOT FOUND**（只有 `已启用（…用法详见工具说明）` 这类引用） |
+
+已确认存在的相关片段（逐字，供后续拼装）：
+
+- 你是一个创意小说写作助手。你可以读取和写入小说项目目录中的文件。当用户要求你写作 → **reference/ 中 NOT FOUND**；原始字节偏移 `app.so:0x002498f0`（本次恢复）
+- `- 用中文输出。` → `app_so_full_utf16.txt:00249b38`, `zh_ui_strings.txt:00249b38`, `utf16_objects_all.txt:00249b38`
+- `已启用（web_search 工具可用）` → `app_so_full_utf16.txt:003b2038`, `zh_ui_strings.txt:003b2038`, `utf16_objects_all.txt:003b2038`
+- `已启用（rank_data_query 工具可用，用法详见工具说明）` → `app_so_full_utf16.txt:002abc18`, `zh_ui_strings.txt:002abc18`, `utf16_objects_all.txt:002abc18`
+
+### 6.6 技能注入格式：结构已知，细节不确定
+
+| 项 | 状态 |
+|---|---|
+| `## Available Skills` 块头 | ✔ 逐字（`0039d178`） |
+| `<available_skills>` 开标签 | ✔ 逐字（含在块头串末） |
+| `</available_skills>` 闭标签 | ✔ 逐字（`0041d201`） |
+| `  <skill>` / `    <name>` / `</name>` / `    <description>` / `</description>` / `  </skill>` | ✔ 六个片段均逐字 |
+| 六片段之间的**换行** | ⚠ **不确定**：六条片段**自身不含 `\n`**，组合时是否插换行无逐字证据 |
+| 缩进空格数 | ✔ 由片段自带（`  <skill>` 前 2 空格、`    <name>` 前 4 空格） |
+| 技能条目的字段是否仅 name + description | ⚠ **不确定**：只找到这两个字段标签 |
+| 标签是否 XML 转义技能描述里的特殊字符 | ✘ **NOT FOUND**（无相关文案） |
+
+### 6.7 事件名：NOT FOUND
+
+| 项 | 状态 |
+|---|---|
+| `ai_run_finished` | ✘ **NOT FOUND** |
+| `ai_error` | ✘ **NOT FOUND** |
+| `ai_thinking_completed` | ✘ **NOT FOUND** |
+| `ai_text_completed` | ✘ **NOT FOUND** |
+| `ai_tool_failed` | ✘ **NOT FOUND** |
+| `ai_run_failed` | ✘ **NOT FOUND** |
+
+全库正则 `\bai_[a-z_]{3,40}\b` 的**完整**命中集（共 10 条，无遗漏）：
+
+- `ai_cleanup_completed` → `app_so_full_strings.txt:002acfb0`
+- `ai_tool_completed` → `app_so_full_strings.txt:002efde0`
+- `ai_run_completedr` → `app_so_full_strings.txt:00322ef0`
+- `ai_cleanup_started` → `app_so_full_strings.txt:0035f260`
+- `ai_thinking_started` → `app_so_full_strings.txt:0036bc30`
+- `ai_tool_calls_received` → `app_so_full_strings.txt:00391ce0`
+- `ai_text_started` → `app_so_full_strings.txt:003b8520`
+- `ai_run_started` → `app_so_full_strings.txt:0043c3a0`
+- `ai_tool_started` → `app_so_full_strings.txt:00462b40`
+- `ai_file_write_` → `app_so_full_strings.txt:004a5160`
+
+> 注意：`ai_*` 事件名的**绑定方式**（Dart 侧 `EventChannel` 名 vs 普通字符串常量）
+> **NOT FOUND**——本次只做字符串层，未做代码引用分析。
+
+### 6.8 CONTRACT.md 引用但原始文件中不存在的工具文案
+
+以下文案被 `CONTRACT.md §4` 引用为逐字证据，但**全库检索不到**：
+
+| 文案 | CONTRACT 出处 | 检索结论 |
+|---|---|---|
+| `直接调用 file_write 工具` | CONTRACT.md §4.1 表格 | ✘ **NOT FOUND** |
+| `create_skill 工具保存` | CONTRACT.md §4.1 表格 | ✘ **NOT FOUND** |
+| `update_skill 更新` | CONTRACT.md §4.1 表格 | ✘ **NOT FOUND** |
+| `使用 question 工具询问` | CONTRACT.md §4.1 表格（全句形态不存在） | ✘ **NOT FOUND** |
+| `【高危命令】命中内置风险词表，请逐字核对命令内容后再允许` | CONTRACT.md §4.5 | ✘ **NOT FOUND** |
+
+逐条说明：
+
+- `直接调用 file_write 工具`：`file_write 工具` 只命中 `交互式编辑器，请用 file_write 工具写文件`
+  （`app_so_full_utf16.txt:003a7e38`），**不是** `直接调用` 句式。
+- `create_skill 工具保存` / `update_skill 更新`：全库无此二句式。
+- `使用 question 工具询问`：作为**完整句**不存在；`question` 一词在
+  `app_so_full_utf16.txt:003982e8`（skill-creator 技能正文，len=3867）中出现，
+  但那是技能文档正文，不是 CONTRACT 引用的提示语句式。
+- `【高危命令】…`：全库连子串「高危命令」「内置风险词表」「命中内置」都**零命中**。
+
+**这一节的结论请优先于 CONTRACT.md**：CONTRACT 这几条属转述而非逐字引用，
+writerD 不应以它们为逐字真源。
+
+### 6.9 覆盖缺口：reference 文件本身丢了什么
+
+| 缺口 | 影响 | 本次是否补上 |
+|---|---|---|
+| `WIN_app.so.strings.txt` 把 ASCII 串截断到 400 字节 | 长描述串中间段落丢失 | ✔ 已用 `app_so_full_strings.txt` 补上 |
+| `utf16_objects_all.txt` 的对象头模型漏采 | 系统提示词整条丢失 | ✔ 已用原始字节解码补上 |
+| Android APK 层（`APK_libapp.so.strings.txt`） | 12 个工具名 **零命中** | ✘ 未在 APK 层找到任何工具文案 |
+
+受 400 字节截断影响的**业务文案**只有 2 条，均已在 §2 用全文给出：
+
+| 文案 | reference 文件长度 | 真实长度 | 丢失内容 |
+|---|---|---|---|
+| `terminal` 工具描述（`003c7980`） | 401 | 612 | 中间 211 字符 |
+| `create_skill` 的 resources 参数描述（`00248820`） | 401 | 433 | 尾部 32 字符 |
+
+`create_skill` 该参数被截断后缺的尾句（本次补全）为：
+
+- `app_so_full_strings.txt:00248820`（len=433，全文）
+
+其余 12 条长度 401 的记录都是 Flutter / Office OpenXML 噪声（`<w:numbering …>`、
+`<a:fillStyleLst …>`、`^ {0,3}(?:<(?<condition_1>…` 等），**不是**业务文案。
+
+### 6.10 其他确定未找到的项
+
+| 检索项 | 结论 |
+|---|---|
+| `edit_file` 的 operation 独立枚举串 | ✘ NOT FOUND（只有与 file_write 共用的描述串） |
+| 工具 schema 的 JSON 字面量（如 `"name":"file_read"`） | ✘ NOT FOUND（Flutter AOT 不保留 JSON） |
+| `skill_lookup` 的 operation 枚举 | ✘ NOT FOUND |
+| `web_search` 的 operation 枚举 | ✘ NOT FOUND |
+| `question` 的 operation 枚举 | ✘ NOT FOUND |
+| `create_project` 的 operation 枚举 | ✘ NOT FOUND |
+| 技能注入的 XML 转义规则 | ✘ NOT FOUND |
+| `## Available Skills` 之后、`<available_skills>` 之前的换行数 | ✔ 逐字（块头串内为 `\n\n`） |
+
+### 6.11 统计汇总
+
+| 项 | 计数 |
+|---|---|
+| 任务指定工具数 | 12 |
+| 找到工具描述全文的工具 | 11（缺 `edit_file`） |
+| 找到 operation/枚举的工具 | 4（`file_read`、`file_write`、`edit_file` 同源、`file_manage`） |
+| 校验文案（exact match，去重后） | 24 条英文（§3.1 的 18 + §3.2 的 6）+ 5 条中文片段 |
+| 参数描述串（本次累计找到） | 30+ 条（见 §3.7 与各工具节） |
+| 流式事件名 | 9 条（任务给 6 条全中，另加 3 条） |
+| 错误分类文案 | 9 条，全部 EXACT 命中 |
+| `NOT FOUND` 明确项 | 20 条 |
+| ⚠ 未决项 | 6 条（4 条尾随 `r` + 拼装顺序 + 注入换行） |
 

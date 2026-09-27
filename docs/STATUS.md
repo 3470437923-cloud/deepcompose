@@ -17,10 +17,10 @@
 | 闸门 | 命令 | 当前实测 |
 |---|---|---|
 | TS 类型 | `.\node_modules\.bin\tsc.cmd --noEmit` | **exit 0** |
-| 单元测试 | `.\node_modules\.bin\vitest.cmd run` | **11 passed / 1 file**（2026-09-28） |
-| 前端构建 | `.\node_modules\.bin\vite.cmd build` | **成功**，dist 约 251 KB JS + 17 KB CSS |
-| Rust 构建 | `cd src-tauri; cargo build --release` | **exit 0**（约 2 分钟） |
-| 真机渲染 | `tools\capture.ps1` + 像素采样 | ✅ 标题栏 48px、三栏 220/1492/208 全部命中预期色值 |
+| 单元测试 | `.\node_modules\.bin\vitest.cmd run` | **55 passed / 4 files**（2026-09-28） |
+| 前端构建 | `.\node_modules\.bin\vite.cmd build` | **成功**，dist 约 300 KB JS + 17 KB CSS |
+| Rust 构建 | `cd src-tauri; cargo build --release` | **exit 0**（约 1m40s） |
+| 真机渲染 | `tools\capture.ps1` + 像素采样 | ✅ 标题栏 48px、三栏 220/1492/208、右栏列出 4 部真实作品 |
 
 > 渲染验收法（无头环境可用）：
 > 1. 无头 Edge 探针（`msedge --headless=new --dump-dom`）量 DOM 盒模型；
@@ -40,10 +40,22 @@
   - `src/core/fsbridge.ts`：文件系统桥（Tauri IPC ↔ 测试替身）
   - `src/core/dirs.ts`：目录权威（作品目录协议、应用数据、配置、回收站）
   - `src/core/ids.ts`：ID 与时间戳（逐字对齐真机格式）
-  - `src/core/store/manifest.ts`：`.openwrite_manifest.json` 读写（含真机样本回归锁）
+  - `src/core/prefs.ts`：43 键同构配置模型（商业化键永不写出）
+  - `src/core/app.ts`：启动装配（桥 + 目录 + 配置）
+  - `src/core/store/manifest.ts`：`.openwrite_manifest.json`
+  - `src/core/store/markdown.ts`：维护文档行级编辑（保留原始 EOL，格式优先回归锁）
+  - `src/core/store/chapter.ts`：中文/全角章号解析与数值排序
+  - `src/core/store/project.ts`：作品扫描/新建/文档与章节索引
+  - `src/core/store/snapshot.ts`：写前快照（格式逐字对齐真机）
 - **D 规格层**
   - `docs/spec/PREFS.md`：配置模型全键清单（43 键，含切除清单、AI 键、结构化键）
-  - 更正 CONTRACT「442 键」为 43 键（ADR-003）
+  - `docs/spec/TOOLS.md`：工具层逐字规格（1,227 行，12 工具 + 18 条校验文案 + 9 个流式事件 + NOT FOUND 清单）
+  - 更正 CONTRACT「442 键」为 43 键（ADR-003）、5 条伪逐字引用（ADR-004）
+- **E 可用功能（真机可跑）**
+  - 作品列表从真实作品根读取；打开作品后列出 `小说资料\*` 与 `章节内容\*`
+  - 章节/资料在编辑器打开、编辑、`Ctrl+S` 保存、字数统计、未保存标记
+  - 新建作品（生成三件套 + manifest，布局与真机逐字节对齐）
+  - 无边框窗口自绘标题栏（最小化/最大化/关闭已接线）
 
 ## 3. 下一步（按依赖排序）
 

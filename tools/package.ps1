@@ -15,6 +15,14 @@ $rel  = Join-Path $root "release"
 $dst  = Join-Path $rel "writerD.exe"
 $lnk  = Join-Path ([Environment]::GetFolderPath("Desktop")) "writerD.lnk"
 
+# The linker cannot replace a running exe; kill leftovers from earlier captures.
+$running = Get-Process -Name writerd -ErrorAction SilentlyContinue
+if ($running) {
+    Write-Output ("[0/4] stopping {0} running writerd process(es)" -f $running.Count)
+    $running | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
 if (-not $SkipBuild) {
     Write-Output "[1/4] vite build"
     Push-Location $root
