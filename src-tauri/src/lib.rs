@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+mod ai;
 mod fs;
 mod sys;
 
@@ -36,6 +37,7 @@ pub fn run() {
             fs::fs_rename,
             fs::fs_copy,
             fs::fs_stat,
+            ai::ai_stream,
         ])
         .run(tauri::generate_context!())
         .expect("writerD 启动失败");

@@ -224,12 +224,15 @@ function parseJsonField<T>(v: unknown, def: T): T {
   }
 }
 
-/** 解析配置原文（容错：缺失/类型不符一律回落默认值，绝不抛） */
+/** 解析配置原文（容错：BOM / 缺失 / 类型不符一律回落默认值，绝不抛） */
 export function parsePrefs(text: string): Prefs {
   let raw: Record<string, unknown> = {};
-  if (text && text.trim()) {
+  // 去掉 UTF-8 BOM：外部编辑器与 Windows PowerShell 都可能写进 BOM，
+  // 而 JSON.parse 遇到 BOM 会直接抛错（曾导致整份配置被静默忽略）。
+  const cleaned = text.replace(/^\uFEFF/, "");
+  if (cleaned.trim()) {
     try {
-      const parsed: unknown = JSON.parse(text);
+      const parsed: unknown = JSON.parse(cleaned);
       if (parsed && typeof parsed === "object") raw = parsed as Record<string, unknown>;
     } catch {
       raw = {};

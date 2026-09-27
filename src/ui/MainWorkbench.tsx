@@ -14,6 +14,17 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
+import { createTauriTransport } from "../core/ai/transport";
+import { reloadIndex, send as sendChat } from "../core/ai/controller";
+import type { AgentEvent } from "../core/ai/agent";
+import type { QuestionItem } from "../core/tools/exec";
+import {
+  listSessions,
+  loadSession,
+  newSession,
+  type SessionFile,
+  type SessionListEntry,
+} from "../core/store/session";
 
 interface OpenTab {
   /** 相对作品根路径（'\\' 分隔） */
@@ -30,6 +41,16 @@ export function countWords(text: string): number {
   return text.replace(/\s/g, "").length;
 }
 
+/** 从工具结果 JSON 里取出错误文案（渲染用） */
+export function extractError(result: string): string {
+  try {
+    const j = JSON.parse(result) as { error?: string };
+    return j.error ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +62,23 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [status, setStatus] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // ── 对话状态 ──
+  const [session, setSession] = useState<SessionFile | null>(null);
+  const [sessions, setSessions] = useState<SessionListEntry[]>([]);
+  const [composer, setComposer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [streamText, setStreamText] = useState("");
+  const [streamThink, setStreamThink] = useState("");
+  const [toolLog, setToolLog] = useState<{ name: string; status: "run" | "ok" | "bad" }[]>([]);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [pending, setPending] = useState<{
+    items: QuestionItem[];
+    resolve: (a: string[][]) => void;
+  } | null>(null);
+  const [qSel, setQSel] = useState<Record<number, string[]>>({});
+  const chatBottom = useRef<HTMLDivElement | null>(null);
+  const transport = useMemo(() => createTauriTransport(), []);
 
   const dirs = currentBoot()?.dirs ?? null;
 
@@ -168,6 +206,107 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const win = getCurrentWindow();
 
+  const refreshSessions = useCallback(async () => {
+    const b = currentBoot();
+    if (!b) return;
+    const idx = await reloadIndex(b.dirs);
+    setSessions(listSessions(idx, project?.ref.root ?? null));
+  }, [project]);
+
+  useEffect(() => {
+    void refreshSessions();
+  }, [refreshSessions]);
+
+  /** question 工具 → 界面弹窗 */
+  const askQuestions = useCallback(
+    (items: QuestionItem[]) =>
+      new Promise<string[][]>((resolve) => {
+        setQSel({});
+        setPending({ items, resolve });
+      }),
+    [],
+  );
+
+  const onAgentEvent = useCallback((e: AgentEvent) => {
+    switch (e.type) {
+      case "thinking_delta":
+        setStreamThink((t) => t + e.text);
+        break;
+      case "text_delta":
+        setStreamText((t) => t + e.text);
+        break;
+      case "tool_started":
+        setToolLog((l) => [...l, { name: e.call.name, status: "run" }]);
+        break;
+      case "tool_completed":
+        setToolLog((l) => {
+          const next = [...l];
+          const i = next.findIndex((x) => x.name === e.call.name && x.status === "run");
+          const bad = (e.call.result ?? "").includes('"error"');
+          if (i >= 0) next[i] = { name: e.call.name, status: bad ? "bad" : "ok" };
+          return next;
+        });
+        break;
+      case "error":
+        setChatError(e.message);
+        break;
+      default:
+        break;
+    }
+  }, []);
+
+  const doSend = useCallback(async () => {
+    const b = currentBoot();
+    const text = composer.trim();
+    if (!b || text === "" || busy) return;
+    setBusy(true);
+    setChatError(null);
+    setStreamText("");
+    setStreamThink("");
+    setToolLog([]);
+    setComposer("");
+    try {
+      const res = await sendChat({
+        dirs: b.dirs,
+        prefs: b.prefs,
+        session,
+        projectRoot: project?.ref.root ?? null,
+        userText: text,
+        transport,
+        onEvent: onAgentEvent,
+        askQuestions,
+      });
+      setSession(res.session);
+      if (res.error) setChatError(res.error);
+      await refreshSessions();
+      if (project) {
+        const fs = getFs();
+        setProject(await loadProject(fs, project.ref.root, project.ref.name));
+      }
+    } catch (err) {
+      setChatError(String(err));
+    } finally {
+      setBusy(false);
+      setStreamText("");
+      setStreamThink("");
+      setToolLog([]);
+    }
+  }, [composer, busy, session, project, transport, onAgentEvent, askQuestions, refreshSessions]);
+
+  const openSession = useCallback(async (id: string) => {
+    const b = currentBoot();
+    if (!b) return;
+    const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
+    if (s) setSession(s);
+  }, []);
+
+  const answerPending = useCallback(() => {
+    if (!pending) return;
+    const answers = pending.items.map((_, i) => qSel[i] ?? []);
+    pending.resolve(answers);
+    setPending(null);
+  }, [pending, qSel]);
+
   if (error) {
     return (
       <div className="fitter">
@@ -234,9 +373,26 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   </button>
                 </div>
                 <div className="b-day">今天</div>
-                <div className="b-status" style={{ position: "absolute", top: 130, left: 12, right: 12 }}>
-                  {ready ? "AI 对话将在下一批接入" : "加载中…"}
-                </div>
+                {sessions.slice(0, 12).map((s, i) => (
+                  <button
+                    key={s.id}
+                    className={session?.id === s.id ? "b-conv on" : "b-conv"}
+                    style={{ top: `${130 + i * 32}px` }}
+                    title={s.title}
+                    onClick={() => void openSession(s.id)}
+                  >
+                    <em style={{ fontStyle: "normal" }}>{s.title}</em>
+                    <span>{s.userMessageCount} 条</span>
+                  </button>
+                ))}
+                <button
+                  className="b-conv"
+                  style={{ top: `${130 + Math.min(sessions.length, 12) * 32}px` }}
+                  onClick={() => setSession(newSession(project?.ref.root ?? ""))}
+                >
+                  <em style={{ fontStyle: "normal" }}>＋ 新对话</em>
+                  <span>空会话</span>
+                </button>
                 <div className="b-user">
                   <div className="b-user-avatar">
                     <svg viewBox="0 0 20 20" className="ic-fill">
@@ -324,38 +480,53 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   ))}
                 </div>
 
-                {activeTab ? (
-                  <div className="b-editor">
-                    <div className="b-editor-body" style={{ width: "100%" }}>
-                      <h1>
-                        <span className="hash">#</span>
-                        {activeTab.name.replace(/\.md$/i, "")}
-                      </h1>
-                      <textarea
-                        ref={editorRef}
-                        value={activeTab.content}
-                        onChange={(e) => editContent(e.target.value)}
-                        spellCheck={false}
-                        style={{
-                          width: "100%",
-                          height: 720,
-                          marginTop: 12,
-                          resize: "none",
-                          fontFamily: "inherit",
-                          fontSize: 15,
-                          lineHeight: 1.9,
-                          background: "transparent",
-                        }}
-                      />
-                    </div>
+                {session && session.messages.length > 0 ? (
+                  <div className="chat-list">
+                    {session.messages.map((m) => (
+                      <div key={m.id} className={m.role === "user" ? "msg user" : "msg"}>
+                        <div className="who">{m.role === "user" ? "我" : "writerD"}</div>
+                        {m.thinking ? <div className="think">{m.thinking}</div> : null}
+                        {m.text ? <div className="body">{m.text}</div> : null}
+                        {(m.toolCalls ?? []).map((t) => {
+                          const bad = (t.result ?? "").includes('"error"');
+                          return (
+                            <div key={t.callId} className="tool-line">
+                              {t.name} {bad ? <span className="bad">✕</span> : <span className="ok">✓</span>}
+                              {bad ? " " + extractError(t.result ?? "") : ""}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    {toolLog.map((t, i) => (
+                      <div key={`live-${i}`} className="tool-line">
+                        {t.name}{" "}
+                        {t.status === "run" ? (
+                          "…"
+                        ) : t.status === "ok" ? (
+                          <span className="ok">✓</span>
+                        ) : (
+                          <span className="bad">✕</span>
+                        )}
+                      </div>
+                    ))}
+                    {streamThink ? <div className="think">{streamThink}</div> : null}
+                    {streamText ? (
+                      <div className="msg">
+                        <div className="who">writerD（生成中）</div>
+                        <div className="body">{streamText}</div>
+                      </div>
+                    ) : null}
+                    {chatError ? <div className="err-line">{chatError}</div> : null}
+                    <div ref={chatBottom} />
                   </div>
-                ) : (
+                ) : activeTab ? null : (
                   <div className="b-hero">
                     <div className="b-hero-logo">
                       <img src={logo} alt="" />
                     </div>
                     <h2>writerD</h2>
-                    <p>从右侧目录打开一份资料或章节开始写作</p>
+                    <p>从右侧目录打开一份资料或章节，或在下方直接对 AI 说话</p>
                     <div className="b-hero-actions">
                       <button className="hbtn" onClick={newProject}>
                         <svg viewBox="0 0 20 20" className="ic">
@@ -374,6 +545,65 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     </div>
                   </div>
                 )}
+
+                {activeTab ? (
+                  <div className="b-editor">
+                    <div className="b-editor-body" style={{ width: "100%" }}>
+                      <h1>
+                        <span className="hash">#</span>
+                        {activeTab.name.replace(/\.md$/i, "")}
+                      </h1>
+                      <textarea
+                        ref={editorRef}
+                        value={activeTab.content}
+                        onChange={(e) => editContent(e.target.value)}
+                        spellCheck={false}
+                        style={{
+                          width: "100%",
+                          height: 620,
+                          marginTop: 12,
+                          resize: "none",
+                          fontFamily: "inherit",
+                          fontSize: 15,
+                          lineHeight: 1.9,
+                          background: "transparent",
+                        }}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="b-composer">
+                  <textarea
+                    className="composer-input"
+                    value={composer}
+                    placeholder="写下你的故事…（Enter 发送，Shift+Enter 换行）"
+                    onChange={(e) => setComposer(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void doSend();
+                      }
+                    }}
+                  />
+                  <div className="b-comp-row">
+                    <button
+                      className="cbtn plain"
+                      onClick={() => setSession(newSession(project?.ref.root ?? ""))}
+                    >
+                      新对话
+                    </button>
+                    {busy ? <span className="cbtn plain">生成中…</span> : null}
+                    {!currentBoot()?.prefs.apiKey ? (
+                      <span className="cbtn plain">未配置 API Key（设置 → AI 提供商）</span>
+                    ) : null}
+                    <button className="b-send" title="发送" onClick={() => void doSend()} disabled={busy}>
+                      <svg viewBox="0 0 24 24" className="ic">
+                        <path d="M3.4 11.2L20.4 3.2l-7.8 17-2.2-6.8-7-2.2z" fill="currentColor" stroke="none" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
 
                 <div className="b-status">
                   <span>{activeTab ? `文章总字数：${countWords(activeTab.content)} 字` : status}</span>
@@ -485,6 +715,47 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 ) : null}
               </div>
             </div>
+
+            {pending ? (
+              <div className="qmodal">
+                <div className="qbox">
+                  {pending.items.map((q, qi) => (
+                    <div key={qi} style={{ marginBottom: 16 }}>
+                      <h3>
+                        {q.question}
+                        {q.multi_select ? "（可多选）" : ""}
+                      </h3>
+                      {q.options.map((o) => {
+                        const on = (qSel[qi] ?? []).includes(o.label);
+                        return (
+                          <button
+                            key={o.label}
+                            className={on ? "qopt on" : "qopt"}
+                            onClick={() =>
+                              setQSel((s) => {
+                                const cur = s[qi] ?? [];
+                                const next = q.multi_select
+                                  ? cur.includes(o.label)
+                                    ? cur.filter((x) => x !== o.label)
+                                    : [...cur, o.label]
+                                  : [o.label];
+                                return { ...s, [qi]: next };
+                              })
+                            }
+                          >
+                            {o.label}
+                            {o.description ? <span className="d">{o.description}</span> : null}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  <button className="qsubmit" onClick={answerPending}>
+                    提交
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

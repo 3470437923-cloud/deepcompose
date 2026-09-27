@@ -90,6 +90,12 @@ describe("配置解析", () => {
     expect(parsePrefs("[]")).toEqual(DEFAULT_PREFS);
   });
 
+  it("带 UTF-8 BOM 的配置仍能解析（Windows PowerShell 写文件会带 BOM）", () => {
+    const withBom = "\uFEFF" + JSON.stringify({ "flutter.model": "deepseek-v4-pro" });
+    expect(parsePrefs(withBom).model).toBe("deepseek-v4-pro");
+    expect(parsePrefs("\uFEFF" + REAL_SHAPE).apiKey).toBe("PLACEHOLDER");
+  });
+
   it("类型不符时回落默认值（不做隐式转换）", () => {
     const p = parsePrefs(JSON.stringify({ "flutter.temperature": "0.8", "flutter.panel_chat_width": true }));
     expect(p.temperature).toBe(DEFAULT_PREFS.temperature);
