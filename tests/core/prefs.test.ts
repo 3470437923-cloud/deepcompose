@@ -1,0 +1,139 @@
+/**
+ * 配置模型：键名与真机同构、商业化键永不写出、novel_projects 为 '\n' 分隔。
+ * 样本值取自 docs/spec/PREFS.md 的实测值（敏感值一律用占位串）。
+ */
+import { describe, expect, it } from "vitest";
+import {
+  DEFAULT_PREFS,
+  DEFAULT_SYSTEM_PROMPT,
+  accentHex,
+  activeProvider,
+  parsePrefs,
+  serializePrefs,
+} from "../../src/core/prefs";
+
+/** 真机同构样本：键名逐字，密钥/手机号用占位 */
+const REAL_SHAPE = JSON.stringify({
+  "flutter.llm_base_url": "https://newapi.example.cn",
+  "flutter.api_key": "PLACEHOLDER",
+  "flutter.model": "deepseek-v4-pro",
+  "flutter.temperature": 0.8,
+  "flutter.context_limit": 1000000,
+  "flutter.use_anthropic_format": false,
+  "flutter.reserved_output_tokens": 16000,
+  "flutter.auto_clear_context": true,
+  "flutter.saved_providers": JSON.stringify([
+    { name: "公益模型", baseUrl: "https://a.example", apiKey: "PLACEHOLDER", model: "m1", useAnthropicFormat: false },
+    { name: "OpenWrite", baseUrl: "https://newapi.example.cn", apiKey: "PLACEHOLDER", model: "deepseek-v4-pro", useAnthropicFormat: false },
+  ]),
+  "flutter.panel_session_width": 220.0,
+  "flutter.panel_chat_width": 523.0,
+  "flutter.panel_directory_width": 200.0,
+  "flutter.panel_memo_width": 320.0,
+  "flutter.panel_show_session": true,
+  "flutter.panel_show_directory": true,
+  "flutter.panel_show_memo": false,
+  "flutter.skill_list": JSON.stringify([
+    {
+      id: "builtin_novel-writer",
+      name: "novel-writer",
+      description: "写小说时使用的技能。",
+      directoryPath: "C:\\Users\\X\\Documents\\skills\\novel-writer",
+      isBuiltIn: true,
+      marketplaceSkillId: null,
+      marketplaceVersion: null,
+    },
+  ]),
+  "flutter.active_skill_ids": JSON.stringify(["builtin_novel-writer"]),
+  "flutter.default_skills_initialized": true,
+  "flutter.custom_accent_color": 4286343935,
+  "flutter.is_dark_mode": true,
+  "flutter.chat_font_size": 15.0,
+  "flutter.editor_font_size": 15.0,
+  "flutter.novel_projects": "C:\\A\\书一\nC:\\A\\书二\n",
+  "flutter.current_novel_project": "C:\\A\\书二",
+  "flutter.webdav_config": JSON.stringify({ url: "", username: "", password: "", remotePath: "", lastSyncTime: "" }),
+  "flutter.vip_status": true,
+  "flutter.device_id": "SHOULD-NOT-LEAK",
+});
+
+describe("配置解析", () => {
+  it("逐字段读到真机键名对应的值", () => {
+    const p = parsePrefs(REAL_SHAPE);
+    expect(p.llmBaseUrl).toBe("https://newapi.example.cn");
+    expect(p.model).toBe("deepseek-v4-pro");
+    expect(p.temperature).toBe(0.8);
+    expect(p.contextLimit).toBe(1000000);
+    expect(p.useAnthropicFormat).toBe(false);
+    expect(p.reservedOutputTokens).toBe(16000);
+    expect(p.autoClearContext).toBe(true);
+    expect(p.savedProviders).toHaveLength(2);
+    expect(p.savedProviders[0].name).toBe("公益模型");
+    expect(p.panelChatWidth).toBe(523.0);
+    expect(p.panelShowMemo).toBe(false);
+    expect(p.skillList[0].id).toBe("builtin_novel-writer");
+    expect(p.skillList[0].isBuiltIn).toBe(true);
+    expect(p.activeSkillIds).toEqual(["builtin_novel-writer"]);
+    expect(p.customAccentColor).toBe(4286343935);
+    expect(p.chatFontSize).toBe(15.0);
+  });
+
+  it("novel_projects 按 '\\n' 拆分为绝对路径数组，忽略空行", () => {
+    const p = parsePrefs(REAL_SHAPE);
+    expect(p.novelProjects).toEqual(["C:\\A\\书一", "C:\\A\\书二"]);
+    expect(p.currentNovelProject).toBe("C:\\A\\书二");
+  });
+
+  it("空 / 损坏 JSON 回落默认值，不抛异常", () => {
+    expect(parsePrefs("")).toEqual(DEFAULT_PREFS);
+    expect(parsePrefs("{坏")).toEqual(DEFAULT_PREFS);
+    expect(parsePrefs("[]")).toEqual(DEFAULT_PREFS);
+  });
+
+  it("类型不符时回落默认值（不做隐式转换）", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.temperature": "0.8", "flutter.panel_chat_width": true }));
+    expect(p.temperature).toBe(DEFAULT_PREFS.temperature);
+    expect(p.panelChatWidth).toBe(DEFAULT_PREFS.panelChatWidth);
+  });
+
+  it("accentHex 把 0xAARRGGBB 转成 #RRGGBB", () => {
+    expect(accentHex(4286343935)).toBe("#7C6AFF");
+  });
+});
+
+describe("配置序列化", () => {
+  it("往返后语义一致（JSON 字段仍是字符串、novel_projects 仍是换行文本）", () => {
+    const p = parsePrefs(REAL_SHAPE);
+    const text = serializePrefs(p);
+    const raw = JSON.parse(text) as Record<string, unknown>;
+    expect(typeof raw["flutter.saved_providers"]).toBe("string");
+    expect(raw["flutter.novel_projects"]).toBe("C:\\A\\书一\nC:\\A\\书二");
+    expect(parsePrefs(text)).toEqual(p);
+  });
+
+  it("商业化键永不写出（即使源文件里有）", () => {
+    const text = serializePrefs(parsePrefs(REAL_SHAPE));
+    expect(text).not.toContain("vip_");
+    expect(text).not.toContain("device_id");
+    expect(text).not.toContain("SHOULD-NOT-LEAK");
+  });
+
+  it("写出的是单行 JSON", () => {
+    const text = serializePrefs(DEFAULT_PREFS);
+    expect(text.includes("\n")).toBe(false);
+  });
+
+  it("默认系统提示词非空且不逐字复制对标产品文案", () => {
+    expect(DEFAULT_SYSTEM_PROMPT.length).toBeGreaterThan(30);
+    expect(DEFAULT_SYSTEM_PROMPT).toContain("小说");
+  });
+});
+
+describe("当前供应商判定", () => {
+  it("baseUrl + model 同时匹配才算选中", () => {
+    const p = parsePrefs(REAL_SHAPE);
+    expect(activeProvider(p)?.name).toBe("OpenWrite");
+    const p2 = { ...p, model: "其他" };
+    expect(activeProvider(p2)).toBeNull();
+  });
+});
