@@ -12,6 +12,7 @@ import { IMPLEMENTED_TOOLS } from "../tools/spec";
 import { runAgent, type AgentEvent, type StreamTransport } from "./agent";
 import { AI_ERRORS } from "./errors";
 import { buildSystemPrompt } from "./prompt";
+import { maybeCompress } from "./compress";
 import type { ChatMessage, ProviderConfig } from "./protocol";
 import {
   loadIndex,
@@ -73,11 +74,30 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     enabledTools: ENABLED_TOOLS,
   });
 
+  // 上下文自动压缩（CONTRACT §6）：只影响发给 AI 的请求序列，会话记录保持完整
+  let requestMessages: ChatMessage[] = session.messages;
+  if (opts.prefs.autoClearContext) {
+    try {
+      const compressed = await maybeCompress({
+        cfg,
+        transport: opts.transport,
+        messages: session.messages,
+        contextLimit: opts.prefs.contextLimit,
+        reservedOutputTokens: opts.prefs.reservedOutputTokens,
+        sessionId: session.id,
+        onNotice: (m) => opts.onEvent?.({ type: "error", message: m }),
+      });
+      if (compressed) requestMessages = compressed.requestMessages;
+    } catch {
+      // 压缩失败不阻断对话：按完整上下文发送
+    }
+  }
+
   const result = await runAgent({
     cfg,
     systemPrompt,
     tools: IMPLEMENTED_TOOLS,
-    messages: session.messages,
+    messages: requestMessages,
     userText: opts.userText,
     transport: opts.transport,
     onEvent: opts.onEvent,
