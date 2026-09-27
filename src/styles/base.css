@@ -1,0 +1,149 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--bg-window);
+  color: var(--tx-1);
+  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC",
+    system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-size: 14px;
+  user-select: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+button:focus {
+  outline: none;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+}
+input:focus,
+textarea:focus {
+  outline: none;
+}
+
+svg {
+  display: block;
+}
+
+/* 图标基线（与 ui-mock.html 的 .ic 一致） */
+.ic {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ic-fill {
+  fill: currentColor;
+  stroke: none;
+}
+
+/* 启动态（M1 占位，界面铺开后移除） */
+.boot {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.boot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.boot-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 13px;
+  background: linear-gradient(160deg, #8b7bff 0%, #5f49ff 100%);
+}
+.boot h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #f2f2f7;
+}
+.boot p {
+  font-size: 12.5px;
+  color: var(--tx-3);
+}
+
+/* 应用外壳：窗口即画布，全屏填充无 padding。
+   reference/ui-mock.html 的 .stage / .win-frame / .switcher / body padding
+   是演示脚手架，已由 tools/convert_mock.py 在转换时剔除。
+   .win 改为跟随窗口尺寸（mock 硬编码 1920x1032 恰为屏幕工作区，
+   全屏最大化时二者等价；窗口化时内容区随窗口伸缩）。 */
+.app-shell {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background: var(--bg-window);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 定标：mock 画布 1920×1032 即真机窗口尺寸（CONTRACT §1/§2）。
+   画布尺寸固定，按窗口等比缩放（--fit 由 App.tsx 计算），
+   保证任何窗口尺寸下都与 mock/真机像素比例一致。
+   注意：.win-frame 是 mock 的中间层，其 CSS 已由 convert_mock.py 剔除，
+   必须在此补齐尺寸，否则 .win 的 height:100% 会因父级高度 auto 塌成
+   内容高度（48px 标题栏），再被 .win{overflow:hidden} 裁掉整个界面。 */
+.app-shell .fitter {
+  width: 1920px;
+  height: 1032px;
+  flex: none;
+  transform-origin: center center;
+  transform: scale(var(--fit, 1));
+}
+.app-shell .holder,
+.app-shell .win-frame,
+.app-shell .win {
+  width: 100%;
+  height: 100%;
+}
+
+/* 品牌标识：用户提供的 writerD logo（src/assets/logo.png，带透明通道）。
+   mock 的 .brand-mark 紫色渐变是 OpenWrite 的品牌占位，由本 logo 取代。 */
+.app-shell .brand-mark {
+  background: none;
+}
+.app-shell .brand-mark img,
+.app-shell .b-hero-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.app-shell .b-hero-logo {
+  background: none;
+}
+
+

@@ -1,0 +1,20 @@
+# 依赖与构建产物
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+
+# 参考基线大文件（体积大，不入库；保留在本机用于证据复核）
+OpenWrite-win-x64-Setup-*.exe
+OpenWrite-*.apk
+
+# 临时与捕获产物
+*.log
+_zoom_*.png
+_probe.html
+
+# Python 与规格提取的派生产物（脚本入库，派生 txt 不入库）
+__pycache__/
+*.pyc
+docs/spec/_extract/*.txt
+docs/spec/_extract/*.json
