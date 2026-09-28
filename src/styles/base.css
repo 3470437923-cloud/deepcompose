@@ -502,3 +502,55 @@ svg {
   font-size:13px;line-height:1.8;color:#E8E8F0;min-height:0;
 }
 .app-shell .memo-content:focus{border-color:#7C6AFF;outline:none}
+
+/* ──────────────────────────────────────────────────────────────
+   强调色跟随（真机口径：主题颜色变更时按钮/链接/选中态全部跟随）
+   screens.css 里的紫色是默认主题的硬编码；此处按 var(--accent) 覆盖，
+   base.css 后于 screens.css 加载，.app-shell 前缀保证优先级。
+   ────────────────────────────────────────────────────────────── */
+.app-shell .a-head-icon,
+.app-shell .boot-mark{
+  background:linear-gradient(160deg, var(--accent), color-mix(in srgb, var(--accent) 68%, #000));
+}
+.app-shell .b-send{
+  background:linear-gradient(160deg, var(--accent), color-mix(in srgb, var(--accent) 68%, #000));
+  box-shadow:0 6px 18px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.app-shell .b-user-avatar{
+  background:radial-gradient(circle at 50% 35%, var(--accent) 0%, color-mix(in srgb, var(--accent) 70%, #000) 70%);
+}
+.app-shell .qsubmit{background:var(--accent)}
+.app-shell .a-btn-primary{background:var(--accent)}
+.app-shell .a-btn-primary:hover{background:color-mix(in srgb, var(--accent) 88%, #fff)}
+.app-shell .a-btn-primary:disabled{background:var(--accent);opacity:.5}
+.app-shell .a-switch.on{background:var(--accent)}
+.app-shell .a-slider::-webkit-slider-thumb{background:var(--accent)}
+.app-shell .tbtn.on{color:var(--accent)}
+.app-shell .b-icon-btn.accent{color:var(--accent)}
+.app-shell .a-nav-item.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, #12121A)}
+.app-shell .a-nav-item.on .ic{color:var(--accent)}
+.app-shell .a-prow.on{color:var(--accent)}
+.app-shell .a-prow.on .ic{color:var(--accent)}
+.app-shell .tnode .folder{color:var(--accent)}
+.app-shell .a-toolbtn.on{color:var(--accent)}
+.app-shell .memo-tool.accent{color:var(--accent)}
+.app-shell .memo-tool.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, #12121A)}
+.app-shell .memo-scope{background:color-mix(in srgb, var(--accent) 16%, #12121A);color:var(--accent)}
+.app-shell .memo-scope em{color:var(--accent)}
+.app-shell .mcat.on{background:color-mix(in srgb, var(--accent) 18%, #12121A);color:var(--accent)}
+.app-shell .a-skill-ava{color:var(--accent)}
+.app-shell .a-card-num{color:var(--accent)}
+.app-shell .cbtn.model{
+  background:color-mix(in srgb, var(--accent) 22%, #12121A);
+  border-color:color-mix(in srgb, var(--accent) 45%, #12121A);
+  color:color-mix(in srgb, var(--accent) 80%, #fff);
+}
+.app-shell .cbtn.model:hover{background:color-mix(in srgb, var(--accent) 30%, #12121A)}
+.app-shell .cbtn.model .ic{color:inherit}
+.app-shell .tool-line{background:color-mix(in srgb, var(--accent) 9%, #12121A);border-color:color-mix(in srgb, var(--accent) 26%, #12121A)}
+.app-shell .b-composer:focus-within{border-color:color-mix(in srgb, var(--accent) 55%, #23232F)}
+.app-shell .a-form-input:focus,
+.app-shell .a-textarea:focus,
+.app-shell .a-search:focus-within,
+.app-shell .memo-title:focus,
+.app-shell .memo-content:focus{border-color:var(--accent)}

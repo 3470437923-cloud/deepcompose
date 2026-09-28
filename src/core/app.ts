@@ -61,5 +61,7 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
 /** 把配置里的强调色（ARGB int，真机键 custom_accent_color）应用到 CSS 令牌 */
 export function applyAccentFromPrefs(prefs: Prefs): void {
   const hex = `#${(prefs.customAccentColor & 0xffffff).toString(16).padStart(6, "0")}`;
-  document.documentElement.style.setProperty("--accent", hex);
+  const root = document.documentElement.style;
+  root.setProperty("--accent", hex);
+  root.setProperty("--accent-soft", `color-mix(in srgb, ${hex} 16%, #12121A)`);
 }
