@@ -104,15 +104,24 @@ $w = $r.Right - $r.Left; $ht = $r.Bottom - $r.Top
 Write-Output "WINDOW $w x $ht at ($($r.Left),$($r.Top))"
 
 # 3) click the composer textarea, type, Enter
-$cx = $r.Left + [int]($w * 0.25)
-$cy = $r.Top + $ht - 90
+# composer box sits above the statusbar (~44px) and is ~147px tall;
+# aim for its vertical centre so the click lands inside the textarea.
+$cx = $r.Left + [int]($w * 0.85)
+$cy = $r.Top + $ht - 120
 Write-Output "CLICK ($cx,$cy)"
 [E2E]::Click($cx, $cy)
 Start-Sleep -Milliseconds 600
 $ws = New-Object -ComObject WScript.Shell
-$ws.SendKeys($Prompt)
+# Type via clipboard paste: raw SendKeys keystrokes get swallowed by the
+# Chinese IME (they land as an uncommitted composition string, so React state
+# stays empty and send is a no-op). Paste bypasses the IME entirely.
+$Prompt.Trim() | clip.exe
+Start-Sleep -Milliseconds 300
+$ws.SendKeys("^v")
 Start-Sleep -Milliseconds 500
-$ws.SendKeys("{ENTER}")
+# Enter via SendKeys is unreliable in WebView2; click the round send button
+# (bottom-right of the composer) instead.
+[E2E]::Click($r.Left + $w - 63, $r.Top + $ht - 94)
 Write-Output "SENT"
 Start-Sleep -Seconds $AfterSendSec
 

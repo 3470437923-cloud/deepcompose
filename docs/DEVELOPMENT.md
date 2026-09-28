@@ -75,8 +75,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 `e2e_chat.ps1` 会把配置**覆写为本地 mock**，跑完记得恢复真实配置；
 `e2e_live.ps1` 不覆写配置，用现有配置直连真实端点。
 
-已知工具缺陷（非产品缺陷）：`SendKeys` 会吞字（`List` → `LISt`）；截屏前缺
-`SetForegroundWindow` 会拿到白图。
+已知工具缺陷（非产品缺陷）：`SendKeys` 会吞字（`List` → `LISt`）；**中文输入法会把整串按键截成未提交组合串**（`hello` 落框成「合理」且 React 状态为空，发送被空内容拦截）——`e2e_chat.ps1` 已改为 `clip.exe` 粘贴 + 点击发送按钮；截屏前缺 `SetForegroundWindow` 会拿到白图。
 
 ## 6. 本机环境坑（都是实际踩过的）
 
