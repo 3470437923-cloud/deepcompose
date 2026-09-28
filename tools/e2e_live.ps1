@@ -85,6 +85,8 @@ $ws = New-Object -ComObject WScript.Shell
 $ws.SendKeys($Prompt)
 Start-Sleep -Milliseconds 500
 $ws.SendKeys("{ENTER}")
+Start-Sleep -Milliseconds 400
+$ws.SendKeys("{ENTER}")
 Write-Output "SENT"
 Start-Sleep -Seconds $AfterSendSec
 
