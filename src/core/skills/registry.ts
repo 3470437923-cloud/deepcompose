@@ -1,15 +1,15 @@
 /**
- * 技能注册表（CONTRACT §5）。
+ * 技能注册表。
  *
- * 技能的权威清单在配置键 `skill_list`（真机实证：元素含 id/name/description/directoryPath/
+ * 技能的权威清单在配置键 `skill_list`（既有格式：元素含 id/name/description/directoryPath/
  * isBuiltIn/marketplaceSkillId/marketplaceVersion），不在目录扫描结果里。
  *
- * 注入格式逐字（TOOLS.md §4.3，证据 app_so_full_utf16.txt:0039d178 等 9 段）：
+ * 注入格式逐字：
  *   `## Available Skills\n\n技能按需加载。…\n\n<available_skills>\n`
  *   + `  <skill>` / `    <name>…</name>` / `    <description>…</description>` / `  </skill>`
  *   + `</available_skills>`
  *
- * skill_lookup 命中后回注的目录说明逐字（TOOLS.md §4.4，app_so_full_utf16.txt:0027c0a8）。
+ * skill_lookup 命中后回注的目录说明逐字。
  */
 
 import type { FsBridge } from "../fsbridge";
@@ -24,7 +24,7 @@ export const SKILL_DIR_NOTE =
   "\n- 约定: `scripts/` 存放可执行脚本，`references/` 存放按需读取的文档，`assets/` 存放输出资源。\n- 该目录下的相对路径都基于此目录。\n- 可用文件(排除 SKILL.md，最多10个，完整列表可读目录):\n";
 
 /** 技能清单注入块（无技能时返回空串，不注入空块）
- *  开关语义（真机「已开启 7 / 共 8」）：activeIds 非空 = 恰好注入这些；
+ *  开关语义（「已开启 7 / 共 8」）：activeIds 非空 = 恰好注入这些；
  *  空 = 未做过选择，默认全部注入。 */
 export function availableSkillsBlock(skills: SkillMeta[], activeIds?: string[]): string {
   const list =
@@ -47,7 +47,7 @@ export interface SkillLookupHit {
   content: string;
 }
 
-/** 按名字或 id 精确匹配（真机描述：The skill name exactly as shown in Available Skills, or the skill ID） */
+/** 按名字或 id 精确匹配（既有描述：The skill name exactly as shown in Available Skills, or the skill ID） */
 export function findSkill(skills: SkillMeta[], nameOrId: string): SkillMeta | null {
   const q = nameOrId.trim();
   return skills.find((s) => s.name === q) ?? skills.find((s) => s.id === q) ?? null;

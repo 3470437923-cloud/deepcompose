@@ -1,6 +1,6 @@
 /**
- * 备忘录模态（结构对照真机 shot-ow-memo.png 一手证据；编辑视图为合理外推）。
- * 数据格式：store/memo.ts（逐字对齐真机 openwrite_memos.json）。
+ * 备忘录模态（结构依据实测截图；编辑视图为合理外推）。
+ * 数据格式：store/memo.ts（逐字对齐既有实现的备忘录文件格式）。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";

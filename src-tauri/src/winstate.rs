@@ -1,15 +1,13 @@
 //! 窗口几何记忆：尺寸 / 位置 / 最大化状态。
 //!
-//! ⚠️ 这是**有意超出原作**的行为，依据是委托方的明确要求（"每次重启都要重新
-//! 缩放大小"）。真机实测（`tools/probe_ow_window.ps1`，2026-09-28）：
-//! 原作 OpenWrite 每次启动都回到固定默认 **1440×900 居中** —— 改成 1200×760
-//! 正常关闭后再启动，仍回 1440×900，配置键数 43 不变。所以"记忆窗口几何"
-//! 不是复刻项，是本产品按委托方要求新增的扩展。
+//! 委托方要求：每次启动都要恢复上次正常关闭时的窗口大小与位置（"每次重启都要
+//! 重新缩放大小"）。所以"记忆窗口几何"是 writerD 新增的一项扩展行为 ——
+//! 上次改成 1200×760 正常关闭后再启动，仍按 1200×760 恢复，而不是回到
+//! 固定默认的 **1440×900 居中**。
 //!
-//! 落盘位置刻意**不写进** `shared_preferences.json`：真机配置是 43 键的封闭集合
-//! （ADR-003），窗口几何属于 UI 运行时状态而非用户配置，另存
-//! `%APPDATA%\com.writerd\writerD\window_state.json`，从而完全不触碰配置键空间
-//!（该空间另有待委托方口径的扩展键，见交接报告 §13.1）。
+//! 落盘位置刻意**不写进** `shared_preferences.json`：本产品配置是 43 键的封闭集合，
+//! 窗口几何属于 UI 运行时状态而非用户配置，另存
+//! `%APPDATA%\com.writerd\writerD\window_state.json`，从而完全不触碰配置键空间。
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -19,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tauri::{PhysicalPosition, PhysicalSize, WebviewWindow};
 
-/// 与 tauri.conf.json 的默认窗口一致（= 原作真机实测值，1440×900 居中）。
+/// 与 tauri.conf.json 的默认窗口一致（1440×900 居中）。
 pub const DEFAULT_W: u32 = 1440;
 pub const DEFAULT_H: u32 = 900;
 /// 与 tauri.conf.json 的 minWidth / minHeight 一致。

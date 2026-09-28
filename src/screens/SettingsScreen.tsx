@@ -4,7 +4,7 @@
  * 结构：左侧玻璃导航（7 项：AI 提供商 / Skill / 参数 / 主题 / 同步 / 数据 / 关于）
  * + 右侧玻璃内容区（iOS grouped-list 风格分组卡片）。
  * 主题页支持三套液态玻璃主题：曜石黑（dark）/ 晨雾白（light）/ 深海 DS 蓝（dsblue），
- * 外加强调色色板与字号调节（真机键 chat_font_size / editor_font_size）。
+ * 外加强调色色板与字号调节（既有实现键 chat_font_size / editor_font_size）。
  *
  * 读取 prefs（boot() 装配），保存即写 shared_preferences.json（savePrefs）。
  * 材质配方在 styles/glass.css，布局与组件样式在 styles/app.css。
@@ -61,7 +61,7 @@ export default function SettingsScreen({ onBack }: Props) {
 
   // 兜底：boot 失败时显示「配置未加载」。
   // 注意根元素必须与下方正常路径一致（.win#screenA）——.win 是 .app-shell 的 flex
-  // 子项（flex:1），中间多一层无样式的包装 div 会让它高度塌成内容高度（ADR-001 同类错误）。
+  // 子项（flex:1），中间多一层无样式的包装 div 会让它高度塌成内容高度。
   // 该分支目前不可达：boot 失败时 MainWorkbench 会渲染自己的「启动失败」屏且不暴露齿轮入口。
   if (!boot) {
     return (
@@ -137,7 +137,7 @@ export default function SettingsScreen({ onBack }: Props) {
     setSaveMsg("");
   };
 
-  // Ctrl+S 保存（真机参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
+  // Ctrl+S 保存（既有实现参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -519,7 +519,7 @@ function ProviderSection({
   );
 }
 
-/* ── Skill 管理分节（真机：清单 + 开关，开启项注入系统提示词） ── */
+/* ── Skill 管理分节（既有实现：清单 + 开关，开启项注入系统提示词） ── */
 function SkillSection({
   form,
   flash,
@@ -649,7 +649,7 @@ function SkillSection({
   );
 }
 
-/* ── 参数分节（真机：温度滑杆 + 系统提示词 + 上下文压缩） ── */
+/* ── 参数分节（既有实现：温度滑杆 + 系统提示词 + 上下文压缩） ── */
 function ParamsSection({
   form,
   update,
@@ -1036,7 +1036,7 @@ function DataSection({
   );
 }
 
-/* ── 关于分节（自更新按 CONTRACT §11 阻断：返回"已是最新"） ── */
+/* ── 关于分节（自更新阻断：返回"已是最新"） ── */
 function AboutSection({ flash, onFlash }: { flash: string; onFlash: (s: string) => void }) {
   return (
     <div className="a-settings-panel">

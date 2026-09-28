@@ -1,4 +1,4 @@
-/** 备忘录 store 回归锁：格式逐字对齐真机 openwrite_memos.json 实测结构 */
+/** 备忘录 store 回归锁：格式保持既有 openwrite_memos.json 实测结构 */
 import { describe, expect, it } from "vitest";
 import {
   addCategory,
@@ -55,7 +55,7 @@ describe("memo store", () => {
     expect(data).toEqual({ categories: ["默认"], memos: [] });
   });
 
-  it("真机样例 → 原样解析出 categories 与 memos 字段", async () => {
+  it("实测样例 → 原样解析出 categories 与 memos 字段", async () => {
     const fs = memFs({ "X:\\writerd_memos.json": REAL_SAMPLE });
     const data = await loadMemos(fs, "X:\\writerd_memos.json");
     expect(data.categories).toEqual(["默认", "灵感", "大纲"]);

@@ -58,7 +58,7 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
   if (booted) booted = { ...booted, prefs };
 }
 
-/** 把配置里的强调色（ARGB int，真机键 custom_accent_color）应用到 CSS 令牌。
+/** 把配置里的强调色（ARGB int，既有键 custom_accent_color）应用到 CSS 令牌。
  *  只写 --accent 本体；--accent-2/--accent-soft 等派生色在 tokens.css 里
  *  以 color-mix(var(--accent)) 定义，随主题与强调色自动联动。 */
 export function applyAccentFromPrefs(prefs: Prefs): void {
@@ -67,7 +67,7 @@ export function applyAccentFromPrefs(prefs: Prefs): void {
 }
 
 /** 应用主题（writerD 3.0：dark / light / dsblue 三套液态玻璃；
- *  theme_mode 扩展键缺省时按真机键 is_dark_mode 派生，见 prefs.parsePrefs） */
+ *  theme_mode 扩展键缺省时按既有键 is_dark_mode 派生，见 prefs.parsePrefs） */
 export function applyThemeFromPrefs(prefs: Prefs): void {
   document.documentElement.dataset.theme = prefs.themeMode;
 }

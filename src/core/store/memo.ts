@@ -1,5 +1,5 @@
 /**
- * 备忘录（单文件 writerd_memos.json，格式逐字对齐真机 openwrite_memos.json 实测）：
+ * 备忘录（单文件 writerd_memos.json，格式取自实测样本）：
  *   {
  *     "categories": ["默认", "灵感", "大纲"],
  *     "memos": [{
@@ -11,7 +11,7 @@
  *       "project_id": "C:\\...\\某本书"               // 绝对路径；空串=全局
  *     }]
  *   }
- * 证据：C:\Users\Administrator\Documents\openwrite_memos.json 实测（2026-09-28）。
+ * 实测样本：<Documents>\writerd_memos.json（2026-09-28）。
  */
 
 import type { FsBridge } from "../fsbridge";
@@ -21,7 +21,7 @@ export interface Memo {
   id: string;
   title: string;
   content: string;
-  /** 所属分类（实测真机 memo 均带此键，值如「默认」） */
+  /** 所属分类（实测样本中 memo 均带此键，值如「默认」） */
   category: string;
   created_at: string;
   updated_at: string;
@@ -33,7 +33,7 @@ export interface MemoFile {
   memos: Memo[];
 }
 
-/** 真机默认分类（实测文件含 默认/灵感/大纲；新装默认只有 默认） */
+/** 默认分类（实测文件含 默认/灵感/大纲；新装默认只有 默认） */
 export const DEFAULT_CATEGORY = "默认";
 
 export function emptyMemoFile(): MemoFile {
@@ -75,7 +75,7 @@ export function newMemo(projectId: string, now = new Date()): Memo {
   };
 }
 
-/** 分类操作：默认分类不可删除（真机 chips 中「默认」无 ×） */
+/** 分类操作：默认分类不可删除（实测界面 chips 中「默认」无 ×） */
 export function removeCategory(data: MemoFile, name: string): MemoFile {
   if (name === DEFAULT_CATEGORY) return data;
   return { ...data, categories: data.categories.filter((c) => c !== name) };

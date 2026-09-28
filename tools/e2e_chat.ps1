@@ -5,7 +5,7 @@
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
     [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
-    [string]$Out = "S:\writerD\reference\shot-chat.png",
+    [string]$Out = "S:\writerD\shots\shot-chat.png",
     [string]$Prompt = "List chapters",
     [int]$WaitSec = 8,
     [int]$AfterSendSec = 25

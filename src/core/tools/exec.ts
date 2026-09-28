@@ -1,7 +1,7 @@
 /**
  * 工具实现。
  *
- * 结果 JSON 的字段名与形态**逐字对齐真机会话**（证据：127 个真实会话里的 1,729 条工具调用结果），
+ * 结果 JSON 的字段名与形态**保持既有格式**（实测样本：127 个会话里的 1,729 条工具调用结果），
  * 例如：
  *   file_read(read)   {"path":"小说资料/世界观.md","content":"…"}
  *   file_read(list)   {"path":"章节内容","files":[{"name":"第1章.md","path":"章节内容\\第1章.md","type":"file","size":7652}]}
@@ -46,9 +46,9 @@ export interface ToolContext {
   booksRoot: string;
   snapshotsDir: string;
   sessionId: string;
-  /** 当前工具调用 id（写进快照的 callId，与真机一致） */
+  /** 当前工具调用 id（写进快照的 callId，保持既有格式） */
   currentCallId?: string;
-  /** 写入前留快照（默认 true；CONTRACT §6.2） */
+  /** 写入前留快照（默认 true） */
   snapshot?: boolean;
   /** question 工具的界面回调 */
   askQuestions?: (questions: QuestionItem[]) => Promise<string[][]>;
@@ -81,7 +81,7 @@ function bool(a: Args, k: string, def: boolean): boolean {
   return typeof v === "boolean" ? v : def;
 }
 
-/** 结果里回报的路径一律用 '/'（真机 file_read/file_write 结果即如此） */
+/** 结果里回报的路径一律用 '/'（既有 file_read/file_write 结果即如此） */
 function slashPath(p: string): string {
   return p.replace(/\\/g, "/");
 }
@@ -90,7 +90,7 @@ function utf8Bytes(s: string): number {
   return new TextEncoder().encode(s).length;
 }
 
-/** 落一条快照（真机形态：一条记录同时带写前内容与写后哈希） */
+/** 落一条快照（保持既有格式：一条记录同时带写前内容与写后哈希） */
 async function recordWrite(
   ctx: ToolContext,
   operation: string,

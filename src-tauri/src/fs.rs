@@ -3,7 +3,7 @@
 //! 只做「纯原语」：读写/列举/改名/复制/删除/stat。
 //! **路径分级授权不在这里**——业务层（TS 的 pathGuard）负责判定
 //! projectRoot / skillsDir / booksRoot 三授权根，Rust 侧不重复实现策略。
-//! 这样规则只有一份，测试也只测一份（CONTRACT §10）。
+//! 这样规则只有一份，测试也只测一份。
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -14,7 +14,7 @@ use std::time::UNIX_EPOCH;
 #[serde(rename_all = "camelCase")]
 pub struct DirEntry {
     pub name: String,
-    /// 相对查询目录的路径（'\' 分隔，与真机一致）
+    /// 相对查询目录的路径（'\' 分隔）
     pub rel: String,
     /// 绝对路径
     pub path: String,
