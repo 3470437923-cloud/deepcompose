@@ -15,6 +15,16 @@ type View = "main" | "settings";
 export default function App() {
   const [view, setView] = useState<View>("main");
 
+  /**
+   * 视图切换。除了换屏，还要在 <html> 上记下导航方向：
+   * 前进（进设置）→ 新屏从右侧推入；返回 → 从左侧推入。
+   * 位移方向与"用户往哪走"一致，回来时才不会像又往前走了一次。
+   */
+  const go = (next: View) => {
+    document.documentElement.dataset.nav = next === "settings" ? "forward" : "back";
+    setView(next);
+  };
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -22,14 +32,24 @@ export default function App() {
       if (e.isComposing) return;
       // 有模态打开时，Esc 只关模态（由模态自行处理，不冒泡到这里生效）
       if (document.querySelector(".qmodal, .memo-modal:not(.dock-wrap)")) return;
+      document.documentElement.dataset.nav = "back";
       setView("main");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // 指针镜面反光（.glint）：委托监听 pointermove，把光斑坐标写进目标元素的
+  // --mx/--my。用 rAF 合帧：pointermove 在高刷鼠标上可达 1000Hz，而每帧最多
+  // 只需要一次测量 + 一次写入，否则会在移动中反复触发布局计算。
   useEffect(() => {
-    const onMove = (e: PointerEvent) => {
+    let pending: PointerEvent | null = null;
+    let raf = 0;
+    const flush = () => {
+      raf = 0;
+      const e = pending;
+      pending = null;
+      if (!e) return;
       const el = (e.target as HTMLElement | null)?.closest?.(".glint") as HTMLElement | null;
       if (!el) return;
       const r = el.getBoundingClientRect();
@@ -37,8 +57,15 @@ export default function App() {
       el.style.setProperty("--mx", `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
       el.style.setProperty("--my", `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
     };
+    const onMove = (e: PointerEvent) => {
+      pending = e;
+      if (!raf) raf = requestAnimationFrame(flush);
+    };
     document.addEventListener("pointermove", onMove, { passive: true });
-    return () => document.removeEventListener("pointermove", onMove);
+    return () => {
+      document.removeEventListener("pointermove", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   return (
@@ -53,9 +80,9 @@ export default function App() {
       <div className="grain" aria-hidden="true" />
 
       {view === "settings" ? (
-        <SettingsScreen onBack={() => setView("main")} />
+        <SettingsScreen onBack={() => go("main")} />
       ) : (
-        <MainWorkbench onOpenSettings={() => setView("settings")} />
+        <MainWorkbench onOpenSettings={() => go("settings")} />
       )}
     </div>
   );
