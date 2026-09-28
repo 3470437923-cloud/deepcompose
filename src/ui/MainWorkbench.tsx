@@ -527,7 +527,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         <div className="win-frame">
           <div className="win">
             {/* ── 标题栏 ── */}
-            <div className="titlebar">
+            <div className="titlebar" data-tauri-drag-region>
               <div className="brand">
                 <div className="brand-mark">
                   <img src={logo} alt="" />
@@ -557,26 +557,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     </svg>
                   </button>
                 </div>
-                <button className="tbtn" title="日志">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <rect x="3" y="2.5" width="14" height="15" rx="2.5" />
-                    <path d="M6.5 6.5h7M6.5 10h7M6.5 13.5h4" />
-                  </svg>
-                </button>
-                <button className="tbtn bell" title="通知">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M10 2.5a4.6 4.6 0 0 0-4.6 4.6c0 3.6-1.4 4.7-1.4 4.7h12s-1.4-1.1-1.4-4.7A4.6 4.6 0 0 0 10 2.5z" />
-                    <path d="M8.4 14.6a1.7 1.7 0 0 0 3.2 0" />
-                  </svg>
-                </button>
-                <button className="tbtn" title="帮助">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <circle cx="10" cy="10" r="7.5" />
-                    <path d="M7.9 7.7a2.2 2.2 0 1 1 3 2c-.6.4-.9.8-.9 1.5" />
-                    <circle cx="10" cy="14" r=".8" className="ic-fill" stroke="none" />
-                  </svg>
-                </button>
-                <div className="spacer" />
+                                                                <div className="spacer" />
                 <button className="tbtn" title="最小化" onClick={() => void win.minimize()}>
                   <svg viewBox="0 0 20 20" className="ic">
                     <path d="M5 10h10" />
@@ -606,14 +587,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     />
                   </svg>
                   <div className="ttl">对话列表</div>
-                  <button className="b-icon-btn" title="管理">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M4 6h8M4 10h8M4 14h5" />
-                      <circle cx="15" cy="6" r="1.5" />
-                      <circle cx="15" cy="14" r="1.5" />
-                    </svg>
-                  </button>
-                  <button className="b-icon-btn accent" title="新建对话" onClick={startNewChat}>
+                                    <button className="b-icon-btn accent" title="新建对话" onClick={startNewChat}>
                     <svg viewBox="0 0 20 20" className="ic">
                       <path d="M10 4.5v11M4.5 10h11" />
                     </svg>
@@ -672,10 +646,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   {(
                     [
                       ["备忘录", <svg key="i1" viewBox="0 0 20 20" className="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2" /><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" /></svg>, "memo"],
-                      ["起名", <svg key="i2" viewBox="0 0 20 20" className="ic"><path d="M3.4 5.4V3.6h12.2v1.8M9 3.8v12.4M6.6 16.4h4.8" /></svg>, "起名"],
-                      ["蒸馏", <svg key="i3" viewBox="0 0 20 20" className="ic"><path d="M8.4 2.8h3.2M9 2.8v4L4.6 15a1.6 1.6 0 0 0 1.4 2.4h8a1.6 1.6 0 0 0 1.4-2.4L11 6.8v-4" /><path d="M6.4 12.4h7.2" /></svg>, "蒸馏"],
-                      ["拆解", <svg key="i4" viewBox="0 0 20 20" className="ic"><rect x="3" y="3" width="14" height="14" rx="2.2" /><path d="M6.6 7.2h6.8M6.6 10.4h6.8M6.6 13.6h4" /></svg>, "拆解"],
-                      ["扫榜", <svg key="i5" viewBox="0 0 20 20" className="ic"><path d="M4 16.6V9.4M9 16.6V4.6M14 16.6v-5" /><path d="M3 16.6h14" /></svg>, "扫榜"],
+                      
+                      
+                      
+                      
                     ] as [string, React.ReactNode, string][]
                   ).map(([label, icon, action]) => (
                     <button
@@ -765,28 +739,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   </div>
                 )}
 
-                <div className="b-prechips">
-                  <button className="pchip">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <circle cx="9" cy="9" r="5.4" />
-                      <path d="M13 13l3.6 3.6" />
-                    </svg>
-                    搜索
-                  </button>
-                  <button className="pchip">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <rect x="2.8" y="3.6" width="14.4" height="12.8" rx="2.2" />
-                      <path d="M6.4 8l2.2 2.4-2.2 2.4M10.8 12.8h3" />
-                    </svg>
-                    终端
-                  </button>
-                </div>
-                <button className="b-quick" title="提示">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M10 2.6l1.9 5.2 5.2 1.9-5.2 1.9L10 16.8l-1.9-5.2L2.9 9.7l5.2-1.9L10 2.6z" className="ic-fill" stroke="none" />
-                  </svg>
-                </button>
-
+                                
                 <div className="b-composer">
                   <textarea
                     className="composer-input"
@@ -803,26 +756,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     }}
                   />
                   <div className="b-comp-row">
-                    <button className="cbtn skill" onClick={() => setStatus("@技能 功能建设中")}>
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <circle cx="10" cy="10" r="6.8" />
-                        <circle cx="10" cy="10" r="2.4" />
-                      </svg>
-                      @技能
-                    </button>
-                    <button className="cbtn file" onClick={() => setStatus("#文件 功能建设中")}>
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <path d="M4.6 2.6h6.2l4 4v10.8H4.6z" />
-                        <path d="M10.8 2.6v4h4" />
-                      </svg>
-                      #文件
-                    </button>
-                    <button className="cbtn plain">
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <path d="M2.6 10.4A7.4 7.4 0 1 1 10 18a7.2 7.2 0 0 1-3.6-.95L2.6 18l1.1-3.6A7.4 7.4 0 0 1 2.6 10.4z" />
-                      </svg>
-                      默认
-                    </button>
                     <button className="cbtn model" title="在设置中配置模型" onClick={onOpenSettings}>
                       <svg viewBox="0 0 16 16" className="ic">
                         <path
@@ -838,14 +771,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     {!currentBoot()?.prefs.apiKey ? (
                       <span className="cbtn plain">未配置 API Key</span>
                     ) : null}
-                    <button className="b-dice" title="随机">
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <rect x="3" y="3" width="14" height="14" rx="3" />
-                        <circle cx="7.4" cy="7.4" r="1.1" className="ic-fill" stroke="none" />
-                        <circle cx="12.6" cy="12.6" r="1.1" className="ic-fill" stroke="none" />
-                        <circle cx="10" cy="10" r="1.1" className="ic-fill" stroke="none" />
-                      </svg>
-                    </button>
                     <button className="b-send" title="发送" onClick={() => void doSend()} disabled={busy}>
                       <svg viewBox="0 0 24 24" className="ic">
                         <path d="M3.4 11.2L20.4 3.2l-7.8 17-2.2-6.8-7-2.2z" fill="currentColor" stroke="none" />
@@ -937,19 +862,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     <path d="M2.8 5.2A1.6 1.6 0 0 1 4.4 3.6h3.2l1.4 1.8h6.6a1.6 1.6 0 0 1 1.6 1.6v7.8a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.2z" />
                   </svg>
                   <div className="ttl">目录</div>
-                  <button className="b-icon-btn" title="自动滚动">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <circle cx="10" cy="10" r="2" />
-                      <path d="M10 2.6v3.2M10 14.2v3.2M2.6 10h3.2M14.2 10h3.2M4.7 4.7l2.2 2.2M13.1 13.1l2.2 2.2M15.3 4.7l-2.2 2.2M6.9 13.1l-2.2 2.2" />
-                    </svg>
-                  </button>
-                  <button className="b-icon-btn" title="搜索">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <circle cx="9" cy="9" r="5.4" />
-                      <path d="M13 13l3.6 3.6" />
-                    </svg>
-                  </button>
-                  <button className="b-icon-btn" title="折叠" onClick={() => setOpenFolders({ docs: false, chapters: false })}>
+                                                      <button className="b-icon-btn" title="折叠" onClick={() => setOpenFolders({ docs: false, chapters: false })}>
                     <svg viewBox="0 0 20 20" className="ic">
                       <path d="M10 16.4V5.2M6.4 8.8L10 5.2l3.6 3.6" />
                     </svg>
@@ -960,12 +873,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                       <path d="M16.6 3.4v3.4h-3.4" />
                     </svg>
                   </button>
-                  <button className="b-icon-btn" title="清空">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M4.4 5.6h11.2M8 5.6V3.9h4v1.7M6.2 5.6l.7 10.1h6.2l.7-10.1" />
-                    </svg>
-                  </button>
-                </div>
+                                  </div>
 
                 <button className="b-booksel" onClick={() => setBookMenu((v) => !v)} title="选择作品">
                   <svg viewBox="0 0 20 20" className="ic">

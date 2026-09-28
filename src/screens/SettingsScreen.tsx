@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactElement } from "re
 import logo from "../assets/logo.png";
 import { currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
+import { fetchModels } from "../core/ai/models";
 import type { Prefs } from "../core/prefs";
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "sync" | "data" | "about";
@@ -46,7 +47,7 @@ export default function SettingsScreen({ onBack }: Props) {
         <div className="holder">
           <div className="win-frame">
             <div className="win">
-              <div className="titlebar">
+              <div className="titlebar" data-tauri-drag-region>
                 <div className="brand">
                   <div className="brand-mark"><img src={logo} alt="" /></div>
                   <div className="brand-name">writerD</div>
@@ -188,7 +189,7 @@ export default function SettingsScreen({ onBack }: Props) {
         <div className="win-frame">
           <div className="win">
             {/* ── 标题栏 ── */}
-            <div className="titlebar">
+            <div className="titlebar" data-tauri-drag-region>
               <div className="brand">
                 <div className="brand-mark"><img src={logo} alt="" /></div>
                 <div className="brand-name">writerD</div>
@@ -275,7 +276,7 @@ export default function SettingsScreen({ onBack }: Props) {
   );
 }
 
-/* ── AI 提供商配置分节（自定义接入；切除内置供应商/公益模型/套餐） ── */
+/* ── AI 提供商配置分节（自定义接入；含连接检测 + 模型清单下拉） ── */
 function ProviderSection({
   form,
   update,
@@ -289,21 +290,66 @@ function ProviderSection({
   saveMsg: string;
   onSave: () => void;
 }) {
-  const connected = Boolean(form.llmBaseUrl?.trim() && form.apiKey?.trim());
+  const hasEndpoint = Boolean(form.llmBaseUrl?.trim() && form.apiKey?.trim());
+  const [conn, setConn] = useState<"idle" | "testing" | "ok" | "error">("idle");
+  const [connMsg, setConnMsg] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+
+  const detect = async () => {
+    if (!form.llmBaseUrl?.trim() || !form.apiKey?.trim()) {
+      setConn("error");
+      setConnMsg("请先填写接口地址与 API Key");
+      return;
+    }
+    setConn("testing");
+    setConnMsg("");
+    try {
+      const list = await fetchModels(form.llmBaseUrl.trim(), form.apiKey.trim(), form.useAnthropicFormat);
+      setModels(list);
+      setConn(list.length > 0 ? "ok" : "error");
+      setConnMsg(list.length > 0 ? `连接正常，获取到 ${list.length} 个模型` : "连接正常，但端点未返回模型清单");
+    } catch (e) {
+      setConn("error");
+      setConnMsg(String(e instanceof Error ? e.message : e));
+    }
+  };
+
+  // 端点信息变化时重置检测结果；两者齐全时自动检测一次
+  useEffect(() => {
+    setConn("idle");
+    setConnMsg("");
+    setModels([]);
+    if (form.llmBaseUrl?.trim() && form.apiKey?.trim()) {
+      const t = setTimeout(() => void detect(), 600);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.llmBaseUrl, form.apiKey, form.useAnthropicFormat]);
+
   return (
     <div className="a-settings-panel">
       <div className="a-card">
         <div className="a-card-head">
           <span className="a-card-title">自定义接入</span>
-          {connected ? (
+          {conn === "ok" ? (
             <span className="d-badge"><i />已连接</span>
+          ) : conn === "testing" ? (
+            <span className="d-badge off"><i />检测中…</span>
+          ) : conn === "error" ? (
+            <span className="d-badge bad"><i />连接失败</span>
           ) : (
-            <span className="d-badge off"><i />未连接</span>
+            <span className="d-badge off"><i />未检测</span>
           )}
-          <span className="a-card-side">{form.model?.trim() || "未配置模型"}</span>
+          <button className="a-toolbtn" style={{ marginLeft: 8 }} onClick={() => void detect()} disabled={conn === "testing"}>
+            {conn === "testing" ? "检测中…" : "检测连接"}
+          </button>
+          <span className="a-card-side">{form.model?.trim() || "未选择模型"}</span>
         </div>
+        {connMsg ? (
+          <div className={conn === "error" ? "a-flash error" : "a-flash ok"}>{connMsg}</div>
+        ) : null}
         <div className="a-card-desc">
-          配置任意 OpenAI / Anthropic 兼容端点。选用后点下方「保存」生效，重启后自动加载。
+          填好地址与 Key 后会自动检测连接并拉取模型清单，也可以手动检测。选用后点下方「保存」生效。
         </div>
 
         <div className="a-form-row">
@@ -331,15 +377,23 @@ function ProviderSection({
         </div>
 
         <div className="a-form-row">
-          <label className="a-form-label">模型名称</label>
+          <label className="a-form-label">
+            模型{models.length > 0 ? <span className="a-model-hint">（检测到 {models.length} 个，可下拉选择或手填）</span> : null}
+          </label>
           <input
             className="a-form-input"
             type="text"
-            placeholder="deepseek-chat"
+            list="model-options"
+            placeholder={models[0] ?? "deepseek-chat"}
             value={form.model}
             onChange={(e) => update("model", e.target.value)}
             spellCheck={false}
           />
+          <datalist id="model-options">
+            {models.map((m) => (
+              <option key={m} value={m} />
+            ))}
+          </datalist>
         </div>
 
         <div className="a-form-row a-form-row-inline">
@@ -612,6 +666,41 @@ function ParamsSection({
             min={1}
             value={Math.round(form.reservedOutputTokens / 1000)}
             onChange={(e) => update("reservedOutputTokens", (parseInt(e.target.value, 10) || 16) * 1000)}
+          />
+        </div>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">生成与工具</span>
+        </div>
+        <div className="a-card-desc">控制 AI 单次回复的长度上限与自动执行工具调用的轮次上限。</div>
+        <div className="a-card-row">
+          <span>一次回复上限 (K){" "}
+            <svg viewBox="0 0 20 20" className="ic a-help">
+              <circle cx="10" cy="10" r="7.5" />
+              <path d="M10 13.6v.05" />
+              <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
+            </svg>
+          </span>
+          <input
+            className="a-form-input a-num"
+            type="number"
+            min={1}
+            max={200}
+            value={Math.round(form.maxOutputTokens / 1000)}
+            onChange={(e) => update("maxOutputTokens", (parseInt(e.target.value, 10) || 32) * 1000)}
+          />
+        </div>
+        <div className="a-card-row">
+          <span>工具调用轮次上限</span>
+          <input
+            className="a-form-input a-num"
+            type="number"
+            min={1}
+            max={50}
+            value={form.toolRoundLimit}
+            onChange={(e) => update("toolRoundLimit", parseInt(e.target.value, 10) || 12)}
           />
         </div>
       </div>

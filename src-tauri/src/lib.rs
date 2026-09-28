@@ -38,6 +38,7 @@ pub fn run() {
             fs::fs_copy,
             fs::fs_stat,
             ai::ai_stream,
+            ai::ai_models,
         ])
         .run(tauri::generate_context!())
         .expect("writerD 启动失败");

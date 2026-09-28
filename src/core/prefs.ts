@@ -47,6 +47,10 @@ export interface Prefs {
   systemPrompt: string;
   reservedOutputTokens: number;
   autoClearContext: boolean;
+  /** 工具调度轮次上限（委托方要求可调；真机无此键实证，键名 [待实测]） */
+  toolRoundLimit: number;
+  /** 单次回复 max_tokens（真机参数页「最大输出(K)·仅 Anthropic」有文案实证，键名 [待实测]） */
+  maxOutputTokens: number;
 
   // —— 界面面板（7 键）——
   panelSessionWidth: number;
@@ -109,6 +113,8 @@ export const DEFAULT_PREFS: Prefs = {
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reservedOutputTokens: 16000,
   autoClearContext: true,
+  toolRoundLimit: 12,
+  maxOutputTokens: 32000,
 
   panelSessionWidth: 220.0,
   panelChatWidth: 523.0,
@@ -152,6 +158,8 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   systemPrompt: "system_prompt",
   reservedOutputTokens: "reserved_output_tokens",
   autoClearContext: "auto_clear_context",
+  toolRoundLimit: "tool_round_limit",
+  maxOutputTokens: "max_output_tokens",
 
   panelSessionWidth: "panel_session_width",
   panelChatWidth: "panel_chat_width",

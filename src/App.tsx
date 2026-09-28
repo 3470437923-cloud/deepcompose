@@ -24,7 +24,12 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setView("main");
+      if (e.key !== "Escape") return;
+      // 输入法组词中的 Esc 是取消组词，不是退出界面
+      if (e.isComposing) return;
+      // 有对话框打开时，Esc 只关对话框（由 Dialogs 自行处理）
+      if (document.querySelector(".qmodal")) return;
+      setView("main");
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

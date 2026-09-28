@@ -44,7 +44,7 @@ export interface ProviderConfig {
   model: string;
   temperature: number;
   useAnthropicFormat: boolean;
-  /** 仅 Anthropic 格式使用；默认 32768 */
+  /** 单次回复 max_tokens（两种协议都发送）；默认 32768 */
   maxTokens?: number;
   reservedOutputTokens?: number;
 }
@@ -56,7 +56,7 @@ export interface HttpRequest {
 }
 
 const ANTHROPIC_VERSION = "2023-06-01";
-export const DEFAULT_MAX_TOKENS = 32768;
+export const DEFAULT_MAX_TOKENS = 32000;
 
 function trimSlash(u: string): string {
   return u.replace(/\/+$/, "");
@@ -121,6 +121,7 @@ function buildOpenAi(
     temperature: cfg.temperature,
     stream: true,
     stream_options: { include_usage: true },
+    max_tokens: cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
   if (tools.length > 0) {
     body.tools = tools.map((t) => ({
