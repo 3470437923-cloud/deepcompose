@@ -8,6 +8,9 @@
 
 const q = new URLSearchParams(location.search);
 const THEME = (q.get("theme") === "light" || q.get("theme") === "dsblue") ? q.get("theme") : "dark";
+// 故障注入：?fail=prefs 让 prefs_load 抛错，用于验证「配置未加载」兜底页；
+// 真的 IPC 失败也是 rejected promise，形态一致
+const FAIL = q.get("fail") || "";
 
 const HOME = "C:\\Users\\Preview";
 const DOCUMENTS = `${HOME}\\Documents`;
@@ -208,6 +211,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "app_dirs":
       return { home: HOME, documents: DOCUMENTS, appData: APPDATA, prefsDir: PREFS_DIR, prefsFile: PREFS_FILE };
     case "prefs_load":
+      if (FAIL === "prefs") throw new Error("[preview] 故障注入：prefs_load 失败");
       return prefsStore;
     case "prefs_save":
       prefsStore = String((args ?? {}).json ?? "{}");

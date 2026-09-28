@@ -42,6 +42,11 @@ PROBE = r"""
   const de = document.documentElement;
   const app = q('.app-shell');
   const r = app ? app.getBoundingClientRect() : null;
+  const winEl = q('.win');
+  const wr = winEl ? winEl.getBoundingClientRect() : null;
+  const menu = q('.sess-menu');
+  const mr2 = menu ? menu.getBoundingClientRect() : null;
+  const sitems = Array.prototype.slice.call(document.querySelectorAll('.sess-item'));
   const orbs = Array.prototype.slice.call(document.querySelectorAll('.ambient .orb'));
   return JSON.stringify({
     theme: de.dataset.theme || null,
@@ -59,6 +64,14 @@ PROBE = r"""
     overflowX: de.scrollWidth > de.clientWidth + 1,
     overflowY: de.scrollHeight > de.clientHeight + 1,
     appRect: r ? { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) } : null,
+    winRect: wr ? { w: Math.round(wr.width), h: Math.round(wr.height) } : null,
+    winClass: winEl ? winEl.className : null,
+    menuRect: mr2 ? { t: Math.round(mr2.top), b: Math.round(mr2.bottom), h: Math.round(mr2.height) } : null,
+    sessItemsTotal: sitems.length,
+    sessItemsInsideMenu: mr2
+      ? sitems.filter((e) => { const r = e.getBoundingClientRect();
+          return r.top >= mr2.top - 1 && r.bottom <= mr2.bottom + 1; }).length
+      : null,
     bottomGap: r ? Math.round(de.clientHeight - (r.y + r.height)) : null,
     titlebar: !!q('.titlebar'),
     sessionItems: document.querySelectorAll('.sess-item').length,
@@ -115,7 +128,7 @@ class CDP:
         return os.path.getsize(path)
 
 
-def wait_ready(c, timeout=25.0):
+def wait_ready(c, timeout=25.0, min_text=80):
     """Poll until the app shell mounted and the mock backend fed it data."""
     deadline = time.time() + timeout
     last = None
@@ -127,7 +140,7 @@ def wait_ready(c, timeout=25.0):
                 " return JSON.stringify({app:!!a, txt:t}); })()"
             )
             last = json.loads(state) if state else None
-            if last and last.get("app") and last.get("txt", 0) > 80:
+            if last and last.get("app") and last.get("txt", 0) >= min_text:
                 time.sleep(0.6)  # let transitions / fonts settle
                 return True, last
         except Exception as exc:  # page still navigating
@@ -152,6 +165,10 @@ def main():
                          "(overrides --view); e.g. \".wbtn,.a-nav-item:nth-of-type(4)\"")
     ap.add_argument("--label", default="",
                     help="output filename label (default: the --view value)")
+    ap.add_argument("--query", default="",
+                    help="extra query params appended to the preview URL, e.g. \"fail=prefs\"")
+    ap.add_argument("--min-text", type=int, default=80,
+                    help="body text length that counts as 'rendered' (lower it for error pages)")
     args = ap.parse_args()
 
     if args.clicks:
@@ -185,9 +202,10 @@ def main():
         for (w, h) in sizes:
             c.cmd("Emulation.setDeviceMetricsOverride", width=w, height=h,
                   deviceScaleFactor=1, mobile=False)
-            url = "%s/preview.html?theme=%s" % (args.base, theme)
+            url = "%s/preview.html?theme=%s%s" % (
+                args.base, theme, ("&" + args.query) if args.query else "")
             c.cmd("Page.navigate", url=url)
-            ok, state = wait_ready(c)
+            ok, state = wait_ready(c, min_text=args.min_text)
             row = {"theme": theme, "size": "%dx%d" % (w, h), "ready": ok}
             if not ok:
                 row["state"] = state
@@ -214,9 +232,10 @@ def main():
                 row["shot"] = path
                 row["shotBytes"] = c.shot(path)
             report["runs"].append(row)
-            print("%-7s %-9s -ok  glass=%d blur=%d ovX=%s ovY=%s gap=%s accent=%s"
+            print("%-7s %-9s -ok  glass=%d blur=%d ovX=%s ovY=%s gap=%s winH=%s accent=%s"
                   % (theme, "%dx%d" % (w, h), probe["glassCount"], probe["glassWithBlur"],
-                     probe["overflowX"], probe["overflowY"], probe["bottomGap"], probe["accent"]))
+                     probe["overflowX"], probe["overflowY"], probe["bottomGap"],
+                     (probe.get("winRect") or {}).get("h"), probe["accent"]))
 
     with open(os.path.join(outdir, "probe-report.json"), "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)

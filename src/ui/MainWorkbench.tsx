@@ -1011,7 +1011,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   新建对话
                 </button>
                 {sessionGroups.map((g) => (
-                  <div className="sess-group" key={g.label}>
+                  <div key={g.label}>
                     <div className="sess-glabel">{g.label}</div>
                     {g.items.map((s) => (
                       <button

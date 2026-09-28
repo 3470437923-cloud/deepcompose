@@ -107,6 +107,9 @@ def main():
     ap.add_argument("--theme", default="dark")
     ap.add_argument("--click", default="")
     ap.add_argument("--html", action="store_true", help="dump first 600 chars of body HTML after the action")
+    ap.add_argument("--click2", default="", help="second selector to click after --click")
+    ap.add_argument("--eval", default="", help="extra JS expression to evaluate last (printed verbatim)")
+    ap.add_argument("--settle", type=float, default=1.6, help="seconds to wait after a click")
     args = ap.parse_args()
 
     d = Diag(args.port)
@@ -132,12 +135,23 @@ def main():
         print("CLICK %s -> %s" % (args.click, d.eval(
             "(() => { const el=document.querySelector(%s); if(!el) return 'MISSING';"
             " el.click(); return 'CLICKED'; })()" % json.dumps(args.click))))
-        time.sleep(1.6)
+        time.sleep(args.settle)
         d.drain(1.5)
         print("AFTER  %s" % d.snap())
         if args.html:
             html = d.eval("document.body.innerHTML.slice(0,600)")
             print("HTML   %s" % html)
+
+    if args.click2:
+        print("CLICK2 %s -> %s" % (args.click2, d.eval(
+            "(() => { const el=document.querySelector(%s); if(!el) return 'MISSING';"
+            " el.click(); return 'CLICKED'; })()" % json.dumps(args.click2))))
+        time.sleep(args.settle)
+        d.drain(1.5)
+        print("AFTER2 %s" % d.snap())
+
+    if args.eval:
+        print("EVAL %s" % d.eval(args.eval))
 
     print("---- page log (%d entries) ----" % len(d.log))
     for entry in d.log:
