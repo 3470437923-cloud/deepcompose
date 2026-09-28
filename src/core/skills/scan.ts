@@ -67,14 +67,16 @@ export async function scanSkills(fs: FsBridge, skillsDir: string): Promise<Skill
   return out;
 }
 
-/** 合并扫描结果与既有清单：扫描为准；首次（旧清单为空）默认全部开启，
- *  非首次保留用户当前的开关状态 */
+/** 合并扫描结果与既有清单：扫描为准；首次（旧清单为空）只默认开启内置白名单，
+ *  其余技能入库但不勾选（用户按需开启）；非首次保留用户当前的开关状态 */
 export function mergeSkillList(
   previous: SkillMeta[],
   scanned: SkillMeta[],
   currentActive: string[] = [],
 ): { skillList: SkillMeta[]; activeSkillIds: string[] } {
   const activeSkillIds =
-    previous.length === 0 ? scanned.map((s) => s.id) : currentActive;
+    previous.length === 0
+      ? scanned.filter((s) => BUILTIN_SKILL_NAMES.has(s.name)).map((s) => s.id)
+      : currentActive;
   return { skillList: scanned, activeSkillIds };
 }

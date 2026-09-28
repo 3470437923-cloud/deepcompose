@@ -1,0 +1,178 @@
+/**
+ * 用户操作日志（writerd_oplog）与文本 diff。
+ *
+ * 落盘：<作品根>\writerd_oplog\log.jsonl —— 每行一条 JSON（append-only）。
+ * 系统级目录：左栏不显示（isSystemEntryName 排除），AI 在授权根内可直读。
+ *
+ * 用途：
+ *  1. 回流审查的原料（结束编辑后 AI 按 diff + 日志做一致性核对与学习）；
+ *  2. 个人改稿学习的事实依据（AI 交付版 vs 用户最终版）；
+ *  3. 用户行为可追溯（每一个操作都被记录）。
+ */
+
+import type { FsBridge } from "../fsbridge";
+import { PROJECT_DIRS, join, projectOplogDir } from "../dirs";
+import { isoMicros } from "../ids";
+
+export type OpAction =
+  | "open"
+  | "edit_start"
+  | "edit_end"
+  | "save"
+  | "adopt"
+  | "discard"
+  | "question"
+  | "coldread"
+  | "reflow"
+  | "rule_confirm"
+  | "create_project"
+  | "switch_project";
+
+export interface OplogDetail {
+  /** 编辑会话内的变更统计（edit_end 时携带） */
+  changedChars?: number;
+  addedLines?: number;
+  removedLines?: number;
+  digitsChanged?: boolean;
+  /** 是否触发了完整回流（false = 轻量回流仅记录） */
+  reflowTriggered?: boolean;
+  /** 附注（如"关窗自动保存，回流顺延"） */
+  note?: string;
+}
+
+export interface OplogEntry {
+  ts: string;
+  action: OpAction;
+  /** 相对作品根路径（'/' 分隔）；无对象时为 '' */
+  relPath: string;
+  /** 触发时所在会话（可空） */
+  sessionId: string;
+  detail: OplogDetail;
+}
+
+export function oplogFile(projectRoot: string): string {
+  return join(projectOplogDir(projectRoot), "log.jsonl");
+}
+
+/** 追加一条操作日志（目录不存在时自动建；失败不阻断用户操作） */
+export async function appendOplog(
+  fs: FsBridge,
+  projectRoot: string,
+  action: OpAction,
+  relPath: string,
+  sessionId = "",
+  detail: OplogDetail = {},
+  now: Date = new Date(),
+): Promise<void> {
+  const entry: OplogEntry = {
+    ts: isoMicros(now),
+    action,
+    relPath: relPath.replace(/\\/g, "/"),
+    sessionId,
+    detail,
+  };
+  try {
+    await fs.mkdir(projectOplogDir(projectRoot));
+    await fs.appendText(oplogFile(projectRoot), JSON.stringify(entry) + "\n");
+  } catch {
+    // 日志失败不阻断写作
+  }
+}
+
+/** 读取最近 limit 条日志（文件缺失/损坏行跳过） */
+export async function readOplog(
+  fs: FsBridge,
+  projectRoot: string,
+  limit = 200,
+): Promise<OplogEntry[]> {
+  const file = oplogFile(projectRoot);
+  if (!(await fs.exists(file))) return [];
+  let text: string;
+  try {
+    text = await fs.readText(file);
+  } catch {
+    return [];
+  }
+  const out: OplogEntry[] = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const o = JSON.parse(line) as OplogEntry;
+      if (typeof o.action === "string") out.push(o);
+    } catch {
+      // 跳过损坏行
+    }
+  }
+  return out.slice(Math.max(0, out.length - limit));
+}
+
+// ────────────────────────────── 文本 diff ──────────────────────────────
+
+export interface DiffResult {
+  /** 新增行（after 有 before 无，按出现顺序） */
+  added: string[];
+  /** 删除行（before 有 after 无） */
+  removed: string[];
+  /** 变更的非空白字符数（added+removed 行的非空白字符总量） */
+  changedChars: number;
+  /** 数字串集合是否变化（金额/数量/时间等事实信号） */
+  digitsChanged: boolean;
+}
+
+function countNonWs(lines: string[]): number {
+  let n = 0;
+  for (const l of lines) n += l.replace(/\s/g, "").length;
+  return n;
+}
+
+/** 提取文本中的数字串（含小数），排序后作为多重集合比较 */
+export function digitTokens(text: string): string[] {
+  return (text.match(/\d+(?:\.\d+)?/g) ?? []).slice().sort();
+}
+
+/**
+ * 行级 diff（前后缀裁剪法）：先去掉公共前缀/后缀，中间即为变更块。
+ * 不做完整 LCS——回流只需要"改了哪些行、量有多大"，够用且 O(n)。
+ */
+export function diffLines(before: string, after: string): DiffResult {
+  const a = before.split(/\r?\n/);
+  const b = after.split(/\r?\n/);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const removed = a.slice(start, endA);
+  const added = b.slice(start, endB);
+  const da = digitTokens(before).join(",");
+  const db = digitTokens(after).join(",");
+  return {
+    added,
+    removed,
+    changedChars: countNonWs(added) + countNonWs(removed),
+    digitsChanged: da !== db,
+  };
+}
+
+/** 轻量回流阈值：变更非空白字符数不超过该值且数字未变 → 只记日志，不惊动 AI */
+export const LIGHT_EDIT_CHARS = 24;
+
+export function isLightEdit(diff: DiffResult, threshold = LIGHT_EDIT_CHARS): boolean {
+  return diff.changedChars <= threshold && !diff.digitsChanged;
+}
+
+/** diff 摘要文本（喂给回流 AI；单行截断，总量封顶） */
+export function diffSummaryText(diff: DiffResult, maxLines = 40, maxLineChars = 120): string {
+  const cut = (s: string) => (s.length > maxLineChars ? s.slice(0, maxLineChars) + "…" : s);
+  const out: string[] = [];
+  for (const l of diff.removed.slice(0, maxLines)) out.push("- " + cut(l));
+  if (diff.removed.length > maxLines) out.push(`- …（其余 ${diff.removed.length - maxLines} 行删除省略）`);
+  for (const l of diff.added.slice(0, maxLines)) out.push("+ " + cut(l));
+  if (diff.added.length > maxLines) out.push(`+ …（其余 ${diff.added.length - maxLines} 行新增省略）`);
+  return out.join("\n");
+}
+
+export { PROJECT_DIRS };

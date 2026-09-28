@@ -1,6 +1,6 @@
 [package]
 name = "writerd"
-version = "2.0.1"
+version = "3.0.0"
 description = "writerD — 长篇中文小说 AI 写作工作台"
 authors = ["writerD"]
 edition = "2021"
