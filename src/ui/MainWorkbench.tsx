@@ -763,6 +763,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const adoptCandidate = useCallback(
     async (tab: OpenTab) => {
       if (!project) return;
+      if (busyRef.current) {
+        setStatus("当前有生成任务在跑，请等它结束后再采用");
+        return;
+      }
       const ok = await askConfirm(
         "采用为正式正文？",
         `将「${tab.name}」采用为最终稿：AI 会登记采用版本、保存正式正文、按最终稿增量回写追踪表与章节摘要，并把本章旧稿移入 待确认\\已处理 留档、推进章节指针。`,
@@ -853,9 +857,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         setStreamText("");
         setStreamThink("");
         setToolLog([]);
+        void drainReflow(); // 冷读占用的生成槽释放后，排空待跑回流
       }
     },
-    [project, transport, onAgentEvent, refreshSessions, refreshProject],
+    [project, transport, onAgentEvent, refreshSessions, refreshProject, drainReflow],
   );
 
   /** 打开会话：若会话绑定了项目则恢复绑定 */
