@@ -592,10 +592,8 @@ html[data-theme="light"] .app-shell .b-send{box-shadow:0 6px 18px color-mix(in s
 .app-shell .b-editor{left:53.3%;right:0;top:82px;width:auto;height:auto;bottom:0}
 .app-shell .b-editor-body{left:0;right:0;width:auto}
 
-/* 面板开关：flex 自动回流，无需宽度修正 */
+/* 面板开关：隐藏对应栏（flex 自动回流） */
 .app-shell .b-body.hide-left .b-left{display:none}
-.app-shell .b-body.hide-left .b-chat{left:0;width:auto}
-.app-shell .b-body.hide-left .b-right{left:auto}
 .app-shell .b-body.hide-right .b-right{display:none}
 
 /* 设置屏流体化（导航定宽，内容区随窗口） */

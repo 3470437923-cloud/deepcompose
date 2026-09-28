@@ -22,10 +22,20 @@ function uuid(): string {
   return `req_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 }
 
+/** 当前活跃流（单生成并发；「停止生成」用） */
+let activeRequestId: string | null = null;
+
+/** 中断当前流：Rust 侧截断上游连接，已收到的部分正文保留 */
+export function abortActiveStream(): void {
+  const id = activeRequestId;
+  if (id) void invoke("ai_abort", { requestId: id });
+}
+
 export function createTauriTransport(): StreamTransport {
   return {
     async stream(req: HttpRequest, handlers): Promise<void> {
       const requestId = uuid();
+      activeRequestId = requestId;
       let finish: () => void = () => {};
       const finished = new Promise<void>((resolve) => {
         finish = resolve;
@@ -57,6 +67,7 @@ export function createTauriTransport(): StreamTransport {
         await finished;
       } finally {
         unlisten();
+        if (activeRequestId === requestId) activeRequestId = null;
       }
     },
   };

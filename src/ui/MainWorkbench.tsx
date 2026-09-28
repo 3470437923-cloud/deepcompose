@@ -14,7 +14,7 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
-import { createTauriTransport } from "../core/ai/transport";
+import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat } from "../core/ai/controller";
 import type { AgentEvent } from "../core/ai/agent";
 import type { QuestionItem } from "../core/tools/exec";
@@ -834,6 +834,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                         title="停止生成（当前流结束后生效）"
                         onClick={() => {
                           abortRef.current.aborted = true;
+                          abortActiveStream();
                           setStatus("正在停止…");
                         }}
                       >
