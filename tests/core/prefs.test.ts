@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PREFS,
   DEFAULT_SYSTEM_PROMPT,
+  DS_BLUE_ARGB,
   accentHex,
   activeProvider,
   parsePrefs,
@@ -104,6 +105,39 @@ describe("配置解析", () => {
 
   it("accentHex 把 0xAARRGGBB 转成 #RRGGBB", () => {
     expect(accentHex(4286343935)).toBe("#7C6AFF");
+  });
+});
+
+describe("主题模式（theme_mode 扩展键）", () => {
+  it("默认深色", () => {
+    expect(DEFAULT_PREFS.themeMode).toBe("dark");
+    expect(parsePrefs("").themeMode).toBe("dark");
+  });
+
+  it("显式 theme_mode 三态直读", () => {
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "light" })).themeMode).toBe("light");
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dark" })).themeMode).toBe("dark");
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" })).themeMode).toBe("dsblue");
+  });
+
+  it("缺失 theme_mode 时按真机 is_dark_mode 派生（旧配置平滑升级）", () => {
+    expect(parsePrefs(JSON.stringify({ "flutter.is_dark_mode": true })).themeMode).toBe("dark");
+    expect(parsePrefs(JSON.stringify({ "flutter.is_dark_mode": false })).themeMode).toBe("light");
+  });
+
+  it("非法 theme_mode 回落 is_dark_mode 派生", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "solarized", "flutter.is_dark_mode": false }));
+    expect(p.themeMode).toBe("light");
+  });
+
+  it("往返保留 themeMode", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" }));
+    expect(parsePrefs(serializePrefs(p)).themeMode).toBe("dsblue");
+  });
+
+  it("默认强调色为 DS 品牌蓝", () => {
+    expect(DEFAULT_PREFS.customAccentColor).toBe(DS_BLUE_ARGB);
+    expect(accentHex(DS_BLUE_ARGB).toLowerCase()).toBe("#4d6bfe");
   });
 });
 
