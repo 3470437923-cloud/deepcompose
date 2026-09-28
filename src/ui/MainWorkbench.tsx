@@ -129,6 +129,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   } | null>(null);
   const [qSel, setQSel] = useState<Record<number, string[]>>({});
   const chatBottom = useRef<HTMLDivElement | null>(null);
+  const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const transport = useMemo(() => createTauriTransport(), []);
 
   // ── 备忘录与应用内对话框 ──
@@ -171,15 +172,29 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const activeTab = useMemo(() => tabs.find((t) => t.rel === activeRel) ?? null, [tabs, activeRel]);
 
+  /** 有未保存修改时先确认（切作品/切会话防丢稿） */
+  const guardDirtyTabs = useCallback(async () => {
+    if (!tabs.some((t) => t.dirty)) return true;
+    return askConfirm(
+      "有未保存的修改",
+      "切换将丢失未保存的编辑内容（可先 Ctrl+S 保存）。",
+      { danger: true, confirmLabel: "放弃修改" },
+    );
+  }, [tabs, askConfirm]);
+
   /** 装配数据：载入作品（不改 prefs；启动恢复与 openProject 共用） */
-  const openProjectRef = useCallback(async (ref: ProjectRef) => {
+  const openProjectRef = useCallback(
+    async (ref: ProjectRef) => {
+    if (!(await guardDirtyTabs())) return;
     const fs = getFs();
     const data = await loadProject(fs, ref.root, ref.name);
     setProject(data);
     setTabs([]);
     setActiveRel(null);
     setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
-  }, []);
+    },
+    [guardDirtyTabs],
+  );
 
   /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品（真机行为） */
   useEffect(() => {
@@ -226,7 +241,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setProjects(await scanBooksRoot(fs, dirs.booksRoot));
   }, [dirs]);
 
-  const openProject = useCallback(async (ref: ProjectRef) => {
+  const openProject = useCallback(
+    async (ref: ProjectRef) => {
+    if (!(await guardDirtyTabs())) return;
     const fs = getFs();
     const data = await loadProject(fs, ref.root, ref.name);
     setProject(data);
@@ -239,7 +256,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       const next = { ...b.prefs, currentNovelProject: ref.root };
       void savePrefs(next);
     }
-  }, []);
+    },
+    [guardDirtyTabs],
+  );
 
   const openFile = useCallback(
     async (ref: FileRef, kind: "doc" | "chapter" | "root") => {
@@ -421,6 +440,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setStreamThink("");
     setToolLog([]);
     setComposer("");
+    const signal = { aborted: false };
+    abortRef.current = signal;
     try {
       const res = await sendChat({
         dirs: b.dirs,
@@ -431,6 +452,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         transport,
         onEvent: onAgentEvent,
         askQuestions,
+        signal,
       });
       setSession(res.session);
       if (res.error) setChatError(res.error);
@@ -487,6 +509,11 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   }, [project]);
 
   const modelLabel = currentBoot()?.prefs.model?.trim() || "未配置模型";
+
+  // 新消息/流式增量时滚到底部
+  useEffect(() => {
+    chatBottom.current?.scrollIntoView({ block: "end" });
+  }, [session?.id, session?.messages.length, streamText, streamThink, toolLog.length]);
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
@@ -767,7 +794,18 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                       </svg>
                       {modelLabel}
                     </button>
-                    {busy ? <span className="cbtn plain">生成中…</span> : null}
+                    {busy ? (
+                      <button
+                        className="cbtn plain"
+                        title="停止生成（当前流结束后生效）"
+                        onClick={() => {
+                          abortRef.current.aborted = true;
+                          setStatus("正在停止…");
+                        }}
+                      >
+                        停止
+                      </button>
+                    ) : null}
                     {!currentBoot()?.prefs.apiKey ? (
                       <span className="cbtn plain">未配置 API Key</span>
                     ) : null}
