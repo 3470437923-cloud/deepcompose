@@ -8,6 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useMaximized } from "./useMaximized";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
@@ -462,6 +463,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   }, [project, openFile]);
 
   const win = getCurrentWindow();
+  const maxed = useMaximized();
 
   const refreshSessions = useCallback(async () => {
     const b = currentBoot();
@@ -681,10 +683,23 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <path d="M5 10h10" />
             </svg>
           </button>
-          <button className="wbtn glint" title="最大化" onClick={() => void win.toggleMaximize()}>
-            <svg viewBox="0 0 20 20" className="ic">
-              <rect x="4" y="4.5" width="11" height="11" rx="2" />
-            </svg>
+          <button
+            className="wbtn glint"
+            title={maxed ? "向下还原" : "最大化"}
+            aria-label={maxed ? "向下还原" : "最大化"}
+            onClick={() => void win.toggleMaximize()}
+          >
+            {maxed ? (
+              // 还原：前块 + 后块的左上缺角（Windows 标准字形）
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="4" y="4.5" width="11" height="11" rx="2" />
+              </svg>
+            )}
           </button>
           <button className="wbtn close glint" title="关闭" onClick={() => void win.close()}>
             <svg viewBox="0 0 20 20" className="ic">
