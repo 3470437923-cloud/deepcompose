@@ -12,6 +12,7 @@
 
 import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useMaximized } from "../ui/useMaximized";
 import logo from "../assets/logo.png";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
@@ -55,6 +56,8 @@ export default function SettingsScreen({ onBack }: Props) {
   const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const win = getCurrentWindow();
+  // 必须在 `if (!boot)` 提前返回**之前**调用（hooks 规则）
+  const maxed = useMaximized();
 
   // 兜底：boot 失败时显示「配置未加载」。
   // 注意根元素必须与下方正常路径一致（.win#screenA）——.win 是 .app-shell 的 flex
@@ -263,10 +266,22 @@ export default function SettingsScreen({ onBack }: Props) {
           <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
             <svg viewBox="0 0 20 20" className="ic"><path d="M5 10h10" /></svg>
           </button>
-          <button className="wbtn" title="最大化" onClick={() => void win.toggleMaximize()}>
-            <svg viewBox="0 0 20 20" className="ic">
-              <rect x="4" y="4.5" width="11" height="11" rx="2" />
-            </svg>
+          <button
+            className="wbtn"
+            title={maxed ? "向下还原" : "最大化"}
+            aria-label={maxed ? "向下还原" : "最大化"}
+            onClick={() => void win.toggleMaximize()}
+          >
+            {maxed ? (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="4" y="4.5" width="11" height="11" rx="2" />
+              </svg>
+            )}
           </button>
           <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
             <svg viewBox="0 0 20 20" className="ic">

@@ -204,6 +204,17 @@ for (const d of [BOOKS_ROOT, SESSIONS_DIR, SNAPSHOTS_DIR, SKILLS_DIR, PREFS_DIR]
 const listeners = new Map<string, number>();  // `${event}|${id}` → transformCallback id
 let evtSeq = 0;
 const warned = new Set<string>();             // 未实现命令只告警一次
+let winMaxed = false;                          // 沙箱里的窗口最大化状态
+
+/** 向已注册的监听器派发事件（真机由 Rust 侧 emit；预览里手动触发，
+ *  以便 onResized 之类的监听能被真实驱动，而不是永远不动） */
+function emitMockEvent(event: string, payload: unknown) {
+  for (const [key, handlerId] of listeners) {
+    if (!key.startsWith(`${event}|`)) continue;
+    const id = Number(key.split("|")[1]);
+    callbacks.get(handlerId)?.({ event, id, payload });
+  }
+}
 
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   const S = (k: string) => String((args ?? {})[k] ?? "");
@@ -254,6 +265,38 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     // 返回与 DeepSeek 实测一致的 2 个模型，供设置屏「检测连接」走真实渲染路径
     case "ai_models":
       return ["deepseek-chat", "deepseek-reasoner"];
+    // 窗口命令（@tauri-apps/api/window）：浏览器沙箱里没有真实窗口，但返回值必须
+    // **诚实** —— 早先未实现时统一返回 null，会让标题栏「最大化」按钮永远显示
+    // 未最大化（按钮图标/提示就是无边框窗口唯一的状态反馈）。
+    case "plugin:window|is_maximized":
+      return winMaxed;
+    case "plugin:window|is_minimized":
+    case "plugin:window|is_fullscreen":
+      return false;
+    // 最大化状态在沙箱里也要**真的变**，否则标题栏按钮的「最大化 ⇄ 向下还原」
+    // 切换没法在预览里验证（真机由 Windows 改状态，这里由这几条命令改）
+    case "plugin:window|maximize":
+      winMaxed = true;
+      emitMockEvent("tauri://resize", { width: 1920, height: 1032 });
+      return null;
+    case "plugin:window|unmaximize":
+      winMaxed = false;
+      emitMockEvent("tauri://resize", { width: 1440, height: 900 });
+      return null;
+    case "plugin:window|toggle_maximize":
+      winMaxed = !winMaxed;
+      emitMockEvent("tauri://resize", winMaxed ? { width: 1920, height: 1032 } : { width: 1440, height: 900 });
+      return null;
+    case "plugin:window|minimize":
+    case "plugin:window|close":
+    case "plugin:window|destroy":
+    case "plugin:window|show":
+    case "plugin:window|set_size":
+    case "plugin:window|set_position":
+    case "plugin:window|center":
+    case "plugin:window|start_dragging":
+    case "plugin:window|start_resize_dragging":
+      return null;
     // 事件插件（@tauri-apps/api/event）：真机由 Rust 侧注册回调并返回 eventId
     case "plugin:event|listen": {
       const event = S("event");
