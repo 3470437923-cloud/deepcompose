@@ -1,11 +1,11 @@
 /**
- * 会话存储（格式逐字对齐真机）。
+ * 会话存储（保持既有格式）。
  *
  * 目录：<Documents>\writerd_sessions\
  *   <uuid>.json  {"id","title","projectPath","createdAt","updatedAt","messages":[…]}
  *   index.json   {"version":1,"sessions":{"<uuid>":{"title","projectPath","createdAt",
  *                 "updatedAt","userMessageCount","size","mtimeMs"}}}
- * 消息形态（真机实证）：{"id","role","text","thinking","toolCalls","toolResults","createdAt"}
+ * 消息形态（实测样本）：{"id","role","text","thinking","toolCalls","toolResults","createdAt"}
  * 空会话标题：`New Chat - 2026-05-21T16:58`；有首条用户消息后取前 30 字 + `...`
  */
 
@@ -62,7 +62,7 @@ export function uuid(): string {
   });
 }
 
-/** `New Chat - 2026-05-21T16:58`（真机空会话标题形态） */
+/** `New Chat - 2026-05-21T16:58`（空会话标题形态） */
 export function defaultTitle(d: Date = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `New Chat - ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
@@ -167,7 +167,7 @@ export interface SessionListEntry extends SessionIndexEntry {
   id: string;
 }
 
-/** 会话列表（按 updatedAt 倒序，与真机一致） */
+/** 会话列表（按 updatedAt 倒序，保持既有行为） */
 export function listSessions(index: SessionIndex, projectPath?: string | null): SessionListEntry[] {
   const out: SessionListEntry[] = Object.entries(index.sessions).map(([id, e]) => ({ id, ...e }));
   const filtered = projectPath ? out.filter((e) => e.projectPath === projectPath) : out;

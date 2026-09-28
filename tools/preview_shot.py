@@ -153,7 +153,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=9223)
     ap.add_argument("--base", default="http://localhost:5183")
-    ap.add_argument("--out", default=os.path.join("reference", "preview"))
+    ap.add_argument("--out", default=os.path.join("shots", "preview"))
     ap.add_argument("--themes", default=",".join(THEMES))
     ap.add_argument("--sizes", default=",".join("%dx%d" % s for s in SIZES))
     ap.add_argument("--shot-sizes", default="1600x1000",

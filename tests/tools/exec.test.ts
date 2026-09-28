@@ -1,5 +1,5 @@
 /**
- * 工具层：结果 JSON 的字段与形态逐字对齐真机会话（1,729 条真实调用结果实证）。
+ * 工具层：结果 JSON 的字段与形态保持既有格式（1,729 条实测调用结果实证）。
  * 同时锁路径分级授权与写前快照。
  */
 import { promises as fsp } from "node:fs";
@@ -173,7 +173,7 @@ describe("file_write", () => {
     expect(await fsp.readFile(path.join(root, "章节内容", "第5章.md"), "utf8")).toBe("一\r\n三\r\n");
   });
 
-  it("每次写入都落一条快照（真机形态：写前内容 + 写后哈希）", async () => {
+  it("每次写入都落一条快照（实测样本：写前内容 + 写后哈希）", async () => {
     const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
     expect(s.snapshots.length).toBeGreaterThan(0);
     const last = s.snapshots[s.snapshots.length - 1];
@@ -236,7 +236,7 @@ describe("file_manage", () => {
   });
 });
 
-describe("路径分级授权（CONTRACT §10）", () => {
+describe("路径分级授权", () => {
   it("项目内直读", async () => {
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "list", path: "." }));
     expect(r.error).toBeUndefined();
@@ -281,7 +281,7 @@ describe("question / skill_lookup / create_project", () => {
     );
   });
 
-  it("question 结果格式对齐真机（output + answers）", async () => {
+  it("question 结果格式保持既有格式（output + answers）", async () => {
     const r = JSON.parse(
       await executeTool(ctx({ askQuestions: async () => [["继续"]] }), "question", {
         questions: [{ question: "是否继续？", options: [{ label: "继续" }, { label: "停止" }] }],

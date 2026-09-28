@@ -1,9 +1,9 @@
 /**
- * 配置模型（逐字对齐真机键名，见 docs/spec/PREFS.md，43 键中的非商业化部分）。
+ * 配置模型（键名保持既有格式，43 键中的非商业化部分）。
  *
- * 键名保留 `flutter.` 前缀：这样配置文件与真机**同构**，用户可以直接沿用既有配置。
- * 商业化键（vip_* / device_id）**永不写入**（CONTRACT §11 切除清单）。
- * 存储位置：%APPDATA%\com.writerd\writerD\shared_preferences.json（ADR-003）。
+ * 键名保留 `flutter.` 前缀：保持既有格式，用户可以直接沿用既有配置。
+ * 商业化键（vip_* / device_id）**永不写入**。
+ * 存储位置：%APPDATA%\com.writerd\writerD\shared_preferences.json。
  */
 
 export const PREFIX = "flutter.";
@@ -13,8 +13,8 @@ export const PREFIX = "flutter.";
  *   dark   = 曜石黑液态玻璃
  *   light  = 晨雾白液态玻璃
  *   dsblue = 深海 DS 蓝液态玻璃（DeepSeek 品牌蓝环境光）
- * 键名 `theme_mode` 为 writerD 自有扩展（真机无此键，如实标注）；
- * 兼容策略：配置里没有 theme_mode 时按真机键 is_dark_mode 派生。
+ * 键名 `theme_mode` 为 writerD 自有扩展（既有格式中无此键，如实标注）；
+ * 兼容策略：配置里没有 theme_mode 时按既有键 is_dark_mode 派生。
  */
 export type ThemeMode = "dark" | "light" | "dsblue";
 
@@ -60,9 +60,9 @@ export interface Prefs {
   systemPrompt: string;
   reservedOutputTokens: number;
   autoClearContext: boolean;
-  /** 工具调度轮次上限（委托方要求可调；真机无此键实证，键名 [待实测]） */
+  /** 工具调度轮次上限（委托方要求可调；既有格式中无此键，键名 [待实测]） */
   toolRoundLimit: number;
-  /** 单次回复 max_tokens（真机参数页「最大输出(K)·仅 Anthropic」有文案实证，键名 [待实测]） */
+  /** 单次回复 max_tokens（既有参数页「最大输出(K)·仅 Anthropic」有文案实证，键名 [待实测]） */
   maxOutputTokens: number;
 
   // —— 界面面板（7 键）——
@@ -84,7 +84,7 @@ export interface Prefs {
   webdavConfig: WebdavConfig;
   webdavSyncMeta: Record<string, unknown>;
 
-  // —— 外观主题（真机 2 键 + writerD 扩展 1 键）——
+  // —— 外观主题（既有 2 键 + writerD 扩展 1 键）——
   customAccentColor: number;
   isDarkMode: boolean;
   /** 主题模式（writerD 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
@@ -106,8 +106,8 @@ export interface Prefs {
 /**
  * 默认系统提示词。
  *
- * ⚠️ 与对标产品的关系（CONTRACT §6 红线：不复制其提示词原文）：
- * 本提示词由本项目**自写**，但与真机默认提示词**语义等价**——同样是四件事：
+ * ⚠️ 提示词来源说明（不复制第三方产品的提示词原文）：
+ * 本提示词由本项目**自写**，但与既有默认提示词**语义等价**——同样是四件事：
  * ① 你是小说写作助手；② 可读写项目目录内文件；③ 用可用工具先读后写；
  * ④ 与既有故事/角色/世界观保持一致，并使用与用户相同的语言。
  */
@@ -161,7 +161,7 @@ export const DEFAULT_PREFS: Prefs = {
   editorFontSize: 15.0,
 };
 
-/** 键名映射：内部字段 → 真机键名（去掉 flutter. 前缀后的部分） */
+/** 键名映射：内部字段 → 既有键名（去掉 flutter. 前缀后的部分） */
 const KEY_MAP: Record<keyof Prefs, string> = {
   llmBaseUrl: "llm_base_url",
   apiKey: "api_key",
@@ -195,7 +195,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
 
   customAccentColor: "custom_accent_color",
   isDarkMode: "is_dark_mode",
-  themeMode: "theme_mode", // writerD 扩展键（真机无此键）
+  themeMode: "theme_mode", // writerD 扩展键（既有格式无此键）
 
   customNovelsDir: "custom_novels_dir",
   customSkillsDir: "custom_skills_dir",
@@ -207,7 +207,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   editorFontSize: "editor_font_size",
 };
 
-/** 需要按 JSON 字符串存取的键（真机即以字符串形式落在 shared_preferences 里） */
+/** 需要按 JSON 字符串存取的键（既有格式即以字符串形式落在 shared_preferences 里） */
 const JSON_KEYS: ReadonlySet<keyof Prefs> = new Set<keyof Prefs>([
   "savedProviders",
   "skillList",
@@ -296,7 +296,7 @@ export function parsePrefs(text: string): Prefs {
 
   p.customAccentColor = asNumber(get("customAccentColor"), p.customAccentColor);
   p.isDarkMode = asBool(get("isDarkMode"), p.isDarkMode);
-  // theme_mode 为 writerD 扩展键：合法值直接采用；缺失/非法时按真机
+  // theme_mode 为 writerD 扩展键：合法值直接采用；缺失/非法时按既有键
   // is_dark_mode 派生（旧配置文件平滑升级，两个键独立往返以保 round-trip）
   const tm = get("themeMode");
   p.themeMode =
@@ -310,7 +310,7 @@ export function parsePrefs(text: string): Prefs {
   p.customSkillsDir = asString(get("customSkillsDir"), p.customSkillsDir);
 
   p.currentNovelProject = asString(get("currentNovelProject"), p.currentNovelProject);
-  // novel_projects 在真机里是 '\n' 分隔的绝对路径，不是 JSON
+  // novel_projects 在既有格式里是 '\n' 分隔的绝对路径，不是 JSON
   const nps = get("novelProjects");
   p.novelProjects =
     typeof nps === "string" && nps.trim() !== ""
@@ -323,7 +323,7 @@ export function parsePrefs(text: string): Prefs {
   return p;
 }
 
-/** 序列化为真机同构的 JSON（单行；商业化键不写） */
+/** 序列化为保持既有格式的 JSON（单行；商业化键不写） */
 export function serializePrefs(p: Prefs): string {
   const out: Record<string, unknown> = {};
   for (const key of Object.keys(KEY_MAP) as (keyof Prefs)[]) {
@@ -331,7 +331,7 @@ export function serializePrefs(p: Prefs): string {
     const value = p[key];
     out[realKey] = JSON_KEYS.has(key) ? JSON.stringify(value) : value;
   }
-  // novel_projects 是 '\n' 分隔文本（与真机一致）
+  // novel_projects 是 '\n' 分隔文本（保持既有格式）
   out[PREFIX + KEY_MAP.novelProjects] = p.novelProjects.join("\n");
   return JSON.stringify(out);
 }

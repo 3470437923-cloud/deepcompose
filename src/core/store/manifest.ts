@@ -1,5 +1,5 @@
 /**
- * 作品清单 `.openwrite_manifest.json`（逐字对齐真机结构）。
+ * 作品清单 `.openwrite_manifest.json`（保持既有格式）。
  *
  * 实测样本（C:\Users\Administrator\AI写小说\测试书籍\.openwrite_manifest.json）：
  * {"version":1,"updatedAt":"2026-09-27T22:00:35.918741",
@@ -10,7 +10,7 @@
  *  "manualOrderParents":[]}
  *
  * 作用：把「物理文件名」与「显示名/排序」解耦——用户改名只动 displayName，
- * 磁盘上的物理路径保持不变（这正是 CONTRACT §7「格式优先」能成立的前提）。
+ * 磁盘上的物理路径保持不变（这正是「格式优先」能成立的前提）。
  */
 
 import { isoMicros, newItemId } from "../ids";
@@ -20,7 +20,7 @@ export type ManifestKind = "file" | "directory";
 export interface ManifestItem {
   id: string;
   kind: ManifestKind;
-  /** 相对作品根的路径，'/' 分隔（真机实测为 '/'） */
+  /** 相对作品根的路径，'/' 分隔（实测为 '/'） */
   physicalPath: string;
   displayName: string;
   createdAt: string;
@@ -48,7 +48,7 @@ export function emptyManifest(now: Date = new Date()): ProjectManifest {
   };
 }
 
-/** 解析；空/损坏内容按空清单处理（真机对缺失文件的处理即视为空） */
+/** 解析；空/损坏内容按空清单处理（既有行为：缺失文件视为空清单） */
 export function parseManifest(text: string, now: Date = new Date()): ProjectManifest {
   if (!text || !text.trim()) return emptyManifest(now);
   const raw: unknown = JSON.parse(text);
@@ -71,7 +71,7 @@ export function legacyRef(physicalPath: string): string {
   return `legacy:${physicalPath}`;
 }
 
-/** 按物理路径找条目（真机同一物理路径只允许一条） */
+/** 按物理路径找条目（同一物理路径只允许一条） */
 export function findByPhysicalPath(m: ProjectManifest, physicalPath: string): ManifestItem | null {
   for (const it of Object.values(m.items)) {
     if (it.physicalPath === physicalPath) return it;

@@ -1,13 +1,13 @@
 /**
  * 双协议（OpenAI 兼容 / Anthropic 兼容）的请求构造与 SSE 解析。
  *
- * 依据 CONTRACT §8.1（逐字）：
+ * 端点、鉴权与版本头（逐字）：
  *   OpenAI 格式：   /v1/chat/completions
  *   Anthropic 格式：/v1/messages 或 /messages（无 v1）
  *   鉴权：          authorization: Bearer <key>   |   x-api-key: <key>
  *   Anthropic 版本头：anthropic-version: 2023-06-01
  *   协议开关：      use_anthropic_format
- * 参数默认值（CONTRACT §6.7）：max_tokens 默认 32K（仅 Anthropic 格式）。
+ * 参数默认值：max_tokens 默认 32K（仅 Anthropic 格式）。
  */
 
 export type Role = "system" | "user" | "assistant";
@@ -16,7 +16,7 @@ export interface ToolCall {
   /** 上游返回的调用 id（回填 tool 结果时必须原样带回） */
   callId: string;
   name: string;
-  /** 原始 JSON 字符串（与真机会话落盘格式一致） */
+  /** 原始 JSON 字符串（与既有会话落盘格式一致） */
   arguments: string;
   /** 工具执行结果（同样为 JSON 字符串）；未执行时为 undefined */
   result?: string;

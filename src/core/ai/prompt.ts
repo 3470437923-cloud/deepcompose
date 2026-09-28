@@ -1,11 +1,11 @@
 /**
  * 系统提示词装配。
  *
- * 逐字片段（证据：TOOLS.md §1.2/§1.4/§4.3）：
+ * 逐字片段（既有格式）：
  *   - 未绑定项目：`\n\n所有文件操作（file_read、file_write、file_manage）都在此目录内进行。路径参数相对于此目录。\n\n**注意**：当前未绑定具体小说项目。当用户说"初始化"、"创建新小说"时，使用 create_project 工具创建新项目。`
  *   - 已绑定项目：`\n\n所有文件操作（file_read、file_write、file_manage）都在此目录内进行。路径参数相对于此目录，例如读取"章节内容/第一章.md"实际读取的是"` + <项目绝对路径> + `"`
- *   - 未启用工具：`未启用，web_search 工具当前不可用（调用会被拒绝），请勿声称具备该能力或尝试调用`（terminal / rank_data_query 同构）
- * 系统提示词本体：**自写、语义等价**（CONTRACT §6 红线：不复制其提示词原文），见 prefs.DEFAULT_SYSTEM_PROMPT。
+ *   - 未启用工具：`未启用，web_search 工具当前不可用（调用会被拒绝），请勿声称具备该能力或尝试调用`（terminal / rank_data_query 同样处理）
+ * 系统提示词本体：**自写、语义等价**，见 prefs.DEFAULT_SYSTEM_PROMPT。
  */
 
 import { availableSkillsBlock } from "../skills/registry";
@@ -45,7 +45,7 @@ export function buildSystemPrompt(input: PromptInput): string {
     out += PROJECT_UNBOUND_NOTE;
   }
 
-  // 未注册的工具逐字声明为不可用（真机行为）
+  // 未注册的工具逐字声明为不可用（既有行为）
   for (const t of ["web_search", "terminal", "rank_data_query"]) {
     if (!input.enabledTools.includes(t)) out += "\n" + toolDisabledNote(t);
   }

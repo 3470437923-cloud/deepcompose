@@ -1,5 +1,5 @@
 /**
- * Markdown 维护文档的行级编辑（CONTRACT §7「格式优先」的实现底座）。
+ * Markdown 维护文档的行级编辑（「格式优先」的实现底座）。
  *
  * 硬约束：
  *   1. 只做「追加」与「节内局部替换」，**禁止整体重写**；
@@ -72,7 +72,7 @@ export function joinLines(doc: LineDoc): string {
   return out;
 }
 
-/** 文档的主导 EOL（真机文件多为 CRLF，不能一律写 LF） */
+/** 文档的主导 EOL（既有文件多为 CRLF，不能一律写 LF） */
 export function dominantEol(doc: LineDoc): string {
   let crlf = 0;
   let lf = 0;
@@ -91,7 +91,7 @@ export function endsWithNewline(doc: LineDoc): boolean {
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 
-/** 解析标题层级结构（只认 ATX 标题，与真机维护文档一致） */
+/** 解析标题层级结构（只认 ATX 标题，保持既有格式） */
 export function parseSections(text: string): Section[] {
   const { lines } = splitLines(text);
   const heads: { level: number; title: string; line: number }[] = [];
@@ -209,7 +209,7 @@ function findWithEolTolerance(regionText: string, needle: string, eol: string): 
 
 /**
  * 节内文本替换：只在指定节范围内查找替换。
- * replaceAll=false 时只替换首个匹配（与真机 edit_file 的 replace 语义一致）。
+ * replaceAll=false 时只替换首个匹配（与 edit_file 的 replace 语义保持一致）。
  * 区域按**原始 EOL** 取出与放回，除被替换的文本外逐字节不变。
  */
 export function replaceInSection(

@@ -1,5 +1,5 @@
 /**
- * 作品目录协议（CONTRACT §3.1）。
+ * 作品目录协议。
  *
  *   <booksRoot>\<书名>\小说资料\*.md        ← 维护文档（三件套 + 用户自建）
  *   <booksRoot>\<书名>\章节内容\第N章.md    ← 正文
@@ -134,7 +134,7 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
   };
 }
 
-/** 新建作品：建三件套 + manifest（内容与真机一致：文档只有一级标题 + CRLF） */
+/** 新建作品：建三件套 + manifest（保持既有格式：文档只有一级标题 + CRLF） */
 export async function createProject(fs: FsBridge, booksRoot: string, name: string): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
@@ -167,7 +167,7 @@ export async function projectExists(fs: FsBridge, root: string): Promise<boolean
   return fs.exists(projectManifestFile(root));
 }
 
-/** 作品回收站根（作品根级，与真机一致） */
+/** 作品回收站根（作品根级，保持既有格式） */
 export function booksRecycleRoot(booksRoot: string): string {
   return recycleRoot(booksRoot);
 }

@@ -1,7 +1,7 @@
 /**
  * 时间戳与 ID 生成。
  *
- * 逐字对齐真机观测到的格式（证据：C:\Users\Administrator\AI写小说 实测文件）：
+ * 保持既有格式（依据实测样本文件）：
  *   manifest 时间戳  "2026-09-27T22:00:35.918741"     （Dart DateTime.toIso8601String()，本地时间，微秒）
  *   manifest 条目 id "item_1790517635918741_g2mpat"   （item_ + 微秒纪元 + _ + 6 位小写字母数字）
  *   回收站 id        "20260704170528_1783155928889255"（本地 YYYYMMDDHHmmss + _ + 微秒纪元）

@@ -1,5 +1,5 @@
 /**
- * 作品清单：用真机实测样本做回归锁。
+ * 作品清单：用实测样本做回归锁。
  * 样本逐字取自 C:\Users\Administrator\AI写小说\测试书籍\.openwrite_manifest.json
  */
 import { describe, expect, it } from "vitest";
@@ -20,8 +20,8 @@ import { __setSubMsSource } from "../../src/core/ids";
 const REAL_SAMPLE =
   '{"version":1,"updatedAt":"2026-09-27T22:00:35.918741","items":{"item_1790517635918741_g2mpat":{"id":"item_1790517635918741_g2mpat","kind":"file","physicalPath":"章节内容/1.md","displayName":"1.md","createdAt":"2026-09-27T22:00:35.918741","updatedAt":"2026-09-27T22:00:35.918741"}},"orders":{"章节内容":["legacy:章节内容/1.md","item_1790517635918741_g2mpat"]},"manualOrderParents":[]}';
 
-describe("manifest 解析（真机样本）", () => {
-  it("逐字段还原真机结构", () => {
+describe("manifest 解析（实测样本）", () => {
+  it("逐字段还原实测样本结构", () => {
     const m = parseManifest(REAL_SAMPLE);
     expect(m.version).toBe(1);
     expect(m.updatedAt).toBe("2026-09-27T22:00:35.918741");
@@ -97,7 +97,7 @@ describe("manifest 条目操作", () => {
   });
 });
 
-describe("ID 与时间戳格式（逐字对齐真机）", () => {
+describe("ID 与时间戳格式（保持既有格式）", () => {
   it("isoMicros 输出 6 位微秒的本地时间串", () => {
     __setSubMsSource(() => 741);
     const m = emptyManifest(new Date(2026, 8, 27, 22, 0, 35, 918));

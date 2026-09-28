@@ -206,7 +206,7 @@ let evtSeq = 0;
 const warned = new Set<string>();             // 未实现命令只告警一次
 let winMaxed = false;                          // 沙箱里的窗口最大化状态
 
-/** 向已注册的监听器派发事件（真机由 Rust 侧 emit；预览里手动触发，
+/** 向已注册的监听器派发事件（桌面端由 Rust 侧 emit；预览里手动触发，
  *  以便 onResized 之类的监听能被真实驱动，而不是永远不动） */
 function emitMockEvent(event: string, payload: unknown) {
   for (const [key, handlerId] of listeners) {
@@ -261,7 +261,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "ai_stream":
     case "ai_abort":
       return null;
-    // 模型清单（真机走 Rust ai_models → OpenAI/Anthropic /models）；
+    // 模型清单（桌面端走 Rust ai_models → OpenAI/Anthropic /models）；
     // 返回与 DeepSeek 实测一致的 2 个模型，供设置屏「检测连接」走真实渲染路径
     case "ai_models":
       return ["deepseek-chat", "deepseek-reasoner"];
@@ -274,7 +274,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "plugin:window|is_fullscreen":
       return false;
     // 最大化状态在沙箱里也要**真的变**，否则标题栏按钮的「最大化 ⇄ 向下还原」
-    // 切换没法在预览里验证（真机由 Windows 改状态，这里由这几条命令改）
+    // 切换没法在预览里验证（桌面端由 Windows 改状态，这里由这几条命令改）
     case "plugin:window|maximize":
       winMaxed = true;
       emitMockEvent("tauri://resize", { width: 1920, height: 1032 });
@@ -297,7 +297,7 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "plugin:window|start_dragging":
     case "plugin:window|start_resize_dragging":
       return null;
-    // 事件插件（@tauri-apps/api/event）：真机由 Rust 侧注册回调并返回 eventId
+    // 事件插件（@tauri-apps/api/event）：桌面端由 Rust 侧注册回调并返回 eventId
     case "plugin:event|listen": {
       const event = S("event");
       const id = ++evtSeq;
@@ -330,7 +330,7 @@ const callbacks = new Map<number, (e: unknown) => void>();
     return id;
   },
 };
-// @tauri-apps/api/event 的 _unlisten 直接读这个全局对象（真机由 Rust 注入），
+// @tauri-apps/api/event 的 _unlisten 直接读这个全局对象（桌面端由 Rust 注入），
 // 缺了它 → listen 的清理函数一调用就 TypeError，整棵 React 树会被卸载
 (window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
   unregisterListener: (event: string, eventId: number) => {

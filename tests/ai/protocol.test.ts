@@ -1,5 +1,5 @@
 /**
- * 双协议请求构造与 SSE 解析（依据 CONTRACT §8.1 / §6.7 与真机会话实证）。
+ * 双协议请求构造与 SSE 解析（实测样本实证）。
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -33,7 +33,7 @@ const msgs: ChatMessage[] = [
   { id: "1", role: "user", text: "写第一章", createdAt: "2026-01-01T00:00:00.000000" },
 ];
 
-describe("端点拼接（CONTRACT §8.1）", () => {
+describe("端点拼接", () => {
   it("OpenAI：<base>/v1/chat/completions；base 已带 /v1 时不重复", () => {
     expect(openAiUrl("https://newapi.example.cn")).toBe("https://newapi.example.cn/v1/chat/completions");
     expect(openAiUrl("https://newapi.example.cn/")).toBe("https://newapi.example.cn/v1/chat/completions");
@@ -112,7 +112,7 @@ describe("Anthropic 请求体", () => {
     expect(req.headers.authorization).toBeUndefined();
   });
 
-  it("system 走顶层字段；max_tokens 默认 32K（32000，CONTRACT §6.7 口径）", () => {
+  it("system 走顶层字段；max_tokens 默认 32K（32000）", () => {
     const b = req.body as Record<string, unknown>;
     expect(b.system).toBe("系统提示");
     expect(b.max_tokens).toBe(DEFAULT_MAX_TOKENS);

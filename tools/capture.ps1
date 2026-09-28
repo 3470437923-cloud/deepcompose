@@ -3,7 +3,7 @@
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
     [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
-    [string]$Out = "S:\writerD\reference\shot-writerd.png",
+    [string]$Out = "S:\writerD\shots\shot-writerd.png",
     [int]$WaitSec = 10
 )
 
