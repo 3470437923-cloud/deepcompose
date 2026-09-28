@@ -242,10 +242,8 @@ svg {
 .app-shell .b-bookmenu .empty{font-size:12px;color:var(--tx-dim);padding:8px 9px}
 .app-shell .tnode .caret{transition:transform .12s}
 .app-shell .tnode .caret.open{transform:rotate(90deg)}
-/* 标题栏面板开关：隐藏对应栏并让中栏回填 */
+/* 标题栏面板开关：隐藏对应栏（flex 自动回流，见流体布局段） */
 .app-shell .b-body.hide-left .b-left{display:none}
-.app-shell .b-body.hide-left .b-chat{left:0;width:1492px}
-.app-shell .b-body.hide-left .b-right{left:1492px}
 .app-shell .b-body.hide-right .b-right{display:none}
 
 /* 编辑器标签条：z-index 高于 .b-editor 面板（否则面板背景盖住标签）；
@@ -562,3 +560,51 @@ html[data-theme="light"] .app-shell .qbox,
 html[data-theme="light"] .app-shell .memo-box,
 html[data-theme="light"] .app-shell .b-bookmenu{box-shadow:0 20px 60px rgba(30,35,60,.16)}
 html[data-theme="light"] .app-shell .b-send{box-shadow:0 6px 18px color-mix(in srgb, var(--accent) 32%, transparent)}
+
+/* ──────────────────────────────────────────────────────────────
+   流体布局（取代 1920×1032 固定画布的 transform 缩放）
+   动机：等比缩放在窗口比例 ≠ 画布比例时必然留边（黑边），且缩放致文字发虚。
+   方案：窗口即画布——标题栏 48px，主体 flex；左右栏定宽，中央自适应；
+        编辑器列按中央宽度的 53.3%/46.7% 分割（与 mock 的 795/697 比例一致）。
+   screens.css 的画布坐标规则由以下 .app-shell 前缀覆盖（后加载，优先级更高）。
+   ────────────────────────────────────────────────────────────── */
+.app-shell .fitter{width:100%;height:100%;transform:none}
+.app-shell .win{width:100%;height:100%}
+.app-shell .b-body{
+  position:relative;left:auto;top:auto;width:100%;height:auto;flex:1;
+  display:flex;align-items:stretch;
+}
+.app-shell .b-left{position:relative;left:auto;top:auto;bottom:auto;width:220px;height:auto;flex:none}
+.app-shell .b-center{position:relative;flex:1 1 auto;min-width:0;height:auto}
+.app-shell .b-right{position:relative;left:auto;top:auto;bottom:auto;width:208px;height:auto;flex:none}
+
+/* 对话列：铺满中央左 53.3%，其子元素锚定本列 */
+.app-shell .b-chat{position:absolute;inset:0;width:auto;height:auto}
+.app-shell .b-chat-head{left:0;right:0;width:auto}
+.app-shell .b-quickrow{left:0;right:0;width:auto}
+.app-shell .chat-list{left:10px;right:19px;width:auto}
+.app-shell .b-hero{left:25px;right:25px;width:auto;height:auto;top:120px;bottom:150px}
+.app-shell .b-composer{left:10px;right:19px}
+.app-shell .b-status{left:0;right:0;width:auto}
+
+/* 编辑器列：中央右 46.7%，顶 82px（快捷行下缘） */
+.app-shell .b-tabstrip{left:53.3%;right:0;top:82px;width:auto}
+.app-shell .b-editor{left:53.3%;right:0;top:82px;width:auto;height:auto;bottom:0}
+.app-shell .b-editor-body{left:0;right:0;width:auto}
+
+/* 面板开关：flex 自动回流，无需宽度修正 */
+.app-shell .b-body.hide-left .b-left{display:none}
+.app-shell .b-body.hide-left .b-chat{left:0;width:auto}
+.app-shell .b-body.hide-left .b-right{left:auto}
+.app-shell .b-body.hide-right .b-right{display:none}
+
+/* 设置屏流体化（导航定宽，内容区随窗口） */
+.app-shell .a-head{left:0;right:0;width:auto}
+.app-shell .a-nav{top:89px;bottom:0;height:auto}
+.app-shell .a-content{left:181px;right:0;top:89px;bottom:0;width:auto;height:auto;overflow-x:hidden}
+.app-shell .a-settings-panel{top:0;bottom:0;height:auto;left:24px;right:24px;width:auto;max-width:992px;box-sizing:border-box}
+.app-shell .a-provider-col{top:0;bottom:0;height:auto}
+.app-shell .a-detail{top:0;bottom:0;height:auto}
+.app-shell .a-placeholder{top:0;bottom:0;height:auto}
+.app-shell .hbtn{flex:none}
+.app-shell .qbtn{flex:none}
