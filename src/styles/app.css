@@ -530,6 +530,10 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .tab.on .ic-14 { opacity: 1; }
 
 .editor-body {
+  /* 版心换算成绝对长度再下发：--editor-measure-chars 是字符数，
+     乘上正文档位得到 px，标题与正文才落在同一条左边缘上。
+     若直接下发 42em，标题会按自己的 14px 算、正文按 15px 算，差 21px。 */
+  --editor-measure: calc(var(--editor-fs) * var(--editor-measure-chars));
   flex: 1;
   min-height: 0;
   display: flex;
