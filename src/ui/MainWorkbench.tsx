@@ -1,14 +1,22 @@
+/**
+ * 主工作台 —— writerD 3.0 液态玻璃三栏布局。
+ *
+ * 布局（委托方 2026-09-28 指令）：
+ *   左 = 文件（作品选择 + 目录树）· 中 = 编辑器 · 右 = AI 对话。
+ *   旧的「对话列表」独立栏已删除，会话切换改为对话面板顶部的下拉选择框。
+ * 数据逻辑（boot/作品/标签页/会话/工具循环/快照纪律）与 2.x 完全一致。
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useMaximized } from "./useMaximized";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
 import { join, projectChaptersDir, projectDocsDir } from "../core/dirs";
 import {
   createProject,
-  listChapters,
-  listDocs,
   loadProject,
+  scanBooksRoot,
   type FileRef,
   type ProjectData,
   type ProjectRef,
@@ -31,7 +39,7 @@ import MemoModal from "./MemoModal";
 import { ConfirmDialog, InputDialog, type ConfirmRequest, type InputRequest } from "./Dialogs";
 
 interface OpenTab {
-  /** 相对作品根路径（'\\' 分隔） */
+  /** 相对作品根路径（'\' 分隔） */
   rel: string;
   path: string;
   name: string;
@@ -42,7 +50,7 @@ interface OpenTab {
   dirty: boolean;
 }
 
-/** 字数统计：中文按字、西文按词（与真机「文章总字数」口径一致：非空白字符计） */
+/** 字数统计：中文按字、西文按词（与「文章总字数」口径一致：非空白字符计） */
 export function countWords(text: string): number {
   return text.replace(/\s/g, "").length;
 }
@@ -57,7 +65,7 @@ export function extractError(result: string): string {
   }
 }
 
-/** 会话相对时间（真机口径：N 分钟前 / N 小时前 / 昨天 / 日期） */
+/** 会话相对时间（N 分钟前 / N 小时前 / 昨天 / 日期） */
 export function relTime(ms: number, now = Date.now()): string {
   const diff = now - ms;
   const min = 60_000;
@@ -70,7 +78,7 @@ export function relTime(ms: number, now = Date.now()): string {
   return `${d.getMonth() + 1}月${d.getDate()}日`;
 }
 
-/** 会话按日分组（真机：今天 / 昨天 / 更早） */
+/** 会话按日分组（今天 / 昨天 / 更早） */
 export function groupSessions(
   sessions: SessionListEntry[],
   now = Date.now(),
@@ -93,6 +101,32 @@ export function groupSessions(
   return groups.filter((g) => g.items.length > 0);
 }
 
+/** 点击弹层外部 / Esc 时收起（会话下拉与作品下拉共用） */
+function useDismiss(active: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void) {
+  useEffect(() => {
+    if (!active) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.isComposing) close();
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [active, ref, close]);
+}
+
+/** 对话空态的快捷提示（点击预填输入框，用户可改后再发送） */
+const STARTER_TIPS: { label: string; text: string }[] = [
+  { label: "续写最新一章", text: "请先读取最新章节的内容，然后顺着剧情续写下一段。" },
+  { label: "检查设定一致性", text: "请阅读小说资料里的人物库和世界观，检查最新章节有没有设定不一致的地方。" },
+  { label: "头脑风暴书名", text: "请根据当前作品的题材与基调，帮我头脑风暴 10 个备选书名。" },
+];
+
 export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,15 +138,21 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [status, setStatus] = useState<string>("");
   const [saving, setSaving] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // ── 面板与目录状态 ──
-  const [showLeft, setShowLeft] = useState(true);
-  const [showRight, setShowRight] = useState(true);
+  // ── 面板与目录状态（可见性持久化到 prefs 面板键） ──
+  const [showFiles, setShowFiles] = useState(true);
+  const [showChat, setShowChat] = useState(true);
   const [bookMenu, setBookMenu] = useState(false);
+  const [sessMenu, setSessMenu] = useState(false);
   const [openFolders, setOpenFolders] = useState<{ docs: boolean; chapters: boolean }>({
     docs: true,
     chapters: true,
   });
+  const fileselRef = useRef<HTMLDivElement | null>(null);
+  const sessRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(bookMenu, fileselRef, () => setBookMenu(false));
+  useDismiss(sessMenu, sessRef, () => setSessMenu(false));
 
   // ── 对话状态 ──
   const [session, setSession] = useState<SessionFile | null>(null);
@@ -172,6 +212,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const activeTab = useMemo(() => tabs.find((t) => t.rel === activeRel) ?? null, [tabs, activeRel]);
 
+  // 字号与模型（prefs 直读；设置屏保存后返回主界面时组件重挂载即生效）
+  const bootPrefs = ready ? currentBoot()?.prefs ?? null : null;
+  const editorFontSize = bootPrefs?.editorFontSize ?? 15;
+  const chatFontSize = bootPrefs?.chatFontSize ?? 15;
+  const modelLabel = bootPrefs?.model?.trim() || "未配置模型";
+  const hasKey = Boolean(bootPrefs?.apiKey?.trim());
+
   /** 有未保存修改时先确认（切作品/切会话防丢稿） */
   const guardDirtyTabs = useCallback(async () => {
     if (!tabs.some((t) => t.dirty)) return true;
@@ -185,18 +232,18 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   /** 装配数据：载入作品（不改 prefs；启动恢复与 openProject 共用） */
   const openProjectRef = useCallback(
     async (ref: ProjectRef) => {
-    if (!(await guardDirtyTabs())) return;
-    const fs = getFs();
-    const data = await loadProject(fs, ref.root, ref.name);
-    setProject(data);
-    setTabs([]);
-    setActiveRel(null);
-    setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
+      if (!(await guardDirtyTabs())) return;
+      const fs = getFs();
+      const data = await loadProject(fs, ref.root, ref.name);
+      setProject(data);
+      setTabs([]);
+      setActiveRel(null);
+      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
     },
     [guardDirtyTabs],
   );
 
-  /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品（真机行为） */
+  /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品与面板可见性 */
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -204,8 +251,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         const b = await boot();
         applyAccentFromPrefs(b.prefs);
         applyThemeFromPrefs(b.prefs);
+        if (!alive) return;
+        setShowFiles(b.prefs.panelShowDirectory);
+        setShowChat(b.prefs.panelShowSession);
         const fs = getFs();
-        const { scanBooksRoot } = await import("../core/store/project");
         const list = await scanBooksRoot(fs, b.dirs.booksRoot);
         if (!alive) return;
         setProjects(list);
@@ -238,28 +287,42 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const refreshProjects = useCallback(async () => {
     if (!dirs) return;
     const fs = getFs();
-    const { scanBooksRoot } = await import("../core/store/project");
     setProjects(await scanBooksRoot(fs, dirs.booksRoot));
   }, [dirs]);
 
   const openProject = useCallback(
     async (ref: ProjectRef) => {
-    if (!(await guardDirtyTabs())) return;
-    const fs = getFs();
-    const data = await loadProject(fs, ref.root, ref.name);
-    setProject(data);
-    setTabs([]);
-    setActiveRel(null);
-    setBookMenu(false);
-    setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
-    const b = currentBoot();
-    if (b && b.prefs.currentNovelProject !== ref.root) {
-      const next = { ...b.prefs, currentNovelProject: ref.root };
-      void savePrefs(next);
-    }
+      if (!(await guardDirtyTabs())) return;
+      const fs = getFs();
+      const data = await loadProject(fs, ref.root, ref.name);
+      setProject(data);
+      setTabs([]);
+      setActiveRel(null);
+      setBookMenu(false);
+      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
+      const b = currentBoot();
+      if (b && b.prefs.currentNovelProject !== ref.root) {
+        const next = { ...b.prefs, currentNovelProject: ref.root };
+        void savePrefs(next);
+      }
     },
     [guardDirtyTabs],
   );
+
+  /** 面板开关（可见性写回 prefs 面板键，重启后保持） */
+  const toggleFiles = useCallback(() => {
+    const next = !showFiles;
+    setShowFiles(next);
+    const b = currentBoot();
+    if (b && b.prefs.panelShowDirectory !== next) void savePrefs({ ...b.prefs, panelShowDirectory: next });
+  }, [showFiles]);
+
+  const toggleChat = useCallback(() => {
+    const next = !showChat;
+    setShowChat(next);
+    const b = currentBoot();
+    if (b && b.prefs.panelShowSession !== next) void savePrefs({ ...b.prefs, panelShowSession: next });
+  }, [showChat]);
 
   const openFile = useCallback(
     async (ref: FileRef, kind: "doc" | "chapter" | "root") => {
@@ -313,7 +376,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     try {
       const fs = getFs();
       const b = currentBoot();
-      // 写前快照（硬约束 #2）：手动保存与工具回写同纪律
+      // 写前快照（硬约束：手动保存与工具回写同纪律）
       if (b) {
         await recordSnapshot(fs, b.dirs.snapshotsDir, {
           sessionId: session?.id ?? "manual-edits",
@@ -388,7 +451,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   /** 继续写作：打开当前作品的第一个章节（无作品则提示） */
   const continueWriting = useCallback(async () => {
     if (!project) {
-      setStatus("请先在右侧目录选择作品");
+      setStatus("请先在左侧文件面板选择作品");
       return;
     }
     const target = project.chapters[0] ?? project.docs[0];
@@ -400,6 +463,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   }, [project, openFile]);
 
   const win = getCurrentWindow();
+  const maxed = useMaximized();
 
   const refreshSessions = useCallback(async () => {
     const b = currentBoot();
@@ -491,7 +555,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     }
   }, [composer, busy, session, project, transport, onAgentEvent, askQuestions, refreshSessions]);
 
-  /** 打开会话：若会话绑定了项目则恢复绑定（真机行为） */
+  /** 打开会话：若会话绑定了项目则恢复绑定 */
   const openSession = useCallback(
     async (id: string) => {
       const b = currentBoot();
@@ -504,7 +568,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         let ref = projects.find((p) => p.root.toLowerCase() === root.toLowerCase());
         if (!ref) {
           // 列表过期时重扫一次
-          const { scanBooksRoot } = await import("../core/store/project");
           const list = await scanBooksRoot(getFs(), b.dirs.booksRoot);
           setProjects(list);
           ref = list.find((p) => p.root.toLowerCase() === root.toLowerCase());
@@ -525,10 +588,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const startNewChat = useCallback(() => {
     setSession(newSession(project?.ref.root ?? ""));
+    setSessMenu(false);
     setStatus("新对话");
   }, [project]);
-
-  const modelLabel = currentBoot()?.prefs.model?.trim() || "未配置模型";
 
   // 新消息/流式增量时滚到底部
   useEffect(() => {
@@ -537,597 +599,689 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
-  /** 会话列表布局：日标签 24px + 行 32px，自上而下排 */
-  const convLayout = useMemo(() => {
-    let top = 0;
-    const rows: { kind: "day" | "conv"; top: number; label?: string; s?: SessionListEntry }[] = [];
-    for (const g of sessionGroups) {
-      rows.push({ kind: "day", top, label: g.label });
-      top += 24;
-      for (const s of g.items) {
-        rows.push({ kind: "conv", top, s });
-        top += 32;
-      }
-    }
-    return { rows, height: top + 8 };
-  }, [sessionGroups]);
-
   if (error) {
     return (
-      <div className="fitter" id="screenB">
-        <div className="holder">
-          <div className="win-frame">
-            <div className="win">
-              <div className="b-status" style={{ padding: 24 }}>
-                启动失败：{error}
-              </div>
-            </div>
+      <div className="win" id="screenB">
+        <div className="boot-error">
+          <div className="err-card glass">
+            <h3>启动失败</h3>
+            {error}
           </div>
         </div>
       </div>
     );
   }
 
+  const hasMessages = Boolean(session && session.messages.length > 0);
+  const showTyping = busy && !streamText && !streamThink;
+
   return (
-    <div className="fitter" id="screenB">
-      <div className="holder">
-        <div className="win-frame">
-          <div className="win">
-            {/* ── 标题栏 ── */}
-            <div
-              className="titlebar"
-              onMouseDown={(e) => {
-                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
-                if (e.button !== 0) return;
-                const el = e.target as HTMLElement;
-                if (el.closest("button")) return;
-                void win.startDragging();
-              }}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest("button")) return;
-                void win.toggleMaximize();
-              }}
+    <div className="win" id="screenB">
+      {/* ── 标题栏 ── */}
+      <div
+        className="titlebar"
+        onMouseDown={(e) => {
+          // 标题栏空白处按住拖动（按钮除外）
+          if (e.button !== 0) return;
+          const el = e.target as HTMLElement;
+          if (el.closest("button")) return;
+          void win.startDragging();
+        }}
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          void win.toggleMaximize();
+        }}
+      >
+        <div className="brand">
+          <div className="brand-mark squircle">
+            <img src={logo} alt="" />
+          </div>
+          <div className="brand-name">writerD</div>
+        </div>
+
+        <div className="tb-cluster" role="group" aria-label="面板开关">
+          <button
+            className={showFiles ? "tb-btn glint on" : "tb-btn glint"}
+            title="文件面板"
+            aria-pressed={showFiles}
+            onClick={toggleFiles}
+          >
+            <svg viewBox="0 0 20 20" className="ic">
+              <rect x="2.5" y="4" width="15" height="12" rx="2" />
+              <path d="M7.5 4v12" />
+            </svg>
+          </button>
+          <button
+            className={showChat ? "tb-btn glint on" : "tb-btn glint"}
+            title="AI 对话面板"
+            aria-pressed={showChat}
+            onClick={toggleChat}
+          >
+            <svg viewBox="0 0 20 20" className="ic">
+              <path d="M3.5 5.5A2 2 0 0 1 5.5 3.5h9a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H8l-4.5 3.5z" />
+            </svg>
+          </button>
+          <span className="tb-div" />
+          <button className="tb-btn glint" title="备忘录" onClick={() => setMemoOpen(true)}>
+            <svg viewBox="0 0 20 20" className="ic">
+              <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
+              <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="win-tools">
+          <button className="wbtn glint" title="设置" onClick={onOpenSettings}>
+            <svg viewBox="0 0 20 20" className="ic">
+              <circle cx="10" cy="10" r="2.4" />
+              <path d="M16.1 11.9a1.25 1.25 0 0 0 .25 1.38l.04.05a1.5 1.5 0 1 1-2.12 2.12l-.05-.04a1.25 1.25 0 0 0-1.38-.25 1.25 1.25 0 0 0-.75 1.14v.15a1.5 1.5 0 1 1-3 0v-.08a1.25 1.25 0 0 0-.82-1.14 1.25 1.25 0 0 0-1.38.25l-.05.04A1.5 1.5 0 1 1 3.9 13.4l.04-.05a1.25 1.25 0 0 0 .25-1.38 1.25 1.25 0 0 0-1.14-.75h-.15a1.5 1.5 0 1 1 0-3h.08a1.25 1.25 0 0 0 1.14-.82 1.25 1.25 0 0 0-.25-1.38L3.9 5.97A1.5 1.5 0 1 1 6.02 3.85l.05.04a1.25 1.25 0 0 0 1.38.25h.06a1.25 1.25 0 0 0 .75-1.14v-.15a1.5 1.5 0 1 1 3 0v.08a1.25 1.25 0 0 0 .75 1.14 1.25 1.25 0 0 0 1.38-.25l.05-.04a1.5 1.5 0 1 1 2.12 2.12l-.04.05a1.25 1.25 0 0 0-.25 1.38v.06a1.25 1.25 0 0 0 1.14.75h.15a1.5 1.5 0 1 1 0 3h-.08a1.25 1.25 0 0 0-1.14.75z" />
+            </svg>
+          </button>
+          <span className="tb-div" />
+          <button className="wbtn glint" title="最小化" onClick={() => void win.minimize()}>
+            <svg viewBox="0 0 20 20" className="ic">
+              <path d="M5 10h10" />
+            </svg>
+          </button>
+          <button
+            className="wbtn glint"
+            title={maxed ? "向下还原" : "最大化"}
+            aria-label={maxed ? "向下还原" : "最大化"}
+            onClick={() => void win.toggleMaximize()}
+          >
+            {maxed ? (
+              // 还原：前块 + 后块的左上缺角（Windows 标准字形）
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="4" y="4.5" width="11" height="11" rx="2" />
+              </svg>
+            )}
+          </button>
+          <button className="wbtn close glint" title="关闭" onClick={() => void win.close()}>
+            <svg viewBox="0 0 20 20" className="ic">
+              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div className={`b-body${showFiles ? "" : " hide-files"}${showChat ? "" : " hide-chat"}`}>
+        {/* ══ 左栏：文件（作品 + 目录树） ══ */}
+        <aside className="panel panel-files glass" aria-label="文件">
+          <div className="panel-head">
+            <div className="ttl">文件</div>
+            <button className="icon-btn accent glint" title="新建作品" onClick={() => void newProject()}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M10 4.5v11M4.5 10h11" />
+              </svg>
+            </button>
+            <button className="icon-btn glint" title="刷新作品列表" onClick={() => void refreshProjects()}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
+                <path d="M16.6 3.4v3.4h-3.4" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="filesel-wrap" ref={fileselRef}>
+            <button
+              className={bookMenu ? "filesel glint open" : "filesel glint"}
+              onClick={() => setBookMenu((v) => !v)}
+              title="选择作品"
+              aria-haspopup="listbox"
+              aria-expanded={bookMenu}
             >
-              <div className="brand">
-                <div className="brand-mark">
-                  <img src={logo} alt="" />
-                </div>
-                <div className="brand-name">writerD</div>
-              </div>
-              <div className="win-tools">
-                <div className="tool-group">
+              <svg viewBox="0 0 20 20" className="ic bkc">
+                <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
+              </svg>
+              <span className="bk">{project ? project.ref.name : "未选择作品"}</span>
+              <svg
+                viewBox="0 0 12 12"
+                className="uc"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 4.6L6 7.6l3-3" />
+              </svg>
+            </button>
+            {bookMenu ? (
+              <div className="bookmenu glass-pop" role="listbox" aria-label="作品列表">
+                {projects.map((p) => (
                   <button
-                    className={showLeft ? "tbtn on" : "tbtn"}
-                    title="会话栏"
-                    onClick={() => setShowLeft((v) => !v)}
+                    key={p.root}
+                    className={project?.ref.root === p.root ? "on" : ""}
+                    title={p.root}
+                    role="option"
+                    aria-selected={project?.ref.root === p.root}
+                    onClick={() => void openProject(p)}
                   >
                     <svg viewBox="0 0 20 20" className="ic">
-                      <rect x="2.5" y="4" width="15" height="12" rx="2" />
-                      <path d="M13.5 4v12M2.5 8h11" />
+                      <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
                     </svg>
+                    <span className="lbl">{p.name}</span>
                   </button>
-                  <button
-                    className={showRight ? "tbtn on" : "tbtn"}
-                    title="目录栏"
-                    onClick={() => setShowRight((v) => !v)}
-                  >
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <rect x="2.5" y="4" width="15" height="12" rx="2" />
-                      <path d="M13.5 4v12" />
-                    </svg>
-                  </button>
-                </div>
-                                                                <div className="spacer" />
-                <button className="tbtn" title="最小化" onClick={() => void win.minimize()}>
+                ))}
+                {ready && projects.length === 0 ? <div className="empty">作品根下还没有作品</div> : null}
+                <button
+                  className="new"
+                  onClick={() => {
+                    setBookMenu(false);
+                    void newProject();
+                  }}
+                >
                   <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M5 10h10" />
+                    <path d="M10 4.5v11M4.5 10h11" />
                   </svg>
-                </button>
-                <button className="tbtn" title="最大化" onClick={() => void win.toggleMaximize()}>
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <rect x="4" y="4.5" width="11" height="11" rx="2" />
-                  </svg>
-                </button>
-                <button className="tbtn" title="关闭" onClick={() => void win.close()}>
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
-                  </svg>
+                  <span className="lbl">新建作品</span>
                 </button>
               </div>
-            </div>
+            ) : null}
+          </div>
 
-            <div className={`b-body${showLeft ? "" : " hide-left"}${showRight ? "" : " hide-right"}`}>
-              {/* ── 左：对话列表 ── */}
-              <div className="b-left">
-                <div className="b-left-head">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path
-                      d="M3 4.6A1.6 1.6 0 0 1 4.6 3h6.3l5.1 5.1v7.3A1.6 1.6 0 0 1 14.4 17H4.6A1.6 1.6 0 0 1 3 15.4V4.6z"
-                      transform="translate(-1.2,0)"
-                    />
-                  </svg>
-                  <div className="ttl">对话列表</div>
-                                    <button className="b-icon-btn accent" title="新建对话" onClick={startNewChat}>
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M10 4.5v11M4.5 10h11" />
-                    </svg>
-                  </button>
-                </div>
-                <div className="b-left-list" style={{ height: Math.max(convLayout.height, 400) }}>
-                  {convLayout.rows.map((r, i) =>
-                    r.kind === "day" ? (
-                      <div key={`d${i}`} className="b-day" style={{ top: `${r.top}px` }}>
-                        {r.label}
-                      </div>
-                    ) : (
-                      <button
-                        key={r.s!.id}
-                        className={session?.id === r.s!.id ? "b-conv on" : "b-conv"}
-                        style={{ top: `${r.top}px` }}
-                        title={r.s!.title}
-                        onClick={() => void openSession(r.s!.id)}
-                      >
-                        <em style={{ fontStyle: "normal" }}>{r.s!.title}</em>
-                        <span>{relTime(r.s!.mtimeMs ?? 0)}</span>
-                      </button>
-                    ),
-                  )}
-                </div>
-                <div className="b-user">
-                  <div className="b-user-avatar">
-                    <svg viewBox="0 0 20 20" className="ic-fill">
-                      <circle cx="10" cy="7" r="3.1" />
-                      <path d="M3.6 17.2c.6-3.2 3.2-5 6.4-5s5.8 1.8 6.4 5z" />
-                    </svg>
-                  </div>
-                  <div className="uname">{project ? project.ref.name : "未选择作品"}</div>
-                  <button className="b-icon-btn gear" title="设置" onClick={onOpenSettings}>
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <circle cx="10" cy="10" r="2.4" />
-                      <path d="M16.1 11.9a1.25 1.25 0 0 0 .25 1.38l.04.05a1.5 1.5 0 1 1-2.12 2.12l-.05-.04a1.25 1.25 0 0 0-1.38-.25 1.25 1.25 0 0 0-.75 1.14v.15a1.5 1.5 0 1 1-3 0v-.08a1.25 1.25 0 0 0-.82-1.14 1.25 1.25 0 0 0-1.38.25l-.05.04A1.5 1.5 0 1 1 3.9 13.4l.04-.05a1.25 1.25 0 0 0 .25-1.38 1.25 1.25 0 0 0-1.14-.75h-.15a1.5 1.5 0 1 1 0-3h.08a1.25 1.25 0 0 0 1.14-.82 1.25 1.25 0 0 0-.25-1.38L3.9 5.97A1.5 1.5 0 1 1 6.02 3.85l.05.04a1.25 1.25 0 0 0 1.38.25h.06a1.25 1.25 0 0 0 .75-1.14v-.15a1.5 1.5 0 1 1 3 0v.08a1.25 1.25 0 0 0 .75 1.14 1.25 1.25 0 0 0 1.38-.25l.05-.04a1.5 1.5 0 1 1 2.12 2.12l-.04.05a1.25 1.25 0 0 0-.25 1.38v.06a1.25 1.25 0 0 0 1.14.75h.15a1.5 1.5 0 1 1 0 3h-.08a1.25 1.25 0 0 0-1.14.75z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              {/* ── 中：对话列 + 编辑器列（流体自适应区） ── */}
-              <div className="b-center">
-              <div className="b-chat">
-                <div className="b-chat-head">
-                  <div className="b-newchat">
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
-                      <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
-                    </svg>
-                    {session?.title?.trim() ? session.title : "新对话"}
-                  </div>
-                </div>
-
-                <div className="b-quickrow">
-                  {(
-                    [
-                      ["备忘录", <svg key="i1" viewBox="0 0 20 20" className="ic"><rect x="3" y="2.8" width="14" height="14.4" rx="2.2" /><path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" /></svg>, "memo"],
-                      
-                      
-                      
-                      
-                    ] as [string, React.ReactNode, string][]
-                  ).map(([label, icon, action]) => (
-                    <button
-                      key={label}
-                      className="qbtn"
-                      onClick={() => {
-                        if (action === "memo") setMemoOpen(true);
-                        else setStatus(`${label}功能建设中`);
-                      }}
-                    >
-                      {icon}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {session && session.messages.length > 0 ? (
-                  <div className="chat-list">
-                    {session.messages.map((m) => (
-                      <div key={m.id} className={m.role === "user" ? "msg user" : "msg"}>
-                        <div className="who">{m.role === "user" ? "我" : "writerD"}</div>
-                        {m.thinking ? <div className="think">{m.thinking}</div> : null}
-                        {m.text ? <div className="body">{m.text}</div> : null}
-                        {(m.toolCalls ?? []).map((t) => {
-                          const bad = (t.result ?? "").includes('"error"');
-                          return (
-                            <div key={t.callId} className="tool-line">
-                              {t.name} {bad ? <span className="bad">✕</span> : <span className="ok">✓</span>}
-                              {bad ? " " + extractError(t.result ?? "") : ""}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ))}
-                    {toolLog.map((t, i) => (
-                      <div key={`live-${i}`} className="tool-line">
-                        {t.name}{" "}
-                        {t.status === "run" ? (
-                          "…"
-                        ) : t.status === "ok" ? (
-                          <span className="ok">✓</span>
-                        ) : (
-                          <span className="bad">✕</span>
-                        )}
-                      </div>
-                    ))}
-                    {streamThink ? <div className="think">{streamThink}</div> : null}
-                    {streamText ? (
-                      <div className="msg">
-                        <div className="who">writerD（生成中）</div>
-                        <div className="body">{streamText}</div>
-                      </div>
-                    ) : null}
-                    {chatError ? <div className="err-line">{chatError}</div> : null}
-                    <div ref={chatBottom} />
-                  </div>
-                ) : (
-                  <div className="b-hero">
-                    <div className="b-hero-logo">
-                      <img src={logo} alt="" />
-                    </div>
-                    <h2>writerD</h2>
-                    <p>AI 小说写作助手</p>
-                    <div className="b-hero-actions">
-                      <button className="hbtn" onClick={newProject}>
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h4.2c.9 0 1.6.7 1.6 1.6v11.2a1.2 1.2 0 0 0-1.2-1.2H3V4.6z" />
-                          <path d="M17 4.6A1.6 1.6 0 0 0 15.4 3h-4.2c-.9 0-1.6.7-1.6 1.6v11.2a1.2 1.2 0 0 1 1.2-1.2H17V4.6z" />
-                        </svg>
-                        新书启航
-                      </button>
-                      <button className="hbtn" onClick={() => void continueWriting()}>
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
-                          <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
-                        </svg>
-                        继续写作
-                      </button>
-                      <button className="hbtn" onClick={() => void refreshProjects()}>
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
-                          <path d="M16.6 3.4v3.4h-3.4" />
-                        </svg>
-                        刷新作品
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                                
-                <div className="b-composer">
-                  <textarea
-                    className="composer-input"
-                    value={composer}
-                    placeholder="写下你的故事…"
-                    onChange={(e) => setComposer(e.target.value)}
-                    onKeyDown={(e) => {
-                      // 中文 IME 组合中的 Enter 是选词确认，不能当作发送
-                      if (e.nativeEvent.isComposing || e.key === "Process") return;
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void doSend();
-                      }
-                    }}
-                  />
-                  <div className="b-comp-row">
-                    <button className="cbtn model" title="在设置中配置模型" onClick={onOpenSettings}>
-                      <svg viewBox="0 0 16 16" className="ic">
-                        <path
-                          d="M8 1.6c2.6 3.3 3.9 5.6 3.9 7.1A3.9 3.9 0 0 1 8 12.6a3.9 3.9 0 0 1-3.9-3.9c0-1.5 1.3-3.8 3.9-7.1z"
-                          fill="currentColor"
-                          stroke="none"
-                        />
-                        <path d="M4.6 14.6h6.8" />
-                      </svg>
-                      {modelLabel}
-                    </button>
-                    {busy ? (
-                      <button
-                        className="cbtn plain"
-                        title="停止生成（当前流结束后生效）"
-                        onClick={() => {
-                          abortRef.current.aborted = true;
-                          abortActiveStream();
-                          setStatus("正在停止…");
-                        }}
-                      >
-                        停止
-                      </button>
-                    ) : null}
-                    {!currentBoot()?.prefs.apiKey ? (
-                      <span className="cbtn plain">未配置 API Key</span>
-                    ) : null}
-                    <button className="b-send" title="发送" onClick={() => void doSend()} disabled={busy || composer.trim() === ""}>
-                      <svg viewBox="0 0 24 24" className="ic">
-                        <path d="M3.4 11.2L20.4 3.2l-7.8 17-2.2-6.8-7-2.2z" fill="currentColor" stroke="none" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="b-status">
-                  <span>
-                    {activeTab
-                      ? `文章总字数：${countWords(activeTab.content)} 字${activeTab.dirty ? " · 未保存" : ""}${saving ? " · 保存中…" : ""}`
-                      : status}
-                  </span>
-                </div>
-              </div>
-
-              {/* ── 编辑器列：标签条 ── */}
-              {tabs.length > 0 ? (
-                <div className="b-tabstrip">
-                  {tabs.map((t) => (
-                    <div
-                      key={t.rel}
-                      className={t.rel === activeRel ? "b-tab on" : "b-tab"}
-                      onClick={() => setActiveRel(t.rel)}
-                    >
-                      <svg viewBox="0 0 16 16" className="ic-14">
-                        <path d="M3.6 1.6h5.2l3.6 3.6v9.2H3.6z" fill="#5B9BFF" stroke="none" />
-                        <path d="M8.8 1.6v3.6h3.6" fill="#2F6BB5" stroke="none" />
-                      </svg>
-                      <span className="nm">
-                        {t.name}
-                        {t.dirty ? " *" : ""}
-                      </span>
-                      <svg
-                        viewBox="0 0 12 12"
-                        className="x"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          closeTab(t.rel);
-                        }}
-                      >
-                        <path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6" />
-                      </svg>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {/* ── 编辑器列 ── */}
-              <div className="b-editor">
-                {!activeTab ? (
-                  <div className="b-editor-empty">
-                    <div className="ee-icon">
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                        <path d="M11.4 2.6v3.6H15" />
-                        <path d="M7.6 10.4h4.8M7.6 13.2h4.8" />
-                      </svg>
-                    </div>
-                    <div className="ee-t1">选择文件查看内容</div>
-                    <div className="ee-t2">从右侧目录面板选择文件</div>
-                  </div>
-                ) : (
-                  <div className="b-editor-body">
-                    <h1>
-                      <span className="hash">#</span>
-                      {activeTab.name.replace(/\.md$/i, "")}
-                    </h1>
-                    <textarea
-                      ref={editorRef}
-                      className="editor-area"
-                      value={activeTab.content}
-                      onChange={(e) => editContent(e.target.value)}
-                      spellCheck={false}
-                    />
-                  </div>
-                )}
-              </div>
-
-              </div>
-
-              {/* ── 右：目录 ── */}
-              <div className="b-right">
-                <div className="b-right-head">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M2.8 5.2A1.6 1.6 0 0 1 4.4 3.6h3.2l1.4 1.8h6.6a1.6 1.6 0 0 1 1.6 1.6v7.8a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.2z" />
-                  </svg>
-                  <div className="ttl">目录</div>
-                                                      <button className="b-icon-btn" title="折叠" onClick={() => setOpenFolders({ docs: false, chapters: false })}>
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M10 16.4V5.2M6.4 8.8L10 5.2l3.6 3.6" />
-                    </svg>
-                  </button>
-                  <button className="b-icon-btn" title="刷新" onClick={() => void refreshProjects()}>
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
-                      <path d="M16.6 3.4v3.4h-3.4" />
-                    </svg>
-                  </button>
-                                  </div>
-
-                <button className="b-booksel" onClick={() => setBookMenu((v) => !v)} title="选择作品">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
-                  </svg>
-                  <span className="bk">{project ? project.ref.name : "未选择作品"}</span>
+          <div className="tree" role="tree" aria-label="作品目录">
+            {project ? (
+              <>
+                <button
+                  className="tnode grp"
+                  role="treeitem"
+                  aria-expanded={openFolders.docs}
+                  onClick={() => setOpenFolders((f) => ({ ...f, docs: !f.docs }))}
+                >
                   <svg
                     viewBox="0 0 12 12"
-                    className="uc"
+                    className={openFolders.docs ? "caret open" : "caret"}
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   >
-                    <path d="M3 7.2L6 4.2l3 3M3 4.6L6 7.6l3-3" opacity=".9" />
+                    <path d="M4.5 3L7.5 6l-3 3" />
                   </svg>
+                  <svg viewBox="0 0 20 20" className="ic folder">
+                    <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
+                  </svg>
+                  <span className="lbl">小说资料</span>
                 </button>
-                {bookMenu ? (
-                  <div className="b-bookmenu">
-                    {projects.map((p) => (
-                      <button
-                        key={p.root}
-                        className={project?.ref.root === p.root ? "on" : ""}
-                        title={p.root}
-                        onClick={() => void openProject(p)}
-                      >
-                        <svg viewBox="0 0 20 20" className="ic">
-                          <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
-                        </svg>
-                        {p.name}
-                      </button>
-                    ))}
-                    {ready && projects.length === 0 ? <div className="empty">作品根下还没有作品</div> : null}
+                {openFolders.docs &&
+                  project.docs.map((d) => (
                     <button
-                      className="new"
-                      onClick={() => {
-                        setBookMenu(false);
-                        void newProject();
-                      }}
+                      key={d.rel}
+                      className={activeRel === d.rel ? "tnode sub on" : "tnode sub"}
+                      role="treeitem"
+                      aria-selected={activeRel === d.rel}
+                      onClick={() => void openFile(d, "doc")}
                     >
-                      <svg viewBox="0 0 20 20" className="ic">
-                        <path d="M10 4.5v11M4.5 10h11" />
+                      <svg viewBox="0 0 20 20" className="ic doc">
+                        <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
+                        <path d="M11.4 2.6v3.6H15" />
                       </svg>
-                      新建作品
+                      <span className="lbl">{d.name}</span>
                     </button>
-                  </div>
-                ) : null}
-                <div className="b-div"></div>
-
-                <div className="tree">
-                  {project ? (
-                    <>
-                      <button
-                        className="tnode grp"
-                        onClick={() => setOpenFolders((f) => ({ ...f, docs: !f.docs }))}
-                      >
-                        <svg
-                          viewBox="0 0 12 12"
-                          className={openFolders.docs ? "caret open" : "caret"}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M4.5 3L7.5 6l-3 3" />
-                        </svg>
-                        <svg viewBox="0 0 20 20" className="ic folder">
-                          <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
-                        </svg>
-                        小说资料
-                      </button>
-                      {openFolders.docs &&
-                        project.docs.map((d) => (
-                          <button
-                            key={d.rel}
-                            className={activeRel === d.rel ? "tnode sub on" : "tnode sub"}
-                            onClick={() => void openFile(d, "doc")}
-                          >
-                            <svg viewBox="0 0 20 20" className="ic doc">
-                              <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                              <path d="M11.4 2.6v3.6H15" />
-                            </svg>
-                            {d.name}
-                          </button>
-                        ))}
-                      <button
-                        className="tnode grp"
-                        onClick={() => setOpenFolders((f) => ({ ...f, chapters: !f.chapters }))}
-                      >
-                        <svg
-                          viewBox="0 0 12 12"
-                          className={openFolders.chapters ? "caret open" : "caret"}
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M4.5 3L7.5 6l-3 3" />
-                        </svg>
-                        <svg viewBox="0 0 20 20" className="ic folder">
-                          <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
-                        </svg>
-                        章节内容
-                      </button>
-                      {openFolders.chapters &&
-                        project.chapters.map((c) => (
-                          <button
-                            key={c.rel}
-                            className={activeRel === c.rel ? "tnode sub on" : "tnode sub"}
-                            onClick={() => void openFile(c, "chapter")}
-                          >
-                            <svg viewBox="0 0 20 20" className="ic doc">
-                              <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                              <path d="M11.4 2.6v3.6H15" />
-                            </svg>
-                            {c.name}
-                          </button>
-                        ))}
-                    </>
-                  ) : (
-                    <div className="b-status" style={{ position: "static", padding: "10px 12px" }}>
-                      从上方选择一部作品
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <MemoModal open={memoOpen} onClose={() => setMemoOpen(false)} project={project} onStatus={setStatus} askText={askText} />
-
-            <InputDialog req={inputReq} />
-            <ConfirmDialog req={confirmReq} />
-
-            {pending ? (
-              <div className="qmodal">
-                <div className="qbox">
-                  {pending.items.map((q, qi) => (
-                    <div key={qi} style={{ marginBottom: 16 }}>
-                      <h3>
-                        {q.question}
-                        {q.multi_select ? "（可多选）" : ""}
-                      </h3>
-                      {q.options.map((o) => {
-                        const on = (qSel[qi] ?? []).includes(o.label);
-                        return (
-                          <button
-                            key={o.label}
-                            className={on ? "qopt on" : "qopt"}
-                            onClick={() =>
-                              setQSel((s) => {
-                                const cur = s[qi] ?? [];
-                                const next = q.multi_select
-                                  ? cur.includes(o.label)
-                                    ? cur.filter((x) => x !== o.label)
-                                    : [...cur, o.label]
-                                  : [o.label];
-                                return { ...s, [qi]: next };
-                              })
-                            }
-                          >
-                            {o.label}
-                            {o.description ? <span className="d">{o.description}</span> : null}
-                          </button>
-                        );
-                      })}
-                    </div>
                   ))}
-                  <button className="qsubmit" onClick={answerPending}>
-                    提交
+                <button
+                  className="tnode grp"
+                  role="treeitem"
+                  aria-expanded={openFolders.chapters}
+                  onClick={() => setOpenFolders((f) => ({ ...f, chapters: !f.chapters }))}
+                >
+                  <svg
+                    viewBox="0 0 12 12"
+                    className={openFolders.chapters ? "caret open" : "caret"}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M4.5 3L7.5 6l-3 3" />
+                  </svg>
+                  <svg viewBox="0 0 20 20" className="ic folder">
+                    <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
+                  </svg>
+                  <span className="lbl">章节内容</span>
+                </button>
+                {openFolders.chapters &&
+                  project.chapters.map((c) => (
+                    <button
+                      key={c.rel}
+                      className={activeRel === c.rel ? "tnode sub on" : "tnode sub"}
+                      role="treeitem"
+                      aria-selected={activeRel === c.rel}
+                      onClick={() => void openFile(c, "chapter")}
+                    >
+                      <svg viewBox="0 0 20 20" className="ic doc">
+                        <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
+                        <path d="M11.4 2.6v3.6H15" />
+                      </svg>
+                      <span className="lbl">{c.name}</span>
+                    </button>
+                  ))}
+              </>
+            ) : (
+              <div className="tree-empty">
+                {ready ? "从上方选择一部作品开始写作" : "正在加载…"}
+              </div>
+            )}
+          </div>
+
+          <div className="panel-foot">
+            {project ? `${project.chapters.length} 章 · ${project.docs.length} 份资料` : "未选择作品"}
+          </div>
+        </aside>
+
+        {/* ══ 中栏：编辑器 ══ */}
+        <main className="panel panel-editor glass" aria-label="编辑器">
+          {tabs.length > 0 ? (
+            <div className="tabstrip" role="tablist">
+              {tabs.map((t) => (
+                <div
+                  key={t.rel}
+                  className={t.rel === activeRel ? "tab on" : "tab"}
+                  role="tab"
+                  aria-selected={t.rel === activeRel}
+                  onClick={() => setActiveRel(t.rel)}
+                >
+                  <svg viewBox="0 0 16 16" className="ic-14 ic">
+                    <path d="M3.6 1.6h5.2l3.6 3.6v9.2H3.6z" />
+                    <path d="M8.8 1.6v3.6h3.6" />
+                  </svg>
+                  <span className="nm">{t.name}</span>
+                  {t.dirty ? <span className="dirty-dot" title="未保存的修改" /> : null}
+                  <button
+                    className="x"
+                    title="关闭标签"
+                    aria-label={`关闭 ${t.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void closeTab(t.rel);
+                    }}
+                  >
+                    <svg
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                    >
+                      <path d="M3.2 3.2l5.6 5.6M8.8 3.2l-5.6 5.6" />
+                    </svg>
                   </button>
                 </div>
+              ))}
+            </div>
+          ) : null}
+
+          {!activeTab ? (
+            <div className="editor-empty">
+              <div className="ee-logo squircle">
+                <img src={logo} alt="" />
+              </div>
+              <div className="ee-h">writerD</div>
+              <div className="ee-p">AI 小说写作工作台</div>
+              <div className="ee-actions">
+                <button className="btn btn-accent glint" onClick={() => void newProject()}>
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h4.2c.9 0 1.6.7 1.6 1.6v11.2a1.2 1.2 0 0 0-1.2-1.2H3V4.6z" />
+                    <path d="M17 4.6A1.6 1.6 0 0 0 15.4 3h-4.2c-.9 0-1.6.7-1.6 1.6v11.2a1.2 1.2 0 0 1 1.2-1.2H17V4.6z" />
+                  </svg>
+                  新书启航
+                </button>
+                <button className="btn glint" onClick={() => void continueWriting()}>
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
+                    <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
+                  </svg>
+                  继续写作
+                </button>
+                <button className="btn glint" onClick={() => void refreshProjects()}>
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
+                    <path d="M16.6 3.4v3.4h-3.4" />
+                  </svg>
+                  刷新作品
+                </button>
+              </div>
+              <div className="ee-hint">
+                <svg viewBox="0 0 20 20" className="ic">
+                  <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
+                </svg>
+                在左侧文件面板选择作品与章节，或直接在右侧和 AI 聊聊你的故事
+              </div>
+            </div>
+          ) : (
+            <div className="editor-body">
+              <div className="editor-title">
+                <h1>{activeTab.name.replace(/\.md$/i, "")}</h1>
+                <span className="wc-badge">{countWords(activeTab.content)} 字</span>
+              </div>
+              <textarea
+                ref={editorRef}
+                className="editor-area"
+                style={{ fontSize: `${editorFontSize}px` }}
+                value={activeTab.content}
+                onChange={(e) => editContent(e.target.value)}
+                spellCheck={false}
+              />
+            </div>
+          )}
+        </main>
+
+        {/* ══ 右栏：AI 对话 ══ */}
+        <aside
+          className={busy ? "panel panel-chat glass streaming" : "panel panel-chat glass"}
+          aria-label="AI 对话"
+        >
+          <div className="chat-head" ref={sessRef}>
+            <button
+              className={sessMenu ? "sess-sel glint open" : "sess-sel glint"}
+              onClick={() => setSessMenu((v) => !v)}
+              title="切换会话"
+              aria-haspopup="listbox"
+              aria-expanded={sessMenu}
+            >
+              <span className="sess-ava">
+                <svg viewBox="0 0 20 20" className="ic">
+                  <path d="M10 2.6l1.8 5.6 5.6 1.8-5.6 1.8L10 17.4l-1.8-5.6L2.6 10l5.6-1.8L10 2.6z" />
+                </svg>
+              </span>
+              <span className="sess-title">
+                {session?.title?.trim() ? session.title : "新对话"}
+              </span>
+              <svg
+                viewBox="0 0 12 12"
+                className="chat-caret"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 4.6L6 7.6l3-3" />
+              </svg>
+            </button>
+            <button className="icon-btn accent glint" title="新建对话" onClick={startNewChat}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M10 4.5v11M4.5 10h11" />
+              </svg>
+            </button>
+
+            {/* 会话下拉（取代旧的对话列表栏） */}
+            {sessMenu ? (
+              <div className="sess-menu glass-pop" role="listbox" aria-label="会话列表">
+                <button
+                  className="sess-new"
+                  onClick={startNewChat}
+                >
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M10 4.5v11M4.5 10h11" />
+                  </svg>
+                  新建对话
+                </button>
+                {sessionGroups.map((g) => (
+                  <div key={g.label}>
+                    <div className="sess-glabel">{g.label}</div>
+                    {g.items.map((s) => (
+                      <button
+                        key={s.id}
+                        className={session?.id === s.id ? "sess-item on" : "sess-item"}
+                        role="option"
+                        aria-selected={session?.id === s.id}
+                        title={s.title}
+                        onClick={() => {
+                          setSessMenu(false);
+                          void openSession(s.id);
+                        }}
+                      >
+                        <em>{s.title}</em>
+                        <span>{relTime(s.mtimeMs ?? 0)}</span>
+                        {session?.id === s.id ? (
+                          <svg viewBox="0 0 20 20" className="ic tick">
+                            <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+                          </svg>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+                {sessions.length === 0 ? <div className="sess-empty">还没有历史会话</div> : null}
               </div>
             ) : null}
           </div>
-        </div>
+
+          {hasMessages ? (
+            <div className="chat-scroll" style={{ "--chat-fs": `${chatFontSize}px` } as React.CSSProperties}>
+              {session!.messages.map((m) =>
+                m.role === "user" ? (
+                  <div key={m.id} className="msg user">
+                    <div className="bubble">{m.text}</div>
+                  </div>
+                ) : (
+                  <div key={m.id} className="msg ai">
+                    <div className="who">writerD</div>
+                    {m.thinking ? <div className="think">{m.thinking}</div> : null}
+                    {(m.toolCalls ?? []).map((t) => {
+                      const bad = (t.result ?? "").includes('"error"');
+                      return (
+                        <div key={t.callId} className="tool-line">
+                          <svg viewBox="0 0 20 20" className="ic ic-14">
+                            <path d="M7.5 3.5h-3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3" />
+                            <path d="M11.5 8.5l6-6M17.5 5.5v-3h-3" />
+                          </svg>
+                          {t.name} {bad ? <span className="bad">✕</span> : <span className="ok">✓</span>}
+                          {bad ? " " + extractError(t.result ?? "") : ""}
+                        </div>
+                      );
+                    })}
+                    {m.text ? <div className="bubble">{m.text}</div> : null}
+                  </div>
+                ),
+              )}
+              {toolLog.map((t, i) => (
+                <div key={`live-${i}`} className="tool-line">
+                  <svg viewBox="0 0 20 20" className="ic ic-14">
+                    <path d="M7.5 3.5h-3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3" />
+                    <path d="M11.5 8.5l6-6M17.5 5.5v-3h-3" />
+                  </svg>
+                  {t.name}{" "}
+                  {t.status === "run" ? (
+                    <svg viewBox="0 0 20 20" className="ic ic-14 spin">
+                      <path d="M10 3a7 7 0 1 0 7 7" />
+                    </svg>
+                  ) : t.status === "ok" ? (
+                    <span className="ok">✓</span>
+                  ) : (
+                    <span className="bad">✕</span>
+                  )}
+                </div>
+              ))}
+              {streamThink ? <div className="think live">{streamThink}</div> : null}
+              {streamText ? (
+                <div className="msg ai">
+                  <div className="who">writerD · 生成中</div>
+                  <div className="bubble">{streamText}</div>
+                </div>
+              ) : null}
+              {showTyping ? (
+                <div className="msg ai">
+                  <div className="who">writerD</div>
+                  <div className="bubble typing">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </div>
+              ) : null}
+              {chatError ? <div className="err-line">{chatError}</div> : null}
+              <div ref={chatBottom} />
+            </div>
+          ) : (
+            <div className="chat-welcome">
+              <div className="cw-logo squircle">
+                <img src={logo} alt="" />
+              </div>
+              <div className="cw-h">writerD 助手</div>
+              <div className="cw-p">读写你的作品文件，陪你把故事写下去</div>
+              <div className="cw-tips">
+                {STARTER_TIPS.map((tip) => (
+                  <button
+                    key={tip.label}
+                    className="cw-tip glint"
+                    onClick={() => {
+                      setComposer(tip.text);
+                      composerRef.current?.focus();
+                    }}
+                  >
+                    <svg viewBox="0 0 20 20" className="ic">
+                      <path d="M10 2.6l1.8 5.6 5.6 1.8-5.6 1.8L10 17.4l-1.8-5.6L2.6 10l5.6-1.8L10 2.6z" />
+                    </svg>
+                    {tip.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="chat-quick">
+            <button className="chip glint" onClick={() => setMemoOpen(true)}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
+                <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
+              </svg>
+              备忘录
+            </button>
+          </div>
+
+          <div className="composer glass-inset">
+            <textarea
+              ref={composerRef}
+              className="composer-input"
+              value={composer}
+              placeholder="写下你的故事，或让 AI 帮你写…"
+              aria-label="消息输入框"
+              onChange={(e) => setComposer(e.target.value)}
+              onKeyDown={(e) => {
+                // 中文 IME 组合中的 Enter 是选词确认，不能当作发送
+                if (e.nativeEvent.isComposing || e.key === "Process") return;
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void doSend();
+                }
+              }}
+            />
+            <div className="comp-row">
+              <button className="chip model glint" title="在设置中配置模型" onClick={onOpenSettings}>
+                <svg viewBox="0 0 16 16" className="ic">
+                  <path
+                    d="M8 1.6c2.6 3.3 3.9 5.6 3.9 7.1A3.9 3.9 0 0 1 8 12.6a3.9 3.9 0 0 1-3.9-3.9c0-1.5 1.3-3.8 3.9-7.1z"
+                    fill="currentColor"
+                    stroke="none"
+                  />
+                  <path d="M4.6 14.6h6.8" />
+                </svg>
+                <span>{modelLabel}</span>
+              </button>
+              {busy ? (
+                <button
+                  className="chip stop glint"
+                  title="停止生成（立即中断当前流）"
+                  onClick={() => {
+                    abortRef.current.aborted = true;
+                    abortActiveStream();
+                    setStatus("正在停止…");
+                  }}
+                >
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <rect x="5.5" y="5.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none" />
+                  </svg>
+                  停止
+                </button>
+              ) : null}
+              {!hasKey ? <span className="chip warn">未配置 API Key</span> : null}
+              <button
+                className="send glint"
+                title="发送（Enter）"
+                aria-label="发送"
+                onClick={() => void doSend()}
+                disabled={busy || composer.trim() === ""}
+              >
+                <svg viewBox="0 0 24 24" className="ic">
+                  <path d="M12 19V5" />
+                  <path d="M5.5 11.5L12 5l6.5 6.5" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
+
+      {/* ── 全局状态条 ── */}
+      <div className="statusbar glass-bar">
+        <span className="st-left">{status}</span>
+        <span className="st-right">
+          {activeTab ? (
+            <>
+              <span className={activeTab.dirty ? "st-dot dirty" : "st-dot"} title={activeTab.dirty ? "有未保存的修改" : "已保存"} />
+              {saving ? "保存中…" : activeTab.dirty ? "未保存 · Ctrl+S 保存" : "已保存"}
+              <span>·</span>
+              {countWords(activeTab.content)} 字
+            </>
+          ) : null}
+        </span>
+      </div>
+
+      <MemoModal open={memoOpen} onClose={() => setMemoOpen(false)} project={project} onStatus={setStatus} askText={askText} />
+
+      <InputDialog req={inputReq} />
+      <ConfirmDialog req={confirmReq} />
+
+      {pending ? (
+        <div className="qmodal scrim">
+          <div className="qbox glass sheet wide">
+            {pending.items.map((q, qi) => (
+              <div key={qi} style={{ marginBottom: 16 }}>
+                <h3>
+                  {q.question}
+                  {q.multi_select ? "（可多选）" : ""}
+                </h3>
+                {q.options.map((o) => {
+                  const on = (qSel[qi] ?? []).includes(o.label);
+                  return (
+                    <button
+                      key={o.label}
+                      className={on ? "qopt on" : "qopt"}
+                      onClick={() =>
+                        setQSel((s) => {
+                          const cur = s[qi] ?? [];
+                          const next = q.multi_select
+                            ? cur.includes(o.label)
+                              ? cur.filter((x) => x !== o.label)
+                              : [...cur, o.label]
+                            : [o.label];
+                          return { ...s, [qi]: next };
+                        })
+                      }
+                    >
+                      {o.label}
+                      {o.description ? <span className="d">{o.description}</span> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+            <button className="qsubmit btn btn-accent" onClick={answerPending}>
+              提交
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

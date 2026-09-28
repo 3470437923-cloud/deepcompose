@@ -1,6 +1,6 @@
 /**
- * 备忘录模态（结构对照真机 shot-ow-memo.png 一手证据；编辑视图为合理外推）。
- * 数据格式：store/memo.ts（逐字对齐真机 openwrite_memos.json）。
+ * 备忘录模态（结构依据实测截图；编辑视图为合理外推）。
+ * 数据格式：store/memo.ts（逐字对齐既有实现的备忘录文件格式）。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -98,8 +98,8 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
   const editingMemo = editing ? (data.memos.find((m) => m.id === editing) ?? null) : null;
 
   return (
-    <div className="memo-modal">
-      <div className={docked ? "memo-box docked" : "memo-box"}>
+    <div className={docked ? "memo-modal scrim dock-wrap" : "memo-modal scrim"}>
+      <div className={docked ? "memo-box glass docked" : "memo-box glass sheet"}>
         <div className="memo-head">
           <svg viewBox="0 0 20 20" className="ic">
             <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
@@ -183,7 +183,7 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
         {editingMemo ? (
           <div className="memo-edit">
             <input
-              className="memo-title"
+              className="field memo-title"
               value={editingMemo.title}
               onChange={(e) => updateMemo(editingMemo.id, { title: e.target.value })}
               spellCheck={false}
@@ -207,7 +207,7 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
               </button>
             </div>
             <textarea
-              className="memo-content"
+              className="field memo-content"
               value={editingMemo.content}
               placeholder="记下灵感、大纲或常用指令…"
               onChange={(e) => updateMemo(editingMemo.id, { content: e.target.value })}

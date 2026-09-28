@@ -1,82 +1,224 @@
-/* writerD 设计令牌
- * 来源：OpenWrite v2.0.1 逆向实证（三条证据链一致）
- *   1. 截图像素实测（measure_shot*.py）
- *   2. reference/ui-mock.html 声明值
- *   3. 本机 shared_preferences.json: custom_accent_color = 4286343935 = 0xFF7C6AFF
- *
- * 主题：默认深色（真机实测）；html[data-theme="light"] 为浅色系（writerD 扩展，
- *   色板由深色令牌语义映射而来，强调色两套主题通用）。
- * 2026-09-28 起 screens.css/base.css 的中性色已机械替换为本文件的语义变量。
- */
+/* ════════════════════════════════════════════════════════════════
+   writerD 3.0 设计令牌 —— iOS 液态玻璃（Liquid Glass）体系
+   ────────────────────────────────────────────────────────────────
+   三主题：dark（曜石黑）/ light（晨雾白）/ dsblue（深海 DS 蓝）。
+   每组主题定义：环境光壁纸、玻璃材质（tint/折射环/镜面高光/阴影）、
+   文本层级、控件填充与状态色。派生强调色一律基于 var(--accent)
+   用 color-mix 计算 —— 用户在设置里换强调色时全部令牌即时跟随。
+
+   材质设计（对照 Apple Liquid Glass 语言）：
+     · 玻璃层浮于彩色环境光之上，blur + saturate 透出底色
+     · 环边折射：conic 渐变 1px 描边环，左上（光源侧）最亮
+     · 顶缘镜面高光（inset 1px），底缘弱反光，大柔影悬浮
+     · 同心圆角：面板 --r-xl > 卡片 --r-lg > 控件 --r-sm
+   ════════════════════════════════════════════════════════════════ */
+
 :root {
-  /* 强调色（三方验证一致；主题色切换即时生效） */
-  --accent: #7c6aff;
-  --accent-2: #624dff;
-  /* 深底上的强调色文字 / 强调 tint（浅色主题下取更深的强调色） */
-  --accent-text: #b9a9ff;
-  --accent-soft: #211e3a;
-  --accent-fill: #26234a;
-  --accent-line: #34305c;
+  color-scheme: dark;
 
-  /* 背景层级 */
-  --bg-window: #0a0a0f;
-  --bg-bar: #0e0e16;
-  --bg-panel: #12121a;
-  --bg-rail: #1a1a25;
-  --bg-elev: #1f1f2c;
-  --bg-hover: #1a1a24;
+  /* ── 品牌强调色（DeepSeek 蓝；可被 prefs 内联覆盖） ── */
+  --accent: #4d6bfe;
+  --accent-2: color-mix(in srgb, var(--accent) 72%, #000);
+  --accent-hi: color-mix(in srgb, var(--accent) 58%, #fff);
+  --accent-text: color-mix(in srgb, var(--accent) 66%, #fff);
+  --accent-soft: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-fill: color-mix(in srgb, var(--accent) 32%, transparent);
+  --accent-line: color-mix(in srgb, var(--accent) 48%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 40%, transparent);
+  --on-accent: #ffffff;
 
-  /* 线与圆角 */
-  --line: #23232f;
-  --line-soft: #1c1c26;
-  --line-strong: #35354a;
+  /* ── 窗口基底（环境光壁纸之下的底色） ── */
+  --bg-base: #0a0c14;
+  --bg-base-2: #12151f;
 
-  /* 文本层级 */
-  --tx-1: #e8e8f0;
-  --tx-2: #b9b9cc;
-  --tx-3: #9a9ab2;
-  --tx-dim: #6e6e85;
+  /* ── 环境光斑（缓慢漂移的彩色光晕，玻璃透出的"风景"） ── */
+  --orb-1: rgba(84, 68, 186, 0.50);   /* 紫罗兰 */
+  --orb-2: rgba(26, 92, 116, 0.44);   /* 深青 */
+  --orb-3: rgba(44, 72, 190, 0.40);   /* 钴蓝 */
+  --orb-4: rgba(122, 52, 96, 0.30);   /* 梅子 */
+  --orb-blur: 90px;
 
-  /* 状态色 */
-  --ok: #3ad07a;
-  --ok-bg: #12281e;
-  --ok-line: #1d4a34;
-  --bad: #f87171;
-  --bad-bg: #2a1418;
-  --bad-line: #4a2028;
-  --warn: #c9a227;
+  /* ── 玻璃材质 ── */
+  --glass-tint-a: rgba(24, 27, 38, 0.66);   /* 面板主体渐变起 */
+  --glass-tint-b: rgba(17, 19, 29, 0.56);   /* 面板主体渐变止 */
+  --glass-blur: 26px;
+  --glass-sat: 1.7;
+  --glass-bright: 1.06;
+  --sheen-a: rgba(255, 255, 255, 0.10);     /* 表面斜向柔光 */
+  --sheen-b: rgba(255, 255, 255, 0.015);
+  --rim-top: rgba(255, 255, 255, 0.34);     /* 顶缘镜面高光 */
+  --rim-side: rgba(255, 255, 255, 0.10);
+  --rim-bottom: rgba(255, 255, 255, 0.05);
+  --rim-a: rgba(255, 255, 255, 0.44);       /* 折射环：亮端（左上） */
+  --rim-b: rgba(255, 255, 255, 0.10);       /* 折射环：暗端（右下） */
+  --sh-1: rgba(2, 3, 9, 0.55);              /* 悬浮大柔影 */
+  --sh-2: rgba(2, 3, 9, 0.32);              /* 贴地小影 */
 
-  --radius: 10px;
+  /* ── 控件 ── */
+  --inset-bg: rgba(8, 10, 17, 0.45);        /* 输入井（内凹） */
+  --inset-line: rgba(255, 255, 255, 0.08);
+  --ctl-fill: rgba(255, 255, 255, 0.07);
+  --ctl-hover: rgba(255, 255, 255, 0.12);
+  --ctl-active: rgba(255, 255, 255, 0.17);
+  --seg-thumb: rgba(255, 255, 255, 0.16);   /* 分段控件滑块 */
+
+  /* ── 发丝线与文本 ── */
+  --line: rgba(255, 255, 255, 0.09);
+  --line-soft: rgba(255, 255, 255, 0.055);
+  --line-strong: rgba(255, 255, 255, 0.17);
+  --tx-1: #f3f4f9;
+  --tx-2: #c3c7d6;
+  --tx-3: #989eb3;
+  --tx-dim: #6b7288;
+
+  /* ── 状态色 ── */
+  --ok: #34d17e;
+  --ok-soft: rgba(52, 209, 126, 0.16);
+  --ok-line: rgba(52, 209, 126, 0.36);
+  --bad: #ff6b6b;
+  --bad-soft: rgba(255, 107, 107, 0.15);
+  --bad-line: rgba(255, 107, 107, 0.35);
+  --warn: #e3b341;
+  --warn-soft: rgba(227, 179, 65, 0.15);
+  --close-hover: #e81123;
+
+  /* ── 颗粒噪点（玻璃质感微噪声） ── */
+  --grain-op: 0.05;
+  --glint-c: rgba(255, 255, 255, 0.13);     /* 指针跟随镜面反光 */
+
+  /* ── 几何：同心圆角体系 ── */
+  --r-xl: 22px;    /* 悬浮面板 */
+  --r-lg: 16px;    /* 卡片 / 弹层 */
+  --r-md: 12px;    /* 次级容器 */
+  --r-sm: 10px;    /* 控件 */
+  --r-xs: 8px;     /* 小控件 */
+  --r-full: 999px; /* 胶囊 */
+
+  /* ── 布局尺寸 ── */
+  --tb-h: 52px;
+  --status-h: 34px;
+  --pad: 10px;
+  --gap: 10px;
+  --files-w: 238px;
+  --chat-w: 412px;
+
+  /* ── 动效 ── */
+  --spring: cubic-bezier(0.32, 1.4, 0.48, 1);
+  --ease: cubic-bezier(0.4, 0.1, 0.2, 1);
+  --t-fast: 0.16s;
+  --t-mid: 0.3s;
 }
 
-/* ── 浅色系（writerD 扩展；强调色不变，界面底/文字/线全部换浅色） ── */
+/* ── 亮色：晨雾白（浅色环境光 + 白玻璃 + 更亮的折射环） ── */
 html[data-theme="light"] {
-  --accent-text: color-mix(in srgb, var(--accent) 78%, #000);
-  --accent-soft: color-mix(in srgb, var(--accent) 12%, #ffffff);
-  --accent-fill: color-mix(in srgb, var(--accent) 14%, #ffffff);
-  --accent-line: color-mix(in srgb, var(--accent) 34%, #ffffff);
+  color-scheme: light;
 
-  --bg-window: #f2f3f8;
-  --bg-bar: #fbfcfe;
-  --bg-panel: #ffffff;
-  --bg-rail: #eef0f6;
-  --bg-elev: #f5f6fa;
-  --bg-hover: #eceef4;
+  --accent-text: color-mix(in srgb, var(--accent) 88%, #000);
+  --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
+  --accent-fill: color-mix(in srgb, var(--accent) 22%, transparent);
 
-  --line: #d9dce6;
-  --line-soft: #e7e9f0;
-  --line-strong: #b9bdcc;
+  --bg-base: #e7ecf6;
+  --bg-base-2: #f6f8fc;
 
-  --tx-1: #22242e;
-  --tx-2: #4c505f;
-  --tx-3: #71758a;
-  --tx-dim: #9298a9;
+  --orb-1: rgba(110, 160, 255, 0.55);  /* 天青 */
+  --orb-2: rgba(178, 152, 255, 0.48);  /* 丁香紫 */
+  --orb-3: rgba(255, 168, 122, 0.38);  /* 蜜桃 */
+  --orb-4: rgba(112, 214, 184, 0.42);  /* 薄荷 */
+
+  --glass-tint-a: rgba(255, 255, 255, 0.64);
+  --glass-tint-b: rgba(255, 255, 255, 0.42);
+  --glass-sat: 1.9;
+  --glass-bright: 1.02;
+  --sheen-a: rgba(255, 255, 255, 0.85);
+  --sheen-b: rgba(255, 255, 255, 0.12);
+  --rim-top: rgba(255, 255, 255, 0.95);
+  --rim-side: rgba(255, 255, 255, 0.55);
+  --rim-bottom: rgba(255, 255, 255, 0.30);
+  --rim-a: rgba(255, 255, 255, 1);
+  --rim-b: rgba(255, 255, 255, 0.42);
+  --sh-1: rgba(31, 45, 86, 0.16);
+  --sh-2: rgba(31, 45, 86, 0.10);
+
+  --inset-bg: rgba(255, 255, 255, 0.58);
+  --inset-line: rgba(16, 26, 54, 0.10);
+  --ctl-fill: rgba(255, 255, 255, 0.55);
+  --ctl-hover: rgba(255, 255, 255, 0.82);
+  --ctl-active: rgba(255, 255, 255, 0.96);
+  --seg-thumb: rgba(255, 255, 255, 0.92);
+
+  --line: rgba(16, 26, 54, 0.10);
+  --line-soft: rgba(16, 26, 54, 0.06);
+  --line-strong: rgba(16, 26, 54, 0.18);
+  --tx-1: #191d29;
+  --tx-2: #484e60;
+  --tx-3: #6d7488;
+  --tx-dim: #939ab0;
 
   --ok: #0f9960;
-  --ok-bg: #e6f6ee;
-  --ok-line: #b5e2cb;
-  --bad: #dc4b4b;
-  --bad-bg: #fdeeee;
-  --bad-line: #f3c4c4;
-  --warn: #b07d12;
+  --ok-soft: rgba(15, 153, 96, 0.12);
+  --ok-line: rgba(15, 153, 96, 0.32);
+  --bad: #d64545;
+  --bad-soft: rgba(214, 69, 69, 0.10);
+  --bad-line: rgba(214, 69, 69, 0.30);
+  --warn: #a3760d;
+  --warn-soft: rgba(163, 118, 13, 0.12);
+
+  --grain-op: 0.04;
+  --glint-c: rgba(255, 255, 255, 0.55);
+}
+
+/* ── DS 蓝：深海（DeepSeek 品牌蓝环境光 + 蓝调玻璃） ── */
+html[data-theme="dsblue"] {
+  color-scheme: dark;
+
+  --accent-text: color-mix(in srgb, var(--accent) 62%, #fff);
+
+  --bg-base: #030718;
+  --bg-base-2: #0a1430;
+
+  --orb-1: rgba(38, 74, 214, 0.58);    /* DS 蓝 */
+  --orb-2: rgba(20, 110, 180, 0.42);   /* 海蓝 */
+  --orb-3: rgba(96, 64, 220, 0.40);    /* 靛紫 */
+  --orb-4: rgba(14, 84, 140, 0.46);    /* 深潭青 */
+
+  --glass-tint-a: rgba(13, 25, 64, 0.62);
+  --glass-tint-b: rgba(7, 15, 42, 0.54);
+  --glass-sat: 1.8;
+  --glass-bright: 1.08;
+  --sheen-a: rgba(130, 165, 255, 0.15);
+  --sheen-b: rgba(90, 130, 255, 0.03);
+  --rim-top: rgba(150, 180, 255, 0.46);
+  --rim-side: rgba(120, 150, 255, 0.14);
+  --rim-bottom: rgba(90, 120, 220, 0.08);
+  --rim-a: rgba(140, 175, 255, 0.58);
+  --rim-b: rgba(90, 120, 230, 0.16);
+  --sh-1: rgba(1, 3, 12, 0.60);
+  --sh-2: rgba(1, 3, 12, 0.40);
+
+  --inset-bg: rgba(4, 10, 30, 0.50);
+  --inset-line: rgba(130, 160, 255, 0.10);
+  --ctl-fill: rgba(120, 150, 255, 0.10);
+  --ctl-hover: rgba(120, 150, 255, 0.17);
+  --ctl-active: rgba(120, 150, 255, 0.25);
+  --seg-thumb: rgba(140, 170, 255, 0.24);
+
+  --line: rgba(140, 170, 255, 0.12);
+  --line-soft: rgba(140, 170, 255, 0.07);
+  --line-strong: rgba(140, 170, 255, 0.24);
+  --tx-1: #eef2ff;
+  --tx-2: #bcc7e8;
+  --tx-3: #8f9cc6;
+  --tx-dim: #62709c;
+
+  --ok: #3ddc90;
+  --ok-soft: rgba(61, 220, 144, 0.15);
+  --ok-line: rgba(61, 220, 144, 0.35);
+  --bad: #ff7b8a;
+  --bad-soft: rgba(255, 123, 138, 0.14);
+  --bad-line: rgba(255, 123, 138, 0.34);
+  --warn: #eec25a;
+  --warn-soft: rgba(238, 194, 90, 0.14);
+
+  --grain-op: 0.05;
+  --glint-c: rgba(160, 190, 255, 0.16);
 }

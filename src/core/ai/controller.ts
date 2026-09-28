@@ -75,7 +75,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     enabledTools: ENABLED_TOOLS,
   });
 
-  // 上下文自动压缩（CONTRACT §6）：只影响发给 AI 的请求序列，会话记录保持完整
+  // 上下文自动压缩：只影响发给 AI 的请求序列，会话记录保持完整
   let requestMessages: ChatMessage[] = session.messages;
   if (opts.prefs.autoClearContext) {
     try {

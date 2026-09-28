@@ -1,12 +1,12 @@
 /**
  * 工具调度循环（agent loop）。
  *
- * 事件名逐字取自 TOOLS.md §5.1（证据为 app.so 偏移）：
+ * 事件名逐字（既有格式，不得改）：
  *   ai_run_started / ai_tool_started / ai_tool_calls_received / ai_tool_completed /
  *   ai_text_started / ai_thinking_started / ai_cleanup_started / ai_cleanup_completed /
  *   ai_run_completed
  *
- * 循环结构（CONTRACT §2「读结构化设定 → 读最近 N 章 → 生成 → 提炼摘要 → 回写」的机制底座）：
+ * 循环结构（「读结构化设定 → 读最近 N 章 → 生成 → 提炼摘要 → 回写」的机制底座）：
  *   流式回合 → 若模型请求工具 → 逐个执行（写前快照）→ 结果回填 → 再开一回合，
  *   直到模型不再请求工具或达到轮次上限。
  */
@@ -37,7 +37,7 @@ export const EVENT_NAMES = {
   runCompleted: "ai_run_completed",
 } as const;
 
-/** 单次运行最多几轮工具调用。真机数值未取到（REBUILD-PLAN 缺口表：数值常量拿不到），此为自定值。 */
+/** 单次运行最多几轮工具调用。既有数值未取到，此为自定值。 */
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 
 export type AgentEvent =

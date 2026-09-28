@@ -1,31 +1,45 @@
 /**
- * 设置屏 —— 数据驱动版（2026-09-28 按真机截图重建）。
+ * 设置屏 —— writerD 3.0 液态玻璃版。
  *
- * 结构对照 OpenWrite v2.0.1 真机（reference/shot-ow-set-*.png 一手证据）：
- * - 左导航 7 项（VIP 按 CONTRACT §11 切除）
- * - AI 提供商 = 自定义接入表单（切除内置供应商/公益模型/套餐卡）
- * - Skill = 清单 + 开关（真机口径：开启项注入系统提示词）
- * - 参数 = 温度滑杆 + 系统提示词 + 上下文压缩（仅已实证键）
- * - 主题 = 模式切换 + 强调色（5 色取自真机截图像素采样）
- * - 数据 / 关于 = 本地信息与维护操作
- * - 同步 = WebDAV / 局域网（配置层占位，传输层未实现，如实标注）
+ * 结构：左侧玻璃导航（7 项：AI 提供商 / Skill / 参数 / 主题 / 同步 / 数据 / 关于）
+ * + 右侧玻璃内容区（iOS grouped-list 风格分组卡片）。
+ * 主题页支持三套液态玻璃主题：曜石黑（dark）/ 晨雾白（light）/ 深海 DS 蓝（dsblue），
+ * 外加强调色色板与字号调节（既有实现键 chat_font_size / editor_font_size）。
  *
  * 读取 prefs（boot() 装配），保存即写 shared_preferences.json（savePrefs）。
- * 新增控件样式在 base.css（a-card / a-switch / a-seg / a-skill-row 等）。
+ * 材质配方在 styles/glass.css，布局与组件样式在 styles/app.css。
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useMaximized } from "../ui/useMaximized";
 import logo from "../assets/logo.png";
-import { currentBoot, savePrefs } from "../core/app";
+import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
 import { fetchModels } from "../core/ai/models";
-import type { Prefs } from "../core/prefs";
+import { DS_BLUE_ARGB, type Prefs, type ThemeMode } from "../core/prefs";
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "sync" | "data" | "about";
 
-/** 真机主题色采样（shot-ow-set-主题.png (347..470,333)，首位与令牌 --accent 一致） */
-const ACCENT_SWATCHES = [0xff7c6aff, 0xff3b82f6, 0xff0891b2, 0xff059669, 0xffec4899];
+/** 强调色色板：DS 蓝打头（品牌色），其余为常见备选 */
+const ACCENT_SWATCHES = [
+  { argb: DS_BLUE_ARGB, label: "DS 蓝" },
+  { argb: 0xff7c6aff, label: "紫罗兰" },
+  { argb: 0xff0ea5e9, label: "天青" },
+  { argb: 0xff10b981, label: "翠绿" },
+  { argb: 0xfff59e0b, label: "琥珀" },
+  { argb: 0xffec4899, label: "粉" },
+];
+
+/** 三套液态玻璃主题（theme_mode 扩展键） */
+const THEME_MODES: { mode: ThemeMode; label: string; preview: string }[] = [
+  { mode: "light", label: "晨雾白", preview: "t-light" },
+  { mode: "dark", label: "曜石黑", preview: "t-dark" },
+  { mode: "dsblue", label: "DS 蓝", preview: "t-dsblue" },
+];
+
+/** 旧版（2.x）默认强调色紫罗兰：切到 DS 蓝主题时视为"未自定义"，一并换成品牌蓝 */
+const LEGACY_DEFAULT_ACCENT = 4286343935; // 0xFF7C6AFF
 
 interface Props {
   onBack: () => void;
@@ -42,36 +56,36 @@ export default function SettingsScreen({ onBack }: Props) {
   const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const win = getCurrentWindow();
+  // 必须在 `if (!boot)` 提前返回**之前**调用（hooks 规则）
+  const maxed = useMaximized();
 
+  // 兜底：boot 失败时显示「配置未加载」。
+  // 注意根元素必须与下方正常路径一致（.win#screenA）——.win 是 .app-shell 的 flex
+  // 子项（flex:1），中间多一层无样式的包装 div 会让它高度塌成内容高度。
+  // 该分支目前不可达：boot 失败时 MainWorkbench 会渲染自己的「启动失败」屏且不暴露齿轮入口。
   if (!boot) {
     return (
-      <div className="fitter" id="screenA">
-        <div className="holder">
-          <div className="win-frame">
-            <div className="win">
-              <div
-              className="titlebar"
-              onMouseDown={(e) => {
-                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
-                if (e.button !== 0) return;
-                const el = e.target as HTMLElement;
-                if (el.closest("button")) return;
-                void win.startDragging();
-              }}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest("button")) return;
-                void win.toggleMaximize();
-              }}
-            >
-                <div className="brand">
-                  <div className="brand-mark"><img src={logo} alt="" /></div>
-                  <div className="brand-name">writerD</div>
-                </div>
-              </div>
-              <div style={{ padding: 40, color: "#9898B0" }}>配置未加载，请重启应用。</div>
-            </div>
+      <div className="win" id="screenA">
+        <div
+          className="titlebar"
+          onMouseDown={(e) => {
+            // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+            if (e.button !== 0) return;
+            const el = e.target as HTMLElement;
+            if (el.closest("button")) return;
+            void win.startDragging();
+          }}
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest("button")) return;
+            void win.toggleMaximize();
+          }}
+        >
+          <div className="brand">
+            <div className="brand-mark squircle"><img src={logo} alt="" /></div>
+            <div className="brand-name">writerD</div>
           </div>
         </div>
+        <div style={{ padding: 40, color: "var(--tx-3)" }}>配置未加载，请重启应用。</div>
       </div>
     );
   }
@@ -94,7 +108,36 @@ export default function SettingsScreen({ onBack }: Props) {
     }
   };
 
-  // Ctrl+S 保存（真机参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
+  /** 切换液态玻璃主题：即时生效 + 立即持久化。
+   *  选 DS 蓝时若强调色仍是默认色，自动同步为 DS 品牌蓝。 */
+  const applyThemeMode = (mode: ThemeMode) => {
+    const next: Prefs = {
+      ...form,
+      themeMode: mode,
+      isDarkMode: mode !== "light",
+      customAccentColor:
+        mode === "dsblue" &&
+        (form.customAccentColor === DS_BLUE_ARGB || form.customAccentColor === LEGACY_DEFAULT_ACCENT)
+          ? DS_BLUE_ARGB
+          : form.customAccentColor,
+    };
+    setForm(next);
+    document.documentElement.dataset.theme = mode;
+    applyAccentFromPrefs(next);
+    void savePrefs(next);
+    setSaveMsg("");
+  };
+
+  /** 切换强调色：即时生效 + 立即持久化 */
+  const applyAccent = (argb: number) => {
+    const next: Prefs = { ...form, customAccentColor: argb };
+    setForm(next);
+    applyAccentFromPrefs(next);
+    void savePrefs(next);
+    setSaveMsg("");
+  };
+
+  // Ctrl+S 保存（既有实现参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -199,107 +242,110 @@ export default function SettingsScreen({ onBack }: Props) {
   ];
 
   return (
-    <div className="fitter" id="screenA">
-      <div className="holder">
-        <div className="win-frame">
-          <div className="win">
-            {/* ── 标题栏 ── */}
-            <div
-              className="titlebar"
-              onMouseDown={(e) => {
-                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
-                if (e.button !== 0) return;
-                const el = e.target as HTMLElement;
-                if (el.closest("button")) return;
-                void win.startDragging();
-              }}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest("button")) return;
-                void win.toggleMaximize();
-              }}
-            >
-              <div className="brand">
-                <div className="brand-mark"><img src={logo} alt="" /></div>
-                <div className="brand-name">writerD</div>
-              </div>
-              <div className="win-tools">
-                <div className="spacer" />
-                <button className="tbtn" title="最小化">
-                  <svg viewBox="0 0 20 20" className="ic"><path d="M5 10h10" /></svg>
-                </button>
-                <button className="tbtn" title="最大化">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <rect x="4" y="4.5" width="11" height="11" rx="2" />
-                  </svg>
-                </button>
-                <button className="tbtn" title="关闭">
-                  <svg viewBox="0 0 20 20" className="ic">
-                    <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            {/* ── 头部：返回 + 标题 ── */}
-            <div className="a-head">
-              <div className="vline" style={{ left: "56px" }} />
-              <div className="vline" style={{ left: "181px" }} />
-              <button className="a-back" title="返回" onClick={onBack}>
-                <svg viewBox="0 0 20 20" className="ic">
-                  <path d="M11.5 4.5L6 10l5.5 5.5" />
-                  <path d="M6.5 10h8" />
-                </svg>
-              </button>
-              <div className="a-head-icon">
-                <svg viewBox="0 0 24 24" className="ic">
-                  <circle cx="12" cy="12" r="2.9" />
-                  <path d="M19.3 14.2a1.5 1.5 0 0 0 .3 1.65l.05.06a1.8 1.8 0 1 1-2.55 2.55l-.06-.06a1.5 1.5 0 0 0-1.65-.3 1.5 1.5 0 0 0-.9 1.37v.18a1.8 1.8 0 1 1-3.6 0v-.1a1.5 1.5 0 0 0-1-1.37 1.5 1.5 0 0 0-1.65.3l-.06.06A1.8 1.8 0 1 1 4.3 15.9l.06-.06a1.5 1.5 0 0 0 .3-1.65 1.5 1.5 0 0 0-1.37-.9h-.18a1.8 1.8 0 1 1 0-3.6h.1a1.5 1.5 0 0 0 1.37-1 1.5 1.5 0 0 0-.3-1.65L4.2 7A1.8 1.8 0 1 1 6.76 4.45l.06.06a1.5 1.5 0 0 0 1.65.3h.07a1.5 1.5 0 0 0 .9-1.37v-.18a1.8 1.8 0 1 1 3.6 0v.1a1.5 1.5 0 0 0 .9 1.37 1.5 1.5 0 0 0 1.65-.3l.06-.06A1.8 1.8 0 1 1 18.2 7l-.06.06a1.5 1.5 0 0 0-.3 1.65v.07a1.5 1.5 0 0 0 1.37.9h.18a1.8 1.8 0 1 1 0 3.6h-.1a1.5 1.5 0 0 0-1.37.9z" />
-                </svg>
-              </div>
-              <div className="a-head-title">设置</div>
-            </div>
-
-            {/* ── 左侧导航 ── */}
-            <div className="a-nav">
-              {navItems.map((item) => (
-                <button
-                  key={item.key}
-                  className={`a-nav-item ${section === item.key ? "on" : ""}`}
-                  style={{ top: `${item.top}px` }}
-                  onClick={() => {
-                    setSection(item.key);
-                    setFlash("");
-                  }}
-                >
-                  {item.icon}
-                  {item.label}
-                </button>
-              ))}
-            </div>
-
-            {/* ── 内容区 ── */}
-            <div className="a-content">
-              {section === "provider" && (
-                <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
-              )}
-              {section === "skill" && (
-                <SkillSection form={form} flash={flash} onFlash={setFlash} />
-              )}
-              {section === "params" && (
-                <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
-              )}
-              {section === "theme" && (
-                <ThemeSection form={form} update={update} flash={flash} onFlash={setFlash} />
-              )}
-              {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
-              {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} />}
-              {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
-            </div>
-
-            <ConfirmDialog req={confirmReq} />
-          </div>
+    <div className="win" id="screenA">
+      {/* ── 标题栏 ── */}
+      <div
+        className="titlebar"
+        onMouseDown={(e) => {
+          // 标题栏空白处按住拖动（按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+          if (e.button !== 0) return;
+          const el = e.target as HTMLElement;
+          if (el.closest("button")) return;
+          void win.startDragging();
+        }}
+        onDoubleClick={(e) => {
+          if ((e.target as HTMLElement).closest("button")) return;
+          void win.toggleMaximize();
+        }}
+      >
+        <div className="brand">
+          <div className="brand-mark squircle"><img src={logo} alt="" /></div>
+          <div className="brand-name">writerD</div>
+        </div>
+        <div className="win-tools">
+          <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
+            <svg viewBox="0 0 20 20" className="ic"><path d="M5 10h10" /></svg>
+          </button>
+          <button
+            className="wbtn"
+            title={maxed ? "向下还原" : "最大化"}
+            aria-label={maxed ? "向下还原" : "最大化"}
+            onClick={() => void win.toggleMaximize()}
+          >
+            {maxed ? (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 20 20" className="ic">
+                <rect x="4" y="4.5" width="11" height="11" rx="2" />
+              </svg>
+            )}
+          </button>
+          <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
+            <svg viewBox="0 0 20 20" className="ic">
+              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
+            </svg>
+          </button>
         </div>
       </div>
+
+      {/* ── 主体：玻璃侧栏导航 + 玻璃内容区 ── */}
+      <div className="a-main">
+        <div className="a-nav glass">
+          <div className="a-nav-head">
+            <button className="a-back" title="返回主界面" onClick={onBack}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M11.5 4.5L6 10l5.5 5.5" />
+              </svg>
+            </button>
+            <div className="a-nav-title">设置</div>
+          </div>
+          <div className="a-nav-items">
+            {navItems.map((item) => (
+              <button
+                key={item.key}
+                className={`a-nav-item glint ${section === item.key ? "on" : ""}`}
+                onClick={() => {
+                  setSection(item.key);
+                  setFlash("");
+                }}
+              >
+                {item.icon}
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="a-content glass">
+          {section === "provider" && (
+            <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
+          )}
+          {section === "skill" && (
+            <SkillSection form={form} flash={flash} onFlash={setFlash} />
+          )}
+          {section === "params" && (
+            <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
+          )}
+          {section === "theme" && (
+            <ThemeSection
+              form={form}
+              update={update}
+              flash={flash}
+              onFlash={setFlash}
+              onThemeMode={applyThemeMode}
+              onAccent={applyAccent}
+            />
+          )}
+          {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
+          {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} />}
+          {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
+        </div>
+      </div>
+
+      <ConfirmDialog req={confirmReq} />
     </div>
   );
 }
@@ -362,7 +408,7 @@ function ProviderSection({
         <div className="a-card-head">
           <span className="a-card-title">自定义接入</span>
           {conn === "ok" ? (
-            <span className="d-badge"><i />已连接</span>
+            <span className="d-badge ok"><i />已连接</span>
           ) : conn === "testing" ? (
             <span className="d-badge off"><i />检测中…</span>
           ) : conn === "error" ? (
@@ -473,7 +519,7 @@ function ProviderSection({
   );
 }
 
-/* ── Skill 管理分节（真机：清单 + 开关，开启项注入系统提示词） ── */
+/* ── Skill 管理分节（既有实现：清单 + 开关，开启项注入系统提示词） ── */
 function SkillSection({
   form,
   flash,
@@ -603,7 +649,7 @@ function SkillSection({
   );
 }
 
-/* ── 参数分节（真机：温度滑杆 + 系统提示词 + 上下文压缩） ── */
+/* ── 参数分节（既有实现：温度滑杆 + 系统提示词 + 上下文压缩） ── */
 function ParamsSection({
   form,
   update,
@@ -627,6 +673,7 @@ function ParamsSection({
         <div className="a-card-desc">控制回复的随机性：越低越稳定确定，越高越多样随机。</div>
         <input
           className="a-slider"
+          style={{ ["--fill" as string]: `${(form.temperature / 2) * 100}%` }}
           type="range"
           min={0}
           max={2}
@@ -750,73 +797,70 @@ function ParamsSection({
   );
 }
 
-/* ── 主题分节（真机：模式 + 强调色；色值取自真机截图像素采样） ── */
+/* ── 主题分节（writerD 3.0：三套液态玻璃主题 + 强调色 + 字号） ── */
 function ThemeSection({
   form,
   update,
   flash,
   onFlash,
+  onThemeMode,
+  onAccent,
 }: {
   form: Prefs;
   update: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
   flash: string;
   onFlash: (s: string) => void;
+  onThemeMode: (mode: ThemeMode) => void;
+  onAccent: (argb: number) => void;
 }) {
-  const hex = useMemo(() => `#${(form.customAccentColor & 0xffffff).toString(16).padStart(6, "0")}`, [
-    form.customAccentColor,
-  ]);
   return (
     <div className="a-settings-panel">
       <div className="a-card">
         <div className="a-card-head">
-          <span className="a-card-title">主题模式</span>
+          <span className="a-card-title">液态玻璃主题</span>
         </div>
-        <div className="a-card-desc">跟随系统时自动适配 Windows 的深浅色设置。</div>
-        <div className="a-seg">
-          <button
-            className={!form.isDarkMode ? "on" : ""}
-            onClick={() => {
-              update("isDarkMode", false);
-              document.documentElement.dataset.theme = "light";
-              // 即时持久化：返回主界面时 boot 装配会按已存 prefs 重设主题
-              void savePrefs({ ...form, isDarkMode: false });
-            }}
-          >
-            浅色
-          </button>
-          <button
-            className={form.isDarkMode ? "on" : ""}
-            onClick={() => {
-              update("isDarkMode", true);
-              document.documentElement.dataset.theme = "dark";
-              void savePrefs({ ...form, isDarkMode: true });
-            }}
-          >
-            深色
-          </button>
+        <div className="a-card-desc">
+          三套材质随环境光壁纸、玻璃折射环与高光联动，点击即时生效并保存。
+        </div>
+        <div className="a-themecards">
+          {THEME_MODES.map((t) => (
+            <button
+              key={t.mode}
+              className={form.themeMode === t.mode ? "a-themecard on" : "a-themecard"}
+              onClick={() => onThemeMode(t.mode)}
+              title={`切换到「${t.label}」主题`}
+            >
+              <span className={`a-tc-prev ${t.preview}`} />
+              <span className="a-tc-label">
+                {t.label}
+                {form.themeMode === t.mode ? (
+                  <svg viewBox="0 0 20 20" className="ic tick">
+                    <path d="M4.5 10.5l3.5 3.5 7.5-8" />
+                  </svg>
+                ) : null}
+              </span>
+            </button>
+          ))}
         </div>
         {flash ? <div className="a-flash">{flash}</div> : null}
       </div>
 
       <div className="a-card">
         <div className="a-card-head">
-          <span className="a-card-title">主题颜色</span>
+          <span className="a-card-title">强调色</span>
         </div>
-        <div className="a-card-desc">界面强调色：按钮、链接、选中态等都会跟随变化。</div>
+        <div className="a-card-desc">用于选中态、主按钮与用户会话气泡；派生的浅底 / 描边 / 文字色随之联动。</div>
         <div className="a-swatches">
-          {ACCENT_SWATCHES.map((argb) => {
-            const c = `#${(argb & 0xffffff).toString(16).padStart(6, "0")}`;
-            const on = c.toLowerCase() === hex.toLowerCase();
+          {ACCENT_SWATCHES.map((s) => {
+            const rgb = `#${(s.argb & 0xffffff).toString(16).padStart(6, "0")}`;
+            const on = form.customAccentColor === s.argb;
             return (
               <button
-                key={c}
-                className="a-swatch"
-                style={{ background: c }}
-                title={c}
-                onClick={() => {
-                  update("customAccentColor", argb);
-                  document.documentElement.style.setProperty("--accent", c);
-                }}
+                key={s.argb}
+                className={on ? "a-swatch on" : "a-swatch"}
+                style={{ background: `linear-gradient(160deg, ${rgb}, color-mix(in srgb, ${rgb} 70%, #000))` }}
+                onClick={() => onAccent(s.argb)}
+                title={`${s.label} · ${rgb.toUpperCase()}`}
               >
                 {on ? (
                   <svg viewBox="0 0 20 20" className="ic">
@@ -829,20 +873,47 @@ function ThemeSection({
         </div>
       </div>
 
-      <div className="a-form-actions">
-        <button
-          className="a-btn-primary"
-          onClick={async () => {
-            try {
-              await savePrefs(form);
-              onFlash("主题已保存");
-            } catch (e) {
-              onFlash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
-            }
-          }}
-        >
-          保存主题
-        </button>
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">字号</span>
+          <span className="a-card-side">对话与编辑器正文字号</span>
+        </div>
+        <div className="a-card-row">
+          <span>对话字号</span>
+          <input
+            className="field a-num"
+            type="number"
+            min={11}
+            max={24}
+            step={1}
+            value={Math.round(form.chatFontSize)}
+            onChange={(e) => update("chatFontSize", Number(e.target.value))}
+          />
+        </div>
+        <div className="a-card-row">
+          <span>编辑器字号</span>
+          <input
+            className="field a-num"
+            type="number"
+            min={11}
+            max={28}
+            step={1}
+            value={Math.round(form.editorFontSize)}
+            onChange={(e) => update("editorFontSize", Number(e.target.value))}
+          />
+        </div>
+        <div className="a-form-actions">
+          <button
+            className="btn btn-accent"
+            onClick={() => {
+              onAccent(form.customAccentColor);
+              onFlash("字号已保存");
+            }}
+          >
+            保存字号
+          </button>
+          {flash ? <div className="a-flash">{flash}</div> : null}
+        </div>
       </div>
     </div>
   );
@@ -965,7 +1036,7 @@ function DataSection({
   );
 }
 
-/* ── 关于分节（自更新按 CONTRACT §11 阻断：返回"已是最新"） ── */
+/* ── 关于分节（自更新阻断：返回"已是最新"） ── */
 function AboutSection({ flash, onFlash }: { flash: string; onFlash: (s: string) => void }) {
   return (
     <div className="a-settings-panel">

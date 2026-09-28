@@ -1,14 +1,15 @@
 /**
  * 目录权威（唯一真源）。
  *
- * 依据 CONTRACT §3.1 / §3.2，逐字对齐真机实测目录：
+ * 目录布局保持既有格式：
  *   作品根 <booksRoot>\<书名>\小说资料\*.md  +  章节内容\第N章.md
  *   回收站 <booksRoot>\.openwrite_recycle\<id>\...  + recycle_manifest.json
  *   应用数据 <Documents>\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}
  *   配置     %APPDATA%\com.writerd\writerD\shared_preferences.json
  *
- * 命名对照（CONTRACT §3.2）：openwrite_sessions → writerd_sessions 等；
- * skills 目录沿用真机名 `skills`（真机即 Documents\skills）。
+ * 命名对照：应用数据目录统一用 `writerd_` 前缀；作品根下的回收站与清单
+ * 沿用既有 `.openwrite_*` 名以兼容既有数据。
+ * skills 目录沿用既有名 `skills`（即 Documents\skills）。
  */
 
 /** 作品目录协议里用到的固定名（逐字，不得改） */
@@ -38,7 +39,7 @@ export const APP_DATA_NAMES = {
   logFile: "diagnostic.log",
 } as const;
 
-/** 真机默认作品根：%USERPROFILE%\AI写小说（实测路径，非推测） */
+/** 默认作品根：%USERPROFILE%\AI写小说（实测路径，非推测） */
 export const DEFAULT_BOOKS_DIR_NAME = "AI写小说";
 
 export interface AppDirs {
@@ -86,7 +87,7 @@ export function join(...parts: string[]): string {
   return joined.replace(/([A-Za-z]:)$/, "$1\\");
 }
 
-/** 校验：不得选择磁盘根目录（CONTRACT §10 逐字文案的判定条件） */
+/** 校验：不得选择磁盘根目录（逐字文案的判定条件） */
 export function isDriveRoot(path: string): boolean {
   const p = path.replace(/[\\/]+$/, "");
   return /^[A-Za-z]:$/.test(p) || /^[\\/]{1,2}$/.test(path);

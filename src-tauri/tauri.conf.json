@@ -13,14 +13,15 @@
     "windows": [
       {
         "title": "writerD",
-        "width": 1920,
-        "height": 1032,
+        "width": 1440,
+        "height": 900,
         "minWidth": 980,
         "minHeight": 640,
         "decorations": false,
         "transparent": false,
         "resizable": true,
         "center": true,
+        "visible": false,
         "dragDropEnabled": true
       }
     ],
