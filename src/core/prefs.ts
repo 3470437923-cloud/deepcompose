@@ -8,6 +8,19 @@
 
 export const PREFIX = "flutter.";
 
+/**
+ * 主题模式（writerD 3.0 扩展）：
+ *   dark   = 曜石黑液态玻璃
+ *   light  = 晨雾白液态玻璃
+ *   dsblue = 深海 DS 蓝液态玻璃（DeepSeek 品牌蓝环境光）
+ * 键名 `theme_mode` 为 writerD 自有扩展（真机无此键，如实标注）；
+ * 兼容策略：配置里没有 theme_mode 时按真机键 is_dark_mode 派生。
+ */
+export type ThemeMode = "dark" | "light" | "dsblue";
+
+/** DS 品牌蓝（0xAARRGGBB）：默认强调色，也是 DS 蓝主题的身份色 */
+export const DS_BLUE_ARGB = 4283263998; // 0xFF4D6BFE
+
 export interface Provider {
   name: string;
   baseUrl: string;
@@ -71,9 +84,11 @@ export interface Prefs {
   webdavConfig: WebdavConfig;
   webdavSyncMeta: Record<string, unknown>;
 
-  // —— 外观主题（2 键）——
+  // —— 外观主题（真机 2 键 + writerD 扩展 1 键）——
   customAccentColor: number;
   isDarkMode: boolean;
+  /** 主题模式（writerD 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
+  themeMode: ThemeMode;
 
   // —— 路径（2 键）——
   customNovelsDir: string;
@@ -132,8 +147,9 @@ export const DEFAULT_PREFS: Prefs = {
   webdavConfig: { url: "", username: "", password: "", remotePath: "", lastSyncTime: "" },
   webdavSyncMeta: {},
 
-  customAccentColor: 4286343935, // 0xFF7C6AFF，三方验证一致
+  customAccentColor: DS_BLUE_ARGB,
   isDarkMode: true,
+  themeMode: "dark",
 
   customNovelsDir: "",
   customSkillsDir: "",
@@ -179,6 +195,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
 
   customAccentColor: "custom_accent_color",
   isDarkMode: "is_dark_mode",
+  themeMode: "theme_mode", // writerD 扩展键（真机无此键）
 
   customNovelsDir: "custom_novels_dir",
   customSkillsDir: "custom_skills_dir",
@@ -279,6 +296,15 @@ export function parsePrefs(text: string): Prefs {
 
   p.customAccentColor = asNumber(get("customAccentColor"), p.customAccentColor);
   p.isDarkMode = asBool(get("isDarkMode"), p.isDarkMode);
+  // theme_mode 为 writerD 扩展键：合法值直接采用；缺失/非法时按真机
+  // is_dark_mode 派生（旧配置文件平滑升级，两个键独立往返以保 round-trip）
+  const tm = get("themeMode");
+  p.themeMode =
+    tm === "dark" || tm === "light" || tm === "dsblue"
+      ? tm
+      : p.isDarkMode
+        ? "dark"
+        : "light";
 
   p.customNovelsDir = asString(get("customNovelsDir"), p.customNovelsDir);
   p.customSkillsDir = asString(get("customSkillsDir"), p.customSkillsDir);
