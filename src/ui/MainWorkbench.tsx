@@ -1272,7 +1272,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </div>
             </div>
           ) : (
-            <div className="editor-body">
+            <div
+              className="editor-body"
+              style={{ "--editor-fs": `${editorFontSize}px` } as React.CSSProperties}
+            >
               <div className="editor-title">
                 <h1>{activeTab.name.replace(/\.md$/i, "")}</h1>
                 <span className="wc-badge">{countWords(activeTab.content)} 字</span>
@@ -1320,7 +1323,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <textarea
                 ref={editorRef}
                 className={tabEditable(activeTab) ? "editor-area" : "editor-area ro"}
-                style={{ "--editor-fs": `${editorFontSize}px` } as React.CSSProperties}
                 value={activeTab.content}
                 onChange={(e) => editContent(e.target.value)}
                 readOnly={!tabEditable(activeTab)}
