@@ -1,0 +1,153 @@
+{
+  "base": "http://localhost:5183",
+  "runs": [
+    {
+      "theme": "dark",
+      "size": "1600x1000",
+      "ready": true,
+      "clicks": [
+        {
+          "selector": ".wbtn",
+          "result": "CLICKED"
+        },
+        {
+          "selector": ".a-nav-item:nth-of-type(4)",
+          "result": "CLICKED"
+        }
+      ],
+      "probe": {
+        "theme": "dark",
+        "hasAppShell": true,
+        "orbs": 4,
+        "orbOpacity": "rgba(0, 0, 0, 0)",
+        "grain": true,
+        "glassCount": 2,
+        "glassWithBlur": 2,
+        "blurSample": "blur(26px) saturate(1.7) brightness(1.06)",
+        "accent": "#4d6bfe",
+        "bgBase": "#0a0c14",
+        "docScrollW": 1600,
+        "docClientW": 1600,
+        "docScrollH": 1000,
+        "docClientH": 1000,
+        "overflowX": false,
+        "overflowY": false,
+        "appRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1600,
+          "h": 1000
+        },
+        "bottomGap": 0,
+        "titlebar": true,
+        "sessionItems": 0,
+        "themeCards": 3,
+        "navItems": 7,
+        "textLen": 164,
+        "legacyWrap": false,
+        "head": "writerD 设置 AI 提供商 Skill 参数 主题 同步 数据 关于 液态玻璃主题 三套材质随环境光壁纸、玻璃折射环与高光联动，点击即时生效并保存。 晨雾白 曜石黑 DS 蓝 强调色 用于选中"
+      },
+      "shot": "reference\\preview\\theme-dark-1600x1000.png",
+      "shotBytes": 613326
+    },
+    {
+      "theme": "light",
+      "size": "1600x1000",
+      "ready": true,
+      "clicks": [
+        {
+          "selector": ".wbtn",
+          "result": "CLICKED"
+        },
+        {
+          "selector": ".a-nav-item:nth-of-type(4)",
+          "result": "CLICKED"
+        }
+      ],
+      "probe": {
+        "theme": "light",
+        "hasAppShell": true,
+        "orbs": 4,
+        "orbOpacity": "rgba(0, 0, 0, 0)",
+        "grain": true,
+        "glassCount": 2,
+        "glassWithBlur": 2,
+        "blurSample": "blur(26px) saturate(1.9) brightness(1.02)",
+        "accent": "#4d6bfe",
+        "bgBase": "#e7ecf6",
+        "docScrollW": 1600,
+        "docClientW": 1600,
+        "docScrollH": 1000,
+        "docClientH": 1000,
+        "overflowX": false,
+        "overflowY": false,
+        "appRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1600,
+          "h": 1000
+        },
+        "bottomGap": 0,
+        "titlebar": true,
+        "sessionItems": 0,
+        "themeCards": 3,
+        "navItems": 7,
+        "textLen": 164,
+        "legacyWrap": false,
+        "head": "writerD 设置 AI 提供商 Skill 参数 主题 同步 数据 关于 液态玻璃主题 三套材质随环境光壁纸、玻璃折射环与高光联动，点击即时生效并保存。 晨雾白 曜石黑 DS 蓝 强调色 用于选中"
+      },
+      "shot": "reference\\preview\\theme-light-1600x1000.png",
+      "shotBytes": 393523
+    },
+    {
+      "theme": "dsblue",
+      "size": "1600x1000",
+      "ready": true,
+      "clicks": [
+        {
+          "selector": ".wbtn",
+          "result": "CLICKED"
+        },
+        {
+          "selector": ".a-nav-item:nth-of-type(4)",
+          "result": "CLICKED"
+        }
+      ],
+      "probe": {
+        "theme": "dsblue",
+        "hasAppShell": true,
+        "orbs": 4,
+        "orbOpacity": "rgba(0, 0, 0, 0)",
+        "grain": true,
+        "glassCount": 2,
+        "glassWithBlur": 2,
+        "blurSample": "blur(26px) saturate(1.8) brightness(1.08)",
+        "accent": "#4d6bfe",
+        "bgBase": "#030718",
+        "docScrollW": 1600,
+        "docClientW": 1600,
+        "docScrollH": 1000,
+        "docClientH": 1000,
+        "overflowX": false,
+        "overflowY": false,
+        "appRect": {
+          "x": 0,
+          "y": 0,
+          "w": 1600,
+          "h": 1000
+        },
+        "bottomGap": 0,
+        "titlebar": true,
+        "sessionItems": 0,
+        "themeCards": 3,
+        "navItems": 7,
+        "textLen": 164,
+        "legacyWrap": false,
+        "head": "writerD 设置 AI 提供商 Skill 参数 主题 同步 数据 关于 液态玻璃主题 三套材质随环境光壁纸、玻璃折射环与高光联动，点击即时生效并保存。 晨雾白 曜石黑 DS 蓝 强调色 用于选中"
+      },
+      "shot": "reference\\preview\\theme-dsblue-1600x1000.png",
+      "shotBytes": 753161
+    }
+  ],
+  "failures": []
+}

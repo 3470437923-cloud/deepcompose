@@ -198,6 +198,10 @@ let prefsStore = JSON.stringify(seedPrefs);
 for (const d of [BOOKS_ROOT, SESSIONS_DIR, SNAPSHOTS_DIR, SKILLS_DIR, PREFS_DIR]) ensureDir(d);
 
 /* ── mock invoke ── */
+const listeners = new Map<string, number>();  // `${event}|${id}` → transformCallback id
+let evtSeq = 0;
+const warned = new Set<string>();             // 未实现命令只告警一次
+
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
   const S = (k: string) => String((args ?? {})[k] ?? "");
   switch (cmd) {
@@ -242,8 +246,27 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "ai_stream":
     case "ai_abort":
       return null;
+    // 模型清单（真机走 Rust ai_models → OpenAI/Anthropic /models）；
+    // 返回与 DeepSeek 实测一致的 2 个模型，供设置屏「检测连接」走真实渲染路径
+    case "ai_models":
+      return ["deepseek-chat", "deepseek-reasoner"];
+    // 事件插件（@tauri-apps/api/event）：真机由 Rust 侧注册回调并返回 eventId
+    case "plugin:event|listen": {
+      const event = S("event");
+      const id = ++evtSeq;
+      listeners.set(`${event}|${id}`, Number((args ?? {}).handler ?? 0));
+      return id;
+    }
+    case "plugin:event|unlisten": {
+      listeners.delete(`${S("event")}|${Number((args ?? {}).eventId ?? 0)}`);
+      return null;
+    }
     default:
-      // 窗口/事件等插件命令：预览里静默成功
+      // 未实现命令：仍然静默成功，但留痕 —— 替身不许悄悄撒谎
+      if (!warned.has(cmd)) {
+        warned.add(cmd);
+        console.warn("[preview] 未实现命令，已返回 null：", cmd);
+      }
       return null;
   }
 }
@@ -258,5 +281,12 @@ const callbacks = new Map<number, (e: unknown) => void>();
     const id = ++cbId;
     callbacks.set(id, once ? (e) => { callbacks.delete(id); cb(e); } : cb);
     return id;
+  },
+};
+// @tauri-apps/api/event 的 _unlisten 直接读这个全局对象（真机由 Rust 注入），
+// 缺了它 → listen 的清理函数一调用就 TypeError，整棵 React 树会被卸载
+(window as unknown as Record<string, unknown>).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+  unregisterListener: (event: string, eventId: number) => {
+    listeners.delete(`${event}|${eventId}`);
   },
 };
