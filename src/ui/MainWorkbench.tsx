@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMaximized } from "./useMaximized";
+import { isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
@@ -229,6 +230,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   } | null>(null);
   const [qSel, setQSel] = useState<Record<number, string[]>>({});
   const chatBottom = useRef<HTMLDivElement | null>(null);
+  const chatScroll = useRef<HTMLDivElement | null>(null);
+  /** 是否自动跟随到最新一条：用户往上翻时置 false，翻回底部再置 true */
+  const pinned = useRef(true);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const transport = useMemo(() => createTauriTransport(), []);
   /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
@@ -900,10 +904,32 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setStatus("新对话");
   }, [project]);
 
-  // 新消息/流式增量时滚到底部
+  // 切换/新建会话：瞬时落到底部（这里不该有跟随动画，否则像"倒带"），
+  // 并恢复自动跟随 —— 新会话永远应该贴底。
   useEffect(() => {
-    chatBottom.current?.scrollIntoView({ block: "end" });
-  }, [session?.id, session?.messages.length, streamText, streamThink, toolLog.length]);
+    pinned.current = true;
+    const el = chatScroll.current;
+    if (!el) return;
+    const max = el.scrollHeight - el.clientHeight;
+    if (max > 0) el.scrollTop = max;
+  }, [session?.id]);
+
+  // 新消息/流式增量时弹簧跟随到底部。
+  // 用弹簧而不是 scrollIntoView：流式内容每帧都在变长，目标位置是连续
+  // 移动的，弹簧会一路追赶（读起来是"顺滑跟随"）；瞬时跳会像闪屏。
+  useEffect(() => {
+    const el = chatScroll.current;
+    if (!el || !pinned.current) return;
+    springScrollToBottom(el);
+  }, [session?.messages.length, streamText, streamThink, toolLog.length]);
+
+  // 用户一滚动就让位（可打断）：自己滚了就不再自动跟随，除非又回到贴底
+  const onChatScroll = useCallback(() => {
+    const el = chatScroll.current;
+    if (!el) return;
+    springScrollCancel(el);
+    pinned.current = isNearBottom(el);
+  }, []);
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
@@ -1294,7 +1320,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <textarea
                 ref={editorRef}
                 className={tabEditable(activeTab) ? "editor-area" : "editor-area ro"}
-                style={{ fontSize: `${editorFontSize}px` }}
+                style={{ "--editor-fs": `${editorFontSize}px` } as React.CSSProperties}
                 value={activeTab.content}
                 onChange={(e) => editContent(e.target.value)}
                 readOnly={!tabEditable(activeTab)}
@@ -1387,7 +1413,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           </div>
 
           {hasMessages ? (
-            <div className="chat-scroll" style={{ "--chat-fs": `${chatFontSize}px` } as React.CSSProperties}>
+            <div
+              className="chat-scroll"
+              ref={chatScroll}
+              onScroll={onChatScroll}
+              style={{ "--chat-fs": `${chatFontSize}px` } as React.CSSProperties}
+            >
               {session!.messages.map((m) =>
                 m.role === "user" ? (
                   <div key={m.id} className="msg user">
