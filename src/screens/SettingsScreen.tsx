@@ -56,35 +56,33 @@ export default function SettingsScreen({ onBack }: Props) {
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const win = getCurrentWindow();
 
+  // 兜底：boot 失败时显示「配置未加载」。
+  // 注意根元素必须与下方正常路径一致（.win#screenA）——.win 是 .app-shell 的 flex
+  // 子项（flex:1），中间多一层无样式的包装 div 会让它高度塌成内容高度（ADR-001 同类错误）。
+  // 该分支目前不可达：boot 失败时 MainWorkbench 会渲染自己的「启动失败」屏且不暴露齿轮入口。
   if (!boot) {
     return (
-      <div className="fitter" id="screenA">
-        <div className="holder">
-          <div className="win-frame">
-            <div className="win">
-              <div
-              className="titlebar"
-              onMouseDown={(e) => {
-                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
-                if (e.button !== 0) return;
-                const el = e.target as HTMLElement;
-                if (el.closest("button")) return;
-                void win.startDragging();
-              }}
-              onDoubleClick={(e) => {
-                if ((e.target as HTMLElement).closest("button")) return;
-                void win.toggleMaximize();
-              }}
-            >
-                <div className="brand">
-                  <div className="brand-mark squircle"><img src={logo} alt="" /></div>
-                  <div className="brand-name">writerD</div>
-                </div>
-              </div>
-              <div style={{ padding: 40, color: "#9898B0" }}>配置未加载，请重启应用。</div>
-            </div>
+      <div className="win" id="screenA">
+        <div
+          className="titlebar"
+          onMouseDown={(e) => {
+            // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+            if (e.button !== 0) return;
+            const el = e.target as HTMLElement;
+            if (el.closest("button")) return;
+            void win.startDragging();
+          }}
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest("button")) return;
+            void win.toggleMaximize();
+          }}
+        >
+          <div className="brand">
+            <div className="brand-mark squircle"><img src={logo} alt="" /></div>
+            <div className="brand-name">writerD</div>
           </div>
         </div>
+        <div style={{ padding: 40, color: "var(--tx-3)" }}>配置未加载，请重启应用。</div>
       </div>
     );
   }

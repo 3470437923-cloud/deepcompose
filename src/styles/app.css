@@ -503,8 +503,11 @@ svg { display: block; }
 .chat-caret { width: 12px; height: 12px; flex: none; color: var(--tx-dim); transition: transform 0.22s var(--spring); }
 .sess-sel.open .chat-caret { transform: rotate(180deg); }
 
-/* 会话下拉（取代旧的对话列表栏） */
-.sess-menu { left: 10px; right: 10px; top: 50px; max-height: min(420px, 62%); overflow-y: auto; padding: 6px; }
+/* 会话下拉（取代旧的对话列表栏）
+   注意 max-height 必须用 vh 而不是 %：.sess-menu 的包含块是 .chat-head
+   （position:relative，实测仅 54px 高），百分比会按那 54px 解析 ——
+   min(420px, 62%) 曾算出 32.86px，把菜单压成一条 33px 的缝，三条会话全被吞掉。 */
+.sess-menu { left: 10px; right: 10px; top: 50px; max-height: min(420px, 62vh); overflow-y: auto; padding: 6px; }
 .sess-new {
   width: 100%;
   height: 35px;
