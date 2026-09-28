@@ -353,6 +353,25 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     return () => window.removeEventListener("keydown", onKey);
   }, [saveActive]);
 
+  /** 关窗守卫：有未保存修改时先确认（数据安全最后一环） */
+  useEffect(() => {
+    let disposed = false;
+    const unlistenP = getCurrentWindow().onCloseRequested(async (event) => {
+      if (!tabs.some((t) => t.dirty)) return; // 无脏编辑放行
+      event.preventDefault();
+      const ok = await askConfirm(
+        "有未保存的修改",
+        "关闭前将丢失未保存的编辑内容（可先 Ctrl+S 保存）。",
+        { danger: true, confirmLabel: "放弃并关闭" },
+      );
+      if (ok && !disposed) await getCurrentWindow().destroy();
+    });
+    return () => {
+      disposed = true;
+      void unlistenP.then((fn) => fn());
+    };
+  }, [tabs, askConfirm]);
+
   const newProject = useCallback(async () => {
     if (!dirs) return;
     const name = await askText("新书名称", "输入作品名");
