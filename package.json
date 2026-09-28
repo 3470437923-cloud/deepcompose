@@ -1,7 +1,7 @@
 {
   "name": "writerd",
   "private": true,
-  "version": "2.0.1",
+  "version": "3.0.0",
   "type": "module",
   "description": "writerD — 长篇中文小说 AI 写作工作台",
   "scripts": {

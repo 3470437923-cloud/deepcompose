@@ -9,7 +9,7 @@
 ```powershell
 cd S:\writerD
 .\node_modules\.bin\tsc.cmd --noEmit        # 期望 exit 0
-.\node_modules\.bin\vitest.cmd run          # 期望全部通过（当前 137 项 / 11 文件）
+.\node_modules\.bin\vitest.cmd run          # 期望全部通过（当前 174 项 / 14 文件）
 ```
 
 Rust 侧单测：
@@ -91,6 +91,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | 读运行时配置乱码且回显密钥 | PS 无 `-Encoding` 读 UTF-8 → 乱码 + `ConvertFrom-Json` 报错，**并把整份配置（含 key）回显到 stderr** | 一律 `python -c`（`json.load(open(p, encoding='utf-8'))`）或 `Get-Content -Encoding utf8` |
 | React 19 + 新 JSX transform | `JSX.Element` 报 `Cannot find namespace 'JSX'` | 用 `ReactElement`（`import type { ReactElement } from "react"`） |
 | Windows 窗口几何 | `set_size` 是**客户区**口径；窗口创建后第一次 `set_size` 会多一个标题栏高度（请求 751 落地 781），第二次才精确 | 位置存外框、尺寸存 `inner_size()`；读回不一致就用同一个值重试（最多 3 次）；**反向按差额补偿是错的** |
+| **系统提交内存耗尽** | vitest/vite/cargo 起不来：`low_level_alloc.cc: VirtualAlloc failed`、`WebAssembly.instantiate(): Out of memory`，而物理内存还有几个 GB 空闲 | 看 `Win32_OperatingSystem.FreeVirtualMemory`（提交余量，<500MB 必炸）；关掉吃提交的大户（多开 IDE / Edge / WebView2 宿主）再跑闸门 |
 
 ## 7. 数据与配置位置
 

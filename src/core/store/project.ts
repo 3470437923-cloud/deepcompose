@@ -1,27 +1,32 @@
 /**
- * 作品目录协议。
+ * 作品目录协议（writerD 3.0 · 单主线工作流）。
  *
- *   <booksRoot>\<书名>\小说资料\*.md        ← 维护文档（三件套 + 用户自建）
- *   <booksRoot>\<书名>\章节内容\第N章.md    ← 正文
+ *   <booksRoot>\<书名>\小说资料\*.md        ← 维护文档（14 件套 + 用户自建 + 审核\ + 个人改稿\）
+ *   <booksRoot>\<书名>\章节内容\第N章.md    ← 正式正文（唯一事实源）
+ *   <booksRoot>\<书名>\待确认\第N章-v*.md   ← 初稿与候选（采用后进正文，旧稿归档 已处理\）
+ *   <booksRoot>\<书名>\writerd_oplog\       ← 用户操作日志（系统级，左栏不显示）
  *   <booksRoot>\<书名>\.openwrite_manifest.json
  *   <booksRoot>\.openwrite_recycle\          ← 回收站（作品根级）
  *
  * 「格式优先」在这一层的含义：**只读不判**。读取时不解释、不纠正、不补模板，
- * 用户自建的任何文档（写作禁忌.md、第N卷大纲.md…）一律平级列出。
+ * 用户自建的任何文档一律平级列出。旧布局作品（三件套）同样原样展示，不做迁移。
  */
 
 import type { FsBridge } from "../fsbridge";
 import {
-  DEFAULT_DOCS,
+  isSystemEntryName,
   PROJECT_DIRS,
   join,
   projectChaptersDir,
   projectDocsDir,
   projectManifestFile,
+  projectPendingDir,
+  projectProcessedDir,
   recycleRoot,
 } from "../dirs";
 import { parseManifest, serializeManifest, type ProjectManifest } from "./manifest";
 import { compareChapterFiles, stripMd } from "./chapter";
+import { DOC_TEMPLATES, renderTemplate } from "./templates";
 
 export interface ProjectRef {
   /** 作品根绝对路径 */
@@ -43,6 +48,17 @@ export interface FileRef {
   mtimeMs: number;
 }
 
+/** 文件类别：决定标签页行为（堆叠/单槽、只读默认、回流路径） */
+export type FileKind = "doc" | "chapter" | "candidate";
+
+/** 按相对路径判定类别（'\' 或 '/' 分隔都接受） */
+export function kindForRel(rel: string): FileKind {
+  const r = rel.replace(/\//g, "\\");
+  if (r.startsWith(PROJECT_DIRS.chapters + "\\")) return "chapter";
+  if (r.startsWith(PROJECT_DIRS.pending + "\\")) return "candidate";
+  return "doc";
+}
+
 /** 列出作品根下的全部作品（跳过回收站与隐藏目录） */
 export async function scanBooksRoot(fs: FsBridge, booksRoot: string): Promise<ProjectRef[]> {
   const entries = await fs.list(booksRoot);
@@ -56,7 +72,7 @@ export async function scanBooksRoot(fs: FsBridge, booksRoot: string): Promise<Pr
   return out;
 }
 
-/** 维护文档（小说资料\*.md），按文件名排序 */
+/** 维护文档（小说资料\*.md，不含子目录），按文件名排序 */
 export async function listDocs(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
   const dir = projectDocsDir(projectRoot);
   const entries = await fs.list(dir);
@@ -72,7 +88,7 @@ export async function listDocs(fs: FsBridge, projectRoot: string): Promise<FileR
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
 }
 
-/** 章节（章节内容\*.md），按章号数值排序 */
+/** 正式章节（章节内容\*.md），按章号数值排序 */
 export async function listChapters(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
   const dir = projectChaptersDir(projectRoot);
   const entries = await fs.list(dir);
@@ -88,7 +104,39 @@ export async function listChapters(fs: FsBridge, projectRoot: string): Promise<F
     .sort((a, b) => compareChapterFiles(a.name, b.name));
 }
 
-/** 作品内的全部 md 文件（用于目录树"其它文件"分支） */
+/** 候选稿（待确认\*.md，不含 已处理 子目录），按章号排序 */
+export async function listPending(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
+  const dir = projectPendingDir(projectRoot);
+  const entries = await fs.list(dir);
+  return entries
+    .filter((e) => !e.isDir && /\.md$/i.test(e.name))
+    .map((e) => ({
+      name: e.name,
+      rel: join(PROJECT_DIRS.pending, e.name),
+      path: e.path,
+      size: e.size,
+      mtimeMs: e.mtimeMs,
+    }))
+    .sort((a, b) => compareChapterFiles(a.name, b.name));
+}
+
+/** 已处理旧稿（待确认\已处理\*.md），按名称排序 */
+export async function listProcessed(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
+  const dir = projectProcessedDir(projectRoot);
+  const entries = await fs.list(dir);
+  return entries
+    .filter((e) => !e.isDir && /\.md$/i.test(e.name))
+    .map((e) => ({
+      name: e.name,
+      rel: join(PROJECT_DIRS.pending, PROJECT_DIRS.processed, e.name),
+      path: e.path,
+      size: e.size,
+      mtimeMs: e.mtimeMs,
+    }))
+    .sort((a, b) => compareChapterFiles(a.name, b.name));
+}
+
+/** 作品内的全部根级 md 文件（旧布局兼容展示用） */
 export async function listProjectRootFiles(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
   const entries = await fs.list(projectRoot);
   return entries
@@ -103,11 +151,96 @@ export async function listProjectRootFiles(fs: FsBridge, projectRoot: string): P
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN"));
 }
 
+// ────────────────────────────── 通用内容树 ──────────────────────────────
+
+export interface ContentNode {
+  name: string;
+  /** 相对作品根路径，'\' 分隔；根为 '' */
+  rel: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  mtimeMs: number;
+  children: ContentNode[];
+}
+
+/** 目录树排序：已知内容目录按固定次序在前，其余按名称；文件按类别排序 */
+const DIR_ORDER: Record<string, number> = {
+  [PROJECT_DIRS.docs]: 0,
+  [PROJECT_DIRS.chapters]: 1,
+  [PROJECT_DIRS.pending]: 2,
+};
+
+function compareNodes(a: ContentNode, b: ContentNode, parentRel: string): number {
+  if (a.isDir !== b.isDir) return a.isDir ? -1 : 1; // 目录在前
+  if (a.isDir) {
+    const oa = DIR_ORDER[a.name] ?? 99;
+    const ob = DIR_ORDER[b.name] ?? 99;
+    if (oa !== ob) return oa - ob;
+    return a.name.localeCompare(b.name, "zh-Hans-CN");
+  }
+  if (parentRel === PROJECT_DIRS.chapters || parentRel.startsWith(PROJECT_DIRS.pending)) {
+    return compareChapterFiles(a.name, b.name);
+  }
+  return a.name.localeCompare(b.name, "zh-Hans-CN");
+}
+
+/**
+ * 递归构建作品内容树（左栏数据源）。
+ * 排除系统条目（.openwrite_* / writerd_* / recycle_manifest.json）；
+ * 深度上限 4 层，防御异常嵌套。
+ */
+export async function buildContentTree(
+  fs: FsBridge,
+  projectRoot: string,
+  maxDepth = 4,
+): Promise<ContentNode[]> {
+  const walk = async (dir: string, rel: string, depth: number): Promise<ContentNode[]> => {
+    if (depth > maxDepth) return [];
+    const entries = await fs.list(dir);
+    const nodes: ContentNode[] = [];
+    for (const e of entries) {
+      if (isSystemEntryName(e.name)) continue;
+      const childRel = rel === "" ? e.name : join(rel, e.name);
+      if (e.isDir) {
+        nodes.push({
+          name: e.name,
+          rel: childRel,
+          path: e.path,
+          isDir: true,
+          size: 0,
+          mtimeMs: e.mtimeMs,
+          children: await walk(e.path, childRel, depth + 1),
+        });
+      } else {
+        nodes.push({
+          name: e.name,
+          rel: childRel,
+          path: e.path,
+          isDir: false,
+          size: e.size,
+          mtimeMs: e.mtimeMs,
+          children: [],
+        });
+      }
+    }
+    nodes.sort((a, b) => compareNodes(a, b, rel));
+    return nodes;
+  };
+  return walk(projectRoot, "", 1);
+}
+
+// ────────────────────────────── 作品装载 ──────────────────────────────
+
 export interface ProjectData {
   ref: ProjectRef;
   docs: FileRef[];
   chapters: FileRef[];
+  pending: FileRef[];
+  processed: FileRef[];
   rootFiles: FileRef[];
+  /** 通用内容树（左栏渲染数据源） */
+  tree: ContentNode[];
   manifest: ProjectManifest;
 }
 
@@ -124,29 +257,33 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
   return {
     ref: {
       root: projectRoot,
-      name: name ?? projectRoot.split(/[\\/]/).filter(Boolean).pop() ?? projectRoot,
+      name: name ?? projectRoot.split(/[\\/]+/).filter(Boolean).pop() ?? projectRoot,
       mtimeMs: st?.mtimeMs ?? 0,
     },
     docs: await listDocs(fs, projectRoot),
     chapters: await listChapters(fs, projectRoot),
+    pending: await listPending(fs, projectRoot),
+    processed: await listProcessed(fs, projectRoot),
     rootFiles: await listProjectRootFiles(fs, projectRoot),
+    tree: await buildContentTree(fs, projectRoot),
     manifest,
   };
 }
 
-/** 新建作品：建三件套 + manifest（保持既有格式：文档只有一级标题 + CRLF） */
+/** 新建作品：14 件套模板 + 三个基础目录 + manifest（CRLF，占位符替换书名） */
 export async function createProject(fs: FsBridge, booksRoot: string, name: string): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
-  if (/[\\/:*?"<>|]/.test(trimmed)) throw new Error("书名不能包含 \\ / : * ? \" < > |");
+  if (/[\\/:*?"<>|]/.test(trimmed)) throw new Error(`书名不能包含 \\ / : * ? " < > |`);
 
   const root = join(booksRoot, trimmed);
   if (await fs.exists(root)) throw new Error(`作品已存在：${trimmed}`);
 
   await fs.mkdir(projectDocsDir(root));
   await fs.mkdir(projectChaptersDir(root));
-  for (const doc of DEFAULT_DOCS) {
-    await fs.writeText(join(projectDocsDir(root), doc), `# ${stripMd(doc)}\r\n`);
+  await fs.mkdir(projectPendingDir(root));
+  for (const tpl of DOC_TEMPLATES) {
+    await fs.writeText(join(projectDocsDir(root), tpl.name), renderTemplate(tpl.content, trimmed));
   }
   await fs.writeText(projectManifestFile(root), serializeManifest(parseManifest("")));
   const st = await fs.stat(root);
@@ -170,4 +307,10 @@ export async function projectExists(fs: FsBridge, root: string): Promise<boolean
 /** 作品回收站根（作品根级，保持既有格式） */
 export function booksRecycleRoot(booksRoot: string): string {
   return recycleRoot(booksRoot);
+}
+
+/** 从候选/章节文件名提取章号标签（如 `第3章-v2-候选.md` → `第3章`）；失败返回 null */
+export function chapterLabelOf(fileName: string): string | null {
+  const m = /^第\s*[0-9０-９零〇一二两三四五六七八九十百千万]+\s*[章节卷回部集]/.exec(stripMd(fileName));
+  return m ? m[0].replace(/\s+/g, "") : null;
 }

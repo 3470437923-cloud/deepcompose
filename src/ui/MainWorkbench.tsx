@@ -12,18 +12,35 @@ import { useMaximized } from "./useMaximized";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
-import { join, projectChaptersDir, projectDocsDir } from "../core/dirs";
+import { PROJECT_DIRS, dirname, join, projectChaptersDir, projectDocsDir } from "../core/dirs";
 import {
+  chapterLabelOf,
   createProject,
+  kindForRel,
   loadProject,
   scanBooksRoot,
+  type ContentNode,
+  type FileKind,
   type FileRef,
   type ProjectData,
   type ProjectRef,
 } from "../core/store/project";
+import { parseChapterName, stripMd } from "../core/store/chapter";
 import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
+import { appendOplog, diffLines, isLightEdit, type DiffResult } from "../core/store/oplog";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
-import { reloadIndex, send as sendChat } from "../core/ai/controller";
+import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
+import { buildReflowPrompt, reflowSessionTitle } from "../core/ai/reflow";
+import {
+  COLD_READ_GOAL_LABEL,
+  buildColdReadUserMessage,
+  coldReadReportBody,
+  coldReadReportRel,
+  coldReadSessionTitle,
+  coldReadSystem,
+  type ColdReadGoal,
+  type ColdReadPrior,
+} from "../core/ai/coldread";
 import type { AgentEvent } from "../core/ai/agent";
 import type { QuestionItem } from "../core/tools/exec";
 import {
@@ -43,11 +60,15 @@ interface OpenTab {
   rel: string;
   path: string;
   name: string;
-  kind: "doc" | "chapter" | "root";
+  kind: FileKind;
   /** 打开时的磁盘内容（写前快照的 previousContent 来源） */
   baseContent: string;
   content: string;
   dirty: boolean;
+  /** 正文/候选：是否处于用户编辑态（修改按钮开启） */
+  editing: boolean;
+  /** 进入编辑态时的内容（回流 diff 基线） */
+  editBase: string | null;
 }
 
 /** 字数统计：中文按字、西文按词（与「文章总字数」口径一致：非空白字符计） */
@@ -101,6 +122,17 @@ export function groupSessions(
   return groups.filter((g) => g.items.length > 0);
 }
 
+/** 目录树默认开合：全部展开，「已处理」归档默认折叠 */
+function defaultTreeFolders(tree: ContentNode[], acc: Record<string, boolean> = {}): Record<string, boolean> {
+  for (const n of tree) {
+    if (n.isDir) {
+      acc[n.rel] = n.name !== PROJECT_DIRS.processed;
+      defaultTreeFolders(n.children, acc);
+    }
+  }
+  return acc;
+}
+
 /** 点击弹层外部 / Esc 时收起（会话下拉与作品下拉共用） */
 function useDismiss(active: boolean, ref: React.RefObject<HTMLElement | null>, close: () => void) {
   useEffect(() => {
@@ -120,12 +152,38 @@ function useDismiss(active: boolean, ref: React.RefObject<HTMLElement | null>, c
   }, [active, ref, close]);
 }
 
+/** 「写下一章」一键指令（单主线；采用与回写另走采用门） */
+export const WRITE_NEXT_MESSAGE =
+  "请按 novel-writer 主线写下一章候选：先读 小说资料/00-项目状态.md 恢复状态；" +
+  "按 小说资料/05-滚动细纲.md 检索本章需要的最小资料（相关人物、地点、物品、时间、资源、伏笔），不默认读整本书；" +
+  "完成 完整初稿 → 逐段修改 → 全文复读；把初稿与唯一最新候选写入 待确认/（第N章-v1-初稿.md、第N章-v2-候选.md，N 为下一章节号）；" +
+  "更新 00-项目状态 的候选指针与进度后交付，只报题目与完成状态，不附自评。先不采用、不回写正式追踪表。";
+
 /** 对话空态的快捷提示（点击预填输入框，用户可改后再发送） */
 const STARTER_TIPS: { label: string; text: string }[] = [
-  { label: "续写最新一章", text: "请先读取最新章节的内容，然后顺着剧情续写下一段。" },
-  { label: "检查设定一致性", text: "请阅读小说资料里的人物库和世界观，检查最新章节有没有设定不一致的地方。" },
-  { label: "头脑风暴书名", text: "请根据当前作品的题材与基调，帮我头脑风暴 10 个备选书名。" },
+  { label: "补齐开书材料", text: "请读 小说资料/00-项目状态.md 和 01-开书定位.md，逐项和我讨论待填写内容，讨论清楚后再整理进文件，关键方向不确定的保留为候选。" },
+  { label: "写下一章候选", text: WRITE_NEXT_MESSAGE },
+  { label: "续补滚动细纲", text: "请按 05-滚动细纲 的规则，把细纲续补到接下来 5—12 章：先列出你计划细排的章节范围和依据，经我确认后再写入文件。" },
+  { label: "总结我的改稿习惯", text: "请读 小说资料/个人改稿/ 下的改稿对比记录和 writerd_oplog 日志，归纳我跨章重复出现的改稿判断，逐条列出并用 question 请我确认；确认的条目合并进 06-写作规则.md 的「个人文风（学习沉淀）」节，不复制我的原句。" },
 ];
+
+/** 「采用为正文」一键指令（采用门 → 采用回写；N 由 AI 按候选章号解析） */
+export function adoptMessage(pendingRel: string): string {
+  const rel = pendingRel.replace(/\\/g, "/");
+  return (
+    `【采用门】我采用 ${rel} 作为该候选对应章节的最终稿。请执行采用回写：` +
+    `1) 在 小说资料/00-项目状态.md 登记采用版本并把回写标为进行中；` +
+    `2) 把最终稿保存为 章节内容/第N章.md（N 取该候选章号）；` +
+    `3) 只按最终稿增量更新受影响的追踪表与章节摘要（节内替换，注明来源章节）；` +
+    `4) 逐项核对后清除待办，把本章初稿与候选移入 待确认/已处理/ 留档并清候选指针；` +
+    `5) 全部成功后标记完成并推进当前章节。中断先补余项，不重复累计，全部核对成功前不写新章。`
+  );
+}
+
+/** 标签是否处于可输入状态：资料永远可编辑；正文/候选仅在用户点了「修改」后可编辑 */
+export function tabEditable(t: OpenTab): boolean {
+  return t.kind === "doc" || t.editing;
+}
 
 export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () => void }) {
   const [ready, setReady] = useState(false);
@@ -145,10 +203,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [showChat, setShowChat] = useState(true);
   const [bookMenu, setBookMenu] = useState(false);
   const [sessMenu, setSessMenu] = useState(false);
-  const [openFolders, setOpenFolders] = useState<{ docs: boolean; chapters: boolean }>({
-    docs: true,
-    chapters: true,
-  });
+  /** 目录树文件夹开合（key = 目录相对路径；缺省视为展开，「已处理」默认折叠） */
+  const [treeFolders, setTreeFolders] = useState<Record<string, boolean>>({});
+  /** 冷读对话框请求与选项 */
+  const [coldReq, setColdReq] = useState<{ tab: OpenTab } | null>(null);
+  const [coldPrior, setColdPrior] = useState<0 | 1 | 2>(1);
+  const [coldGoal, setColdGoal] = useState<ColdReadGoal>("clarity");
   const fileselRef = useRef<HTMLDivElement | null>(null);
   const sessRef = useRef<HTMLDivElement | null>(null);
   useDismiss(bookMenu, fileselRef, () => setBookMenu(false));
@@ -171,6 +231,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const chatBottom = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   const transport = useMemo(() => createTauriTransport(), []);
+  /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
+  const busyRef = useRef(false);
+  /** 回流任务队列（单生成并发：忙时排队，空闲即跑） */
+  const reflowQueue = useRef<{ prompt: string; title: string }[]>([]);
 
   // ── 备忘录与应用内对话框 ──
   const [memoOpen, setMemoOpen] = useState(false);
@@ -219,28 +283,74 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const modelLabel = bootPrefs?.model?.trim() || "未配置模型";
   const hasKey = Boolean(bootPrefs?.apiKey?.trim());
 
-  /** 有未保存修改时先确认（切作品/切会话防丢稿） */
-  const guardDirtyTabs = useCallback(async () => {
-    if (!tabs.some((t) => t.dirty)) return true;
-    return askConfirm(
-      "有未保存的修改",
-      "切换将丢失未保存的编辑内容（可先 Ctrl+S 保存）。",
-      { danger: true, confirmLabel: "放弃修改" },
-    );
-  }, [tabs, askConfirm]);
+  /** 保存单个标签（写前快照 + 落盘 + oplog；不弹确认——3.0 起自动保存） */
+  const saveTabAs = useCallback(
+    async (tab: OpenTab, note?: string): Promise<boolean> => {
+      if (tab.content === tab.baseContent && !tab.dirty) return true;
+      try {
+        const fs = getFs();
+        const b = currentBoot();
+        // 写前快照（硬约束：手动保存与工具回写同纪律）
+        if (b) {
+          await recordSnapshot(fs, b.dirs.snapshotsDir, {
+            sessionId: session?.id ?? "manual-edits",
+            callId: `manual_${Date.now()}`,
+            operation: "write",
+            relativePath: tab.rel.replace(/\\/g, "/"),
+            previousContent: tab.baseContent,
+            previousExists: true,
+            previousType: "file",
+          });
+        }
+        await fs.writeText(tab.path, tab.content);
+        setTabs((prev) =>
+          prev.map((t) => (t.rel === tab.rel ? { ...t, baseContent: t.content, dirty: false } : t)),
+        );
+        if (project) {
+          await appendOplog(fs, project.ref.root, "save", tab.rel, session?.id ?? "", note ? { note } : {});
+        }
+        return true;
+      } catch (e) {
+        setStatus(`保存失败：${String(e)}`);
+        return false;
+      }
+    },
+    [project, session],
+  );
+
+  /** 切作品/关窗：自动保存所有脏标签；编辑态补记 edit_end（回流顺延，不在关闭时跑 AI） */
+  const autoSaveAllTabs = useCallback(async () => {
+    const fs = getFs();
+    for (const t of tabs) {
+      if (t.dirty) await saveTabAs(t, "自动保存");
+      if (t.editing && t.editBase !== null && project) {
+        const diff = diffLines(t.editBase, t.content);
+        await appendOplog(fs, project.ref.root, "edit_end", t.rel, session?.id ?? "", {
+          changedChars: diff.changedChars,
+          addedLines: diff.added.length,
+          removedLines: diff.removed.length,
+          digitsChanged: diff.digitsChanged,
+          reflowTriggered: false,
+          note: "窗口关闭或切换作品：已自动保存，回流顺延（可稍后再点一次修改/完成或让 AI 总结改稿）",
+        });
+      }
+    }
+  }, [tabs, project, session, saveTabAs]);
 
   /** 装配数据：载入作品（不改 prefs；启动恢复与 openProject 共用） */
   const openProjectRef = useCallback(
     async (ref: ProjectRef) => {
-      if (!(await guardDirtyTabs())) return;
+      await autoSaveAllTabs();
       const fs = getFs();
       const data = await loadProject(fs, ref.root, ref.name);
       setProject(data);
       setTabs([]);
       setActiveRel(null);
-      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
+      setTreeFolders(defaultTreeFolders(data.tree));
+      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
+      await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
     },
-    [guardDirtyTabs],
+    [autoSaveAllTabs, session],
   );
 
   /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品与面板可见性 */
@@ -292,21 +402,23 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const openProject = useCallback(
     async (ref: ProjectRef) => {
-      if (!(await guardDirtyTabs())) return;
+      setBookMenu(false);
+      await autoSaveAllTabs();
       const fs = getFs();
       const data = await loadProject(fs, ref.root, ref.name);
       setProject(data);
       setTabs([]);
       setActiveRel(null);
-      setBookMenu(false);
-      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.docs.length} 份资料`);
+      setTreeFolders(defaultTreeFolders(data.tree));
+      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
+      await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
       const b = currentBoot();
       if (b && b.prefs.currentNovelProject !== ref.root) {
         const next = { ...b.prefs, currentNovelProject: ref.root };
         void savePrefs(next);
       }
     },
-    [guardDirtyTabs],
+    [autoSaveAllTabs, session],
   );
 
   /** 面板开关（可见性写回 prefs 面板键，重启后保持） */
@@ -325,7 +437,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   }, [showChat]);
 
   const openFile = useCallback(
-    async (ref: FileRef, kind: "doc" | "chapter" | "root") => {
+    async (ref: FileRef, kind: FileKind) => {
       if (!project) return;
       const fs = getFs();
       const existing = tabs.find((t) => t.rel === ref.rel);
@@ -333,78 +445,47 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         setActiveRel(ref.rel);
         return;
       }
-      const content = await fs.readText(ref.path);
+      // 资料单槽一读：打开任何新文件前，旧资料标签自动保存并销毁（正文/候选不占资料槽）
+      const docTab = tabs.find((t) => t.kind === "doc");
+      if (docTab) {
+        if (docTab.dirty) await saveTabAs(docTab, "资料单槽切换自动保存");
+        setTabs((prev) => prev.filter((t) => t.kind !== "doc"));
+      }
+      let content = "";
+      try {
+        content = await fs.readText(ref.path);
+      } catch (e) {
+        setStatus(`打开失败：${String(e)}`);
+        return;
+      }
       setTabs((prev) => [
         ...prev,
-        { rel: ref.rel, path: ref.path, name: ref.name, kind, baseContent: content, content, dirty: false },
+        { rel: ref.rel, path: ref.path, name: ref.name, kind, baseContent: content, content, dirty: false, editing: false, editBase: null },
       ]);
       setActiveRel(ref.rel);
+      await appendOplog(fs, project.ref.root, "open", ref.rel, session?.id ?? "");
     },
-    [project, tabs],
-  );
-
-  const closeTab = useCallback(
-    async (rel: string) => {
-      const tab = tabs.find((t) => t.rel === rel);
-      if (tab?.dirty) {
-        const ok = await askConfirm(
-          "放弃未保存的修改？",
-          `「${tab.name}」有未保存的修改，关闭后将丢失。`,
-          { danger: true, confirmLabel: "放弃修改" },
-        );
-        if (!ok) return;
-      }
-      setTabs((prev) => {
-        const next = prev.filter((t) => t.rel !== rel);
-        if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
-        return next;
-      });
-    },
-    [tabs, activeRel, askConfirm],
+    [project, tabs, saveTabAs, session],
   );
 
   const editContent = useCallback(
     (text: string) => {
-      setTabs((prev) => prev.map((t) => (t.rel === activeRel ? { ...t, content: text, dirty: true } : t)));
+      setTabs((prev) =>
+        prev.map((t) => (t.rel === activeRel && tabEditable(t) ? { ...t, content: text, dirty: true } : t)),
+      );
     },
     [activeRel],
   );
 
   const saveActive = useCallback(async () => {
-    if (!activeTab) return;
+    if (!activeTab || !tabEditable(activeTab)) return;
     setSaving(true);
-    try {
-      const fs = getFs();
-      const b = currentBoot();
-      // 写前快照（硬约束：手动保存与工具回写同纪律）
-      if (b) {
-        await recordSnapshot(fs, b.dirs.snapshotsDir, {
-          sessionId: session?.id ?? "manual-edits",
-          callId: `manual_${Date.now()}`,
-          operation: "write",
-          relativePath: activeTab.rel.replace(/\\/g, "/"),
-          previousContent: activeTab.baseContent,
-          previousExists: true,
-          previousType: "file",
-        });
-      }
-      await fs.writeText(activeTab.path, activeTab.content);
-      setTabs((prev) =>
-        prev.map((t) => (t.rel === activeTab.rel ? { ...t, baseContent: t.content, dirty: false } : t)),
-      );
-      setStatus(`已保存 ${activeTab.name} · ${countWords(activeTab.content)} 字`);
-      if (project) {
-        const data = await loadProject(fs, project.ref.root, project.ref.name);
-        setProject(data);
-      }
-    } catch (e) {
-      setStatus(`保存失败：${String(e)}`);
-    } finally {
-      setSaving(false);
-    }
-  }, [activeTab, project, session]);
+    const ok = await saveTabAs(activeTab);
+    if (ok) setStatus(`已保存 ${activeTab.name} · ${countWords(activeTab.content)} 字`);
+    setSaving(false);
+  }, [activeTab, saveTabAs]);
 
-  /** Ctrl+S 保存 */
+  /** Ctrl+S 保存（仅可编辑态） */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
@@ -416,24 +497,20 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     return () => window.removeEventListener("keydown", onKey);
   }, [saveActive]);
 
-  /** 关窗守卫：有未保存修改时先确认（数据安全最后一环） */
+  /** 关窗守卫：自动保存全部脏标签与编辑态（3.0 语义：不丢稿、不询问） */
   useEffect(() => {
     let disposed = false;
     const unlistenP = getCurrentWindow().onCloseRequested(async (event) => {
-      if (!tabs.some((t) => t.dirty)) return; // 无脏编辑放行
+      if (!tabs.some((t) => t.dirty || t.editing)) return; // 无未保存内容放行
       event.preventDefault();
-      const ok = await askConfirm(
-        "有未保存的修改",
-        "关闭前将丢失未保存的编辑内容（可先 Ctrl+S 保存）。",
-        { danger: true, confirmLabel: "放弃并关闭" },
-      );
-      if (ok && !disposed) await getCurrentWindow().destroy();
+      await autoSaveAllTabs();
+      if (!disposed) await getCurrentWindow().destroy();
     });
     return () => {
       disposed = true;
       void unlistenP.then((fn) => fn());
     };
-  }, [tabs, askConfirm]);
+  }, [tabs, autoSaveAllTabs]);
 
   const newProject = useCallback(async () => {
     if (!dirs) return;
@@ -448,18 +525,19 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     }
   }, [dirs, refreshProjects, openProject, askText]);
 
-  /** 继续写作：打开当前作品的第一个章节（无作品则提示） */
+  /** 继续写作：优先打开最新候选稿，其次第一章、第一份资料（无作品则提示） */
   const continueWriting = useCallback(async () => {
     if (!project) {
       setStatus("请先在左侧文件面板选择作品");
       return;
     }
-    const target = project.chapters[0] ?? project.docs[0];
+    const target =
+      project.pending[project.pending.length - 1] ?? project.chapters[project.chapters.length - 1] ?? project.docs[0];
     if (!target) {
       setStatus(`${project.ref.name} 还没有章节或资料`);
       return;
     }
-    await openFile(target, project.chapters.length ? "chapter" : "doc");
+    await openFile(target, kindForRel(target.rel));
   }, [project, openFile]);
 
   const win = getCurrentWindow();
@@ -514,46 +592,271 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     }
   }, []);
 
-  const doSend = useCallback(async () => {
+  /** 重载作品索引（保留用户的文件夹开合，新目录按默认规则） */
+  const refreshProject = useCallback(async () => {
+    if (!project) return;
+    const fs = getFs();
+    const data = await loadProject(fs, project.ref.root, project.ref.name);
+    setProject(data);
+    setTreeFolders((f) => ({ ...defaultTreeFolders(data.tree), ...f }));
+  }, [project]);
+
+  /** 回流队列排空：专属会话运行（不切换用户当前视图）；单生成并发 */
+  const drainReflow = useCallback(async () => {
+    if (busyRef.current || reflowQueue.current.length === 0) return;
     const b = currentBoot();
-    const text = composer.trim();
-    if (!b || text === "" || busy) return;
+    if (!b || !project) return;
+    busyRef.current = true;
     setBusy(true);
-    setChatError(null);
-    setStreamText("");
-    setStreamThink("");
-    setToolLog([]);
-    setComposer("");
-    const signal = { aborted: false };
-    abortRef.current = signal;
     try {
-      const res = await sendChat({
-        dirs: b.dirs,
-        prefs: b.prefs,
-        session,
-        projectRoot: project?.ref.root ?? null,
-        userText: text,
-        transport,
-        onEvent: onAgentEvent,
-        askQuestions,
-        signal,
-      });
-      setSession(res.session);
-      if (res.error) setChatError(res.error);
-      await refreshSessions();
-      if (project) {
-        const fs = getFs();
-        setProject(await loadProject(fs, project.ref.root, project.ref.name));
+      while (reflowQueue.current.length > 0) {
+        const task = reflowQueue.current.shift()!;
+        setStatus(`回流运行中：${task.title}（报告见会话列表）`);
+        const reflowSession: SessionFile = { ...newSession(project.ref.root), title: task.title };
+        try {
+          await sendChat({
+            dirs: b.dirs,
+            prefs: b.prefs,
+            session: reflowSession,
+            projectRoot: project.ref.root,
+            userText: task.prompt,
+            transport,
+            askQuestions,
+            signal: abortRef.current,
+          });
+          await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title });
+          setStatus(`回流完成：${task.title}（审稿报告与学习记录已落盘）`);
+        } catch (e) {
+          setStatus(`回流失败：${String(e)}`);
+        }
+        await refreshSessions();
       }
-    } catch (err) {
-      setChatError(String(err));
     } finally {
+      busyRef.current = false;
       setBusy(false);
+      await refreshProject();
+    }
+  }, [project, transport, askQuestions, refreshSessions, refreshProject]);
+
+  /** 「修改/完成」按钮：正文与候选默认只读，点击后进入/结束编辑态 */
+  const toggleEditing = useCallback(
+    async (tab: OpenTab) => {
+      if (tab.kind === "doc") return;
+      const fs = getFs();
+      if (!tab.editing) {
+        setTabs((prev) =>
+          prev.map((t) => (t.rel === tab.rel ? { ...t, editing: true, editBase: t.content } : t)),
+        );
+        if (project) await appendOplog(fs, project.ref.root, "edit_start", tab.rel, session?.id ?? "");
+        setStatus(`正在编辑 ${tab.name}（点「完成」保存并触发回流审稿）`);
+        return;
+      }
+      // 结束编辑：自动保存 → 轻改仅记日志，实质改动触发回流
+      const latest = tabs.find((t) => t.rel === tab.rel) ?? tab;
+      if (latest.dirty) await saveTabAs(latest, "结束编辑自动保存");
+      const diff: DiffResult = diffLines(latest.editBase ?? latest.baseContent, latest.content);
+      setTabs((prev) => prev.map((t) => (t.rel === tab.rel ? { ...t, editing: false, editBase: null } : t)));
+      if (!project) return;
+      const noChange = diff.changedChars === 0;
+      const light = noChange || isLightEdit(diff);
+      const kind = latest.kind === "candidate" ? "candidate" : "chapter";
+      const label = chapterLabelOf(latest.name);
+      await appendOplog(fs, project.ref.root, "edit_end", latest.rel, session?.id ?? "", {
+        changedChars: diff.changedChars,
+        addedLines: diff.added.length,
+        removedLines: diff.removed.length,
+        digitsChanged: diff.digitsChanged,
+        reflowTriggered: !light,
+      });
+      if (noChange) {
+        setStatus(`${latest.name} 无实质改动，已退出编辑`);
+        return;
+      }
+      if (light) {
+        setStatus(`${latest.name} 已保存 · 改动较小未触发回流（已记录日志）`);
+        return;
+      }
+      reflowQueue.current.push({
+        prompt: buildReflowPrompt({
+          relPath: latest.rel.replace(/\\/g, "/"),
+          kind,
+          chapterLabel: label,
+          diff,
+        }),
+        title: reflowSessionTitle(label, kind),
+      });
+      setStatus(`${latest.name} 已保存，回流排队中…`);
+      void drainReflow();
+    },
+    [tabs, project, session, saveTabAs, drainReflow],
+  );
+
+  /** 关闭标签：自动保存；编辑态先走「完成」（保存 + 回流），不再询问 */
+  const closeTab = useCallback(
+    async (rel: string) => {
+      const tab = tabs.find((t) => t.rel === rel);
+      if (!tab) return;
+      if (tab.editing) await toggleEditing(tab);
+      else if (tab.dirty) await saveTabAs(tab, "关闭标签自动保存");
+      setTabs((prev) => {
+        const next = prev.filter((t) => t.rel !== rel);
+        if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
+        return next;
+      });
+    },
+    [tabs, activeRel, toggleEditing, saveTabAs],
+  );
+
+  /** 发送一条用户消息（输入框与一键指令共用；单生成并发由 busyRef 守卫） */
+  const sendUserMessage = useCallback(
+    async (raw: string) => {
+      const b = currentBoot();
+      const text = raw.trim();
+      if (!b || text === "" || busyRef.current) return;
+      busyRef.current = true;
+      setBusy(true);
+      setChatError(null);
       setStreamText("");
       setStreamThink("");
       setToolLog([]);
-    }
-  }, [composer, busy, session, project, transport, onAgentEvent, askQuestions, refreshSessions]);
+      setComposer("");
+      const signal = { aborted: false };
+      abortRef.current = signal;
+      try {
+        const res = await sendChat({
+          dirs: b.dirs,
+          prefs: b.prefs,
+          session,
+          projectRoot: project?.ref.root ?? null,
+          userText: text,
+          transport,
+          onEvent: onAgentEvent,
+          askQuestions,
+          signal,
+        });
+        setSession(res.session);
+        if (res.error) setChatError(res.error);
+        await refreshSessions();
+        if (project) {
+          const fs = getFs();
+          const data = await loadProject(fs, project.ref.root, project.ref.name);
+          setProject(data);
+          setTreeFolders((f) => ({ ...defaultTreeFolders(data.tree), ...f }));
+        }
+      } catch (err) {
+        setChatError(String(err));
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
+        setStreamText("");
+        setStreamThink("");
+        setToolLog([]);
+        void drainReflow(); // 生成槽空出后排空待跑回流
+      }
+    },
+    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow],
+  );
+
+  const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
+
+  /** 采用门：确认后由 AI 执行采用回写五步（登记→保存正文→增量回写→逐项核对→归档推进） */
+  const adoptCandidate = useCallback(
+    async (tab: OpenTab) => {
+      if (!project) return;
+      const ok = await askConfirm(
+        "采用为正式正文？",
+        `将「${tab.name}」采用为最终稿：AI 会登记采用版本、保存正式正文、按最终稿增量回写追踪表与章节摘要，并把本章旧稿移入 待确认\\已处理 留档、推进章节指针。`,
+        { confirmLabel: "采用并回写" },
+      );
+      if (!ok) return;
+      await appendOplog(getFs(), project.ref.root, "adopt", tab.rel, session?.id ?? "");
+      await sendUserMessage(adoptMessage(tab.rel));
+    },
+    [project, session, askConfirm, sendUserMessage],
+  );
+
+  /** 冷读：独立会话（零工具、零设定、零作者上下文），报告自动存入 小说资料\审核\ */
+  const runColdRead = useCallback(
+    async (tab: OpenTab, priorCount: 0 | 1 | 2, goal: ColdReadGoal) => {
+      const b = currentBoot();
+      if (!b || !project) return;
+      if (busyRef.current) {
+        setStatus("当前有生成任务在跑，请稍后再冷读");
+        return;
+      }
+      setColdReq(null);
+      const fs = getFs();
+      const label = chapterLabelOf(tab.name) ?? stripMd(tab.name);
+      // 前文：从正式正文取章号在前的 priorCount 章（缺章跳过，不阻断冷读）
+      const no = parseChapterName(stripMd(tab.name))?.no ?? 0;
+      const priors: ColdReadPrior[] = [];
+      if (priorCount > 0 && no > 0) {
+        for (let i = Math.max(1, no - priorCount); i < no; i++) {
+          const c = project.chapters.find((x) => parseChapterName(stripMd(x.name))?.no === i);
+          if (!c) continue;
+          try {
+            priors.push({ title: chapterLabelOf(c.name) ?? stripMd(c.name), text: await fs.readText(c.path) });
+          } catch {
+            /* 前文读取失败不阻断 */
+          }
+        }
+      }
+      busyRef.current = true;
+      setBusy(true);
+      setChatError(null);
+      setStreamText("");
+      setStreamThink("");
+      setToolLog([]);
+      const signal = { aborted: false };
+      abortRef.current = signal;
+      const coldSession: SessionFile = { ...newSession(project.ref.root), title: coldReadSessionTitle(label) };
+      setSession(coldSession); // 切到冷读会话：用户看着这位"只读正文的陌生读者"工作
+      try {
+        const res = await sendIsolated({
+          dirs: b.dirs,
+          prefs: b.prefs,
+          session: coldSession,
+          systemPrompt: coldReadSystem(goal),
+          userText: buildColdReadUserMessage(label, tab.content, priors),
+          transport,
+          onEvent: onAgentEvent,
+          signal,
+        });
+        setSession(res.session);
+        const aiText =
+          [...res.session.messages].reverse().find((m) => m.role === "assistant")?.text ?? "";
+        if (aiText.trim()) {
+          const rel = coldReadReportRel(label, goal).replace(/\//g, "\\");
+          const abs = join(project.ref.root, rel);
+          await fs.mkdir(dirname(abs));
+          await recordSnapshot(fs, b.dirs.snapshotsDir, {
+            sessionId: res.session.id,
+            callId: `coldread_${Date.now()}`,
+            operation: "write",
+            relativePath: rel.replace(/\\/g, "/"),
+            previousContent: null,
+            previousExists: false,
+          });
+          await fs.writeText(abs, coldReadReportBody(label, goal, priors, aiText));
+          await appendOplog(fs, project.ref.root, "coldread", rel, res.session.id, { note: goal });
+          setStatus(`冷读完成，报告已存：${rel}`);
+        } else {
+          setStatus("冷读结束：未获得审读输出（可能被中止）");
+        }
+        await refreshSessions();
+        await refreshProject();
+      } catch (e) {
+        setChatError(String(e));
+      } finally {
+        busyRef.current = false;
+        setBusy(false);
+        setStreamText("");
+        setStreamThink("");
+        setToolLog([]);
+      }
+    },
+    [project, transport, onAgentEvent, refreshSessions, refreshProject],
+  );
 
   /** 打开会话：若会话绑定了项目则恢复绑定 */
   const openSession = useCallback(
@@ -614,6 +917,62 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const hasMessages = Boolean(session && session.messages.length > 0);
   const showTyping = busy && !streamText && !streamThink;
+
+  /** 树节点点击 → 按路径判类打开 */
+  const openNode = (n: ContentNode) => {
+    void openFile(
+      { name: n.name, rel: n.rel, path: n.path, size: n.size, mtimeMs: n.mtimeMs },
+      kindForRel(n.rel),
+    );
+  };
+
+  /** 通用内容树渲染：目录可折叠（已处理默认收起），所有内容文件左栏可见 */
+  const renderNodes = (nodes: ContentNode[], depth: number): React.ReactElement[] =>
+    nodes.map((n) =>
+      n.isDir ? (
+        <div key={n.rel} role="group">
+          <button
+            className="tnode grp"
+            role="treeitem"
+            aria-expanded={treeFolders[n.rel] !== false}
+            style={{ paddingLeft: 8 + depth * 12 }}
+            onClick={() => setTreeFolders((f) => ({ ...f, [n.rel]: f[n.rel] === false }))}
+          >
+            <svg
+              viewBox="0 0 12 12"
+              className={treeFolders[n.rel] !== false ? "caret open" : "caret"}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M4.5 3L7.5 6l-3 3" />
+            </svg>
+            <svg viewBox="0 0 20 20" className="ic folder">
+              <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
+            </svg>
+            <span className="lbl">{n.name}</span>
+          </button>
+          {treeFolders[n.rel] !== false ? renderNodes(n.children, depth + 1) : null}
+        </div>
+      ) : (
+        <button
+          key={n.rel}
+          className={activeRel === n.rel ? "tnode sub on" : "tnode sub"}
+          role="treeitem"
+          aria-selected={activeRel === n.rel}
+          style={{ paddingLeft: 26 + depth * 12 }}
+          onClick={() => openNode(n)}
+        >
+          <svg viewBox="0 0 20 20" className="ic doc">
+            <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
+            <path d="M11.4 2.6v3.6H15" />
+          </svg>
+          <span className="lbl">{n.name}</span>
+        </button>
+      ),
+    );
 
   return (
     <div className="win" id="screenB">
@@ -787,84 +1146,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
           <div className="tree" role="tree" aria-label="作品目录">
             {project ? (
-              <>
-                <button
-                  className="tnode grp"
-                  role="treeitem"
-                  aria-expanded={openFolders.docs}
-                  onClick={() => setOpenFolders((f) => ({ ...f, docs: !f.docs }))}
-                >
-                  <svg
-                    viewBox="0 0 12 12"
-                    className={openFolders.docs ? "caret open" : "caret"}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M4.5 3L7.5 6l-3 3" />
-                  </svg>
-                  <svg viewBox="0 0 20 20" className="ic folder">
-                    <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
-                  </svg>
-                  <span className="lbl">小说资料</span>
-                </button>
-                {openFolders.docs &&
-                  project.docs.map((d) => (
-                    <button
-                      key={d.rel}
-                      className={activeRel === d.rel ? "tnode sub on" : "tnode sub"}
-                      role="treeitem"
-                      aria-selected={activeRel === d.rel}
-                      onClick={() => void openFile(d, "doc")}
-                    >
-                      <svg viewBox="0 0 20 20" className="ic doc">
-                        <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                        <path d="M11.4 2.6v3.6H15" />
-                      </svg>
-                      <span className="lbl">{d.name}</span>
-                    </button>
-                  ))}
-                <button
-                  className="tnode grp"
-                  role="treeitem"
-                  aria-expanded={openFolders.chapters}
-                  onClick={() => setOpenFolders((f) => ({ ...f, chapters: !f.chapters }))}
-                >
-                  <svg
-                    viewBox="0 0 12 12"
-                    className={openFolders.chapters ? "caret open" : "caret"}
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M4.5 3L7.5 6l-3 3" />
-                  </svg>
-                  <svg viewBox="0 0 20 20" className="ic folder">
-                    <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
-                  </svg>
-                  <span className="lbl">章节内容</span>
-                </button>
-                {openFolders.chapters &&
-                  project.chapters.map((c) => (
-                    <button
-                      key={c.rel}
-                      className={activeRel === c.rel ? "tnode sub on" : "tnode sub"}
-                      role="treeitem"
-                      aria-selected={activeRel === c.rel}
-                      onClick={() => void openFile(c, "chapter")}
-                    >
-                      <svg viewBox="0 0 20 20" className="ic doc">
-                        <path d="M5 2.6h6.4l3.6 3.6v11.2H5z" />
-                        <path d="M11.4 2.6v3.6H15" />
-                      </svg>
-                      <span className="lbl">{c.name}</span>
-                    </button>
-                  ))}
-              </>
+              renderNodes(project.tree, 0)
             ) : (
               <div className="tree-empty">
                 {ready ? "从上方选择一部作品开始写作" : "正在加载…"}
@@ -873,7 +1155,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           </div>
 
           <div className="panel-foot">
-            {project ? `${project.chapters.length} 章 · ${project.docs.length} 份资料` : "未选择作品"}
+            {project
+              ? `${project.chapters.length} 章 · ${project.pending.length} 待确认 · ${project.docs.length} 份资料`
+              : "未选择作品"}
           </div>
         </aside>
 
@@ -961,13 +1245,54 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <div className="editor-title">
                 <h1>{activeTab.name.replace(/\.md$/i, "")}</h1>
                 <span className="wc-badge">{countWords(activeTab.content)} 字</span>
+                {activeTab.kind === "doc" ? (
+                  <span className="mode-badge" title="资料文档：直接编辑，切换或关闭时自动保存">
+                    资料 · 自动保存
+                  </span>
+                ) : (
+                  <div className="editor-tools">
+                    {!activeTab.editing ? (
+                      <span className="mode-badge" title="正文与候选默认只读，点「修改」后可编辑；结束时自动保存并触发回流">
+                        只读
+                      </span>
+                    ) : (
+                      <span className="mode-badge editing" title="编辑中：点「完成」自动保存并触发回流审稿">
+                        编辑中
+                      </span>
+                    )}
+                    <button
+                      className="btn glint"
+                      onClick={() => void toggleEditing(activeTab)}
+                      title={activeTab.editing ? "结束编辑：自动保存 → 回流（审稿 + 学习记录）" : "进入编辑（正文/候选默认只读）"}
+                    >
+                      {activeTab.editing ? "完成（保存并回流）" : "修改"}
+                    </button>
+                    <button
+                      className="btn glint"
+                      onClick={() => setColdReq({ tab: activeTab })}
+                      title="冷读：让一位看不到设定与前情的陌生读者审读本章"
+                    >
+                      冷读
+                    </button>
+                    {activeTab.kind === "candidate" && !activeTab.rel.includes(PROJECT_DIRS.processed) ? (
+                      <button
+                        className="btn btn-accent glint"
+                        onClick={() => void adoptCandidate(activeTab)}
+                        title="采用门：确认此稿为最终稿，AI 执行登记 → 保存正文 → 增量回写 → 归档推进"
+                      >
+                        采用为正文
+                      </button>
+                    ) : null}
+                  </div>
+                )}
               </div>
               <textarea
                 ref={editorRef}
-                className="editor-area"
+                className={tabEditable(activeTab) ? "editor-area" : "editor-area ro"}
                 style={{ fontSize: `${editorFontSize}px` }}
                 value={activeTab.content}
                 onChange={(e) => editContent(e.target.value)}
+                readOnly={!tabEditable(activeTab)}
                 spellCheck={false}
               />
             </div>
@@ -1157,6 +1482,34 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </svg>
               备忘录
             </button>
+            {project ? (
+              <button
+                className="chip glint"
+                title="一键指令：按主线写下一章候选（完整初稿 → 逐段修改 → 全文复读）"
+                disabled={busy}
+                onClick={() => void sendUserMessage(WRITE_NEXT_MESSAGE)}
+              >
+                <svg viewBox="0 0 20 20" className="ic">
+                  <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
+                  <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
+                </svg>
+                写下一章
+              </button>
+            ) : null}
+            {activeTab && activeTab.kind !== "doc" ? (
+              <button
+                className="chip glint"
+                title="冷读：让看不到设定与前情的陌生读者审读本章"
+                disabled={busy}
+                onClick={() => setColdReq({ tab: activeTab })}
+              >
+                <svg viewBox="0 0 20 20" className="ic">
+                  <path d="M10 4.6c3.4 0 6.2 2.2 7.4 5.4-1.2 3.2-4 5.4-7.4 5.4S3.8 13.2 2.6 10C3.8 6.8 6.6 4.6 10 4.6z" />
+                  <circle cx="10" cy="10" r="2.2" />
+                </svg>
+                冷读本章
+              </button>
+            ) : null}
           </div>
 
           <div className="composer glass-inset">
@@ -1229,7 +1582,15 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           {activeTab ? (
             <>
               <span className={activeTab.dirty ? "st-dot dirty" : "st-dot"} title={activeTab.dirty ? "有未保存的修改" : "已保存"} />
-              {saving ? "保存中…" : activeTab.dirty ? "未保存 · Ctrl+S 保存" : "已保存"}
+              {activeTab.kind === "doc"
+                ? saving
+                  ? "保存中…"
+                  : activeTab.dirty
+                    ? "未保存 · Ctrl+S 保存"
+                    : "资料 · 自动保存"
+                : activeTab.editing
+                  ? "编辑中 · 点「完成」保存并回流"
+                  : "只读 · 点「修改」后可编辑"}
               <span>·</span>
               {countWords(activeTab.content)} 字
             </>
@@ -1241,6 +1602,58 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
       <InputDialog req={inputReq} />
       <ConfirmDialog req={confirmReq} />
+
+      {coldReq ? (
+        <div className="qmodal scrim">
+          <div className="qbox glass sheet">
+            <h3>冷读 · {coldReq.tab.name.replace(/\.md$/i, "")}</h3>
+            <p className="qhint">
+              冷读在独立会话中运行：审读者看不到大纲、设定、人物资料与任何作者解释，也没有文件工具，
+              就像一位第一次读到这份稿子的新读者。结束后报告自动存入 小说资料\审核\。
+            </p>
+            <div className="qgroup">
+              <div className="qg-label">提供前文（取自已采用的正式正文）</div>
+              <div className="qopts-row">
+                {([0, 1, 2] as const).map((n) => (
+                  <button
+                    key={n}
+                    className={coldPrior === n ? "qopt on" : "qopt"}
+                    onClick={() => setColdPrior(n)}
+                  >
+                    {n === 0 ? "无前文" : n === 1 ? "上一章" : "前两章"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="qgroup">
+              <div className="qg-label">审读目标（单次只选一个）</div>
+              <div className="qopts-row">
+                {(["clarity", "pace"] as const).map((g) => (
+                  <button
+                    key={g}
+                    className={coldGoal === g ? "qopt on" : "qopt"}
+                    onClick={() => setColdGoal(g)}
+                  >
+                    {COLD_READ_GOAL_LABEL[g]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="qrow">
+              <button
+                className="qsubmit btn btn-accent"
+                disabled={busy}
+                onClick={() => void runColdRead(coldReq.tab, coldPrior, coldGoal)}
+              >
+                开始冷读
+              </button>
+              <button className="btn" onClick={() => setColdReq(null)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pending ? (
         <div className="qmodal scrim">

@@ -81,17 +81,17 @@ describe("scanSkills", () => {
 
 describe("mergeSkillList", () => {
   const scanned: SkillMeta[] = [
-    { id: "a", name: "a", description: "", directoryPath: "x", isBuiltIn: true, marketplaceSkillId: null, marketplaceVersion: null },
+    { id: "novel-writer", name: "novel-writer", description: "", directoryPath: "x", isBuiltIn: true, marketplaceSkillId: null, marketplaceVersion: null },
     { id: "b", name: "b", description: "", directoryPath: "y", isBuiltIn: false, marketplaceSkillId: null, marketplaceVersion: null },
   ];
-  it("首次扫描（旧清单空）→ 默认全部开启", () => {
+  it("首次扫描（旧清单空）→ 只默认开启内置白名单（novel-writer/skill-creator）", () => {
     const r = mergeSkillList([], scanned);
-    expect(r.activeSkillIds).toEqual(["a", "b"]);
+    expect(r.activeSkillIds).toEqual(["novel-writer"]);
   });
   it("非首次 → 保留用户当前开关", () => {
     const prev = scanned.map((s) => ({ ...s }));
-    const r = mergeSkillList(prev, scanned, ["a"]);
-    expect(r.activeSkillIds).toEqual(["a"]);
+    const r = mergeSkillList(prev, scanned, ["b"]);
+    expect(r.activeSkillIds).toEqual(["b"]);
     expect(r.skillList).toEqual(scanned);
   });
 });

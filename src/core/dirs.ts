@@ -12,12 +12,22 @@
  * skills 目录沿用既有名 `skills`（即 Documents\skills）。
  */
 
-/** 作品目录协议里用到的固定名（逐字，不得改） */
+/** 作品目录协议里用到的固定名（3.0 起含候选区与回流日志；旧名保留兼容） */
 export const PROJECT_DIRS = {
   /** 维护文档目录 */
   docs: "小说资料",
-  /** 章节目录 */
+  /** 章节目录（正式正文） */
   chapters: "章节内容",
+  /** 候选稿目录（初稿/候选，采用后进正文） */
+  pending: "待确认",
+  /** 已处理旧稿归档（位于 待确认 下） */
+  processed: "已处理",
+  /** 冷读等审读报告（位于 小说资料 下） */
+  review: "审核",
+  /** 个人改稿学习记录（位于 小说资料 下） */
+  revisions: "个人改稿",
+  /** 用户操作日志（位于作品根下，系统级，左栏不显示） */
+  oplog: "writerd_oplog",
   /** 回收站根（位于作品根下） */
   recycle: ".openwrite_recycle",
   /** 作品清单（显示名/排序） */
@@ -26,8 +36,10 @@ export const PROJECT_DIRS = {
   recycleManifest: "recycle_manifest.json",
 } as const;
 
-/** 默认维护文档三件套（新建作品时生成，逐字） */
-export const DEFAULT_DOCS = ["世界观.md", "人物库.md", "章节摘要.md"] as const;
+/** 系统级条目（左栏目录树与内容扫描一律排除；'.' 开头同样视为系统） */
+export function isSystemEntryName(name: string): boolean {
+  return name.startsWith(".") || name.startsWith("writerd_") || name === PROJECT_DIRS.recycleManifest;
+}
 
 export const APP_DATA_NAMES = {
   sessions: "writerd_sessions",
@@ -139,6 +151,26 @@ export function projectDocsDir(projectRoot: string): string {
 
 export function projectChaptersDir(projectRoot: string): string {
   return join(projectRoot, PROJECT_DIRS.chapters);
+}
+
+export function projectPendingDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.pending);
+}
+
+export function projectProcessedDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.pending, PROJECT_DIRS.processed);
+}
+
+export function projectReviewDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.docs, PROJECT_DIRS.review);
+}
+
+export function projectRevisionsDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.docs, PROJECT_DIRS.revisions);
+}
+
+export function projectOplogDir(projectRoot: string): string {
+  return join(projectRoot, PROJECT_DIRS.oplog);
 }
 
 export function projectManifestFile(projectRoot: string): string {

@@ -307,10 +307,12 @@ describe("question / skill_lookup / create_project", () => {
     expect(r.content).toContain("正文");
   });
 
-  it("create_project 缺 name → 逐字错误；成功则建出三件套", async () => {
+  it("create_project 缺 name → 逐字错误；成功则建出 3.0 全套（核心设定 + 待确认目录）", async () => {
     expect(await executeTool(ctx(), "create_project", {})).toBe('{"error":"name is required"}');
     const r = JSON.parse(await executeTool(ctx(), "create_project", { name: "新书" }));
     expect(r.success).toBe(true);
-    expect(await fs.exists(path.join(booksRoot, "新书", "小说资料", "世界观.md"))).toBe(true);
+    expect(await fs.exists(path.join(booksRoot, "新书", "小说资料", "02-核心设定.md"))).toBe(true);
+    expect(await fs.exists(path.join(booksRoot, "新书", "小说资料", "00-项目状态.md"))).toBe(true);
+    expect(await fs.exists(path.join(booksRoot, "新书", "待确认"))).toBe(true);
   });
 });
