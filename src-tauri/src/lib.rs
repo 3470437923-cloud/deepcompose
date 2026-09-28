@@ -1,4 +1,6 @@
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
 
 mod ai;
 mod fs;
@@ -20,6 +22,7 @@ fn app_info() -> AppInfo {
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(ai::AbortMap(Mutex::new(HashMap::new())))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -39,6 +42,7 @@ pub fn run() {
             fs::fs_stat,
             ai::ai_stream,
             ai::ai_models,
+            ai::ai_abort,
         ])
         .run(tauri::generate_context!())
         .expect("writerD 启动失败");

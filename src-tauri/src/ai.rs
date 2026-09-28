@@ -7,7 +7,12 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
+use tokio::sync::Notify;
+
+/// 活跃流的中断句柄（request_id → Notify），供「停止生成」取消上游流
+pub struct AbortMap(pub Mutex<HashMap<String, Arc<Notify>>>);
 
 /// 一次流式请求的配置
 #[derive(Debug, Deserialize)]
@@ -42,7 +47,11 @@ fn emit(app: &AppHandle, request_id: &str, kind: &str, data: String) {
 }
 
 #[tauri::command]
-pub async fn ai_stream(app: AppHandle, request: AiRequest) -> Result<(), String> {
+pub async fn ai_stream(
+    app: AppHandle,
+    state: tauri::State<'_, AbortMap>,
+    request: AiRequest,
+) -> Result<(), String> {
     let AiRequest {
         request_id,
         url,
@@ -84,30 +93,60 @@ pub async fn ai_stream(app: AppHandle, request: AiRequest) -> Result<(), String>
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
 
-    while let Some(item) = stream.next().await {
-        match item {
-            Ok(bytes) => {
-                buf.extend_from_slice(&bytes);
-                while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
-                    let line: Vec<u8> = buf.drain(..=pos).collect();
-                    let s = String::from_utf8_lossy(&line[..line.len() - 1])
-                        .trim_end_matches('\r')
-                        .to_string();
-                    emit(&app, &request_id, "line", s);
-                }
-            }
-            Err(e) => {
-                emit(&app, &request_id, "stream_error", format!("{e}"));
+    // 注册中断句柄；「停止生成」通过 ai_abort 触发
+    let notify = Arc::new(Notify::new());
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(request_id.clone(), notify.clone());
+
+    let mut aborted = false;
+    loop {
+        tokio::select! {
+            _ = notify.notified() => {
+                aborted = true;
                 break;
+            }
+            item = stream.next() => {
+                match item {
+                    Some(Ok(bytes)) => {
+                        buf.extend_from_slice(&bytes);
+                        while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
+                            let line: Vec<u8> = buf.drain(..=pos).collect();
+                            let s = String::from_utf8_lossy(&line[..line.len() - 1])
+                                .trim_end_matches('\r')
+                                .to_string();
+                            emit(&app, &request_id, "line", s);
+                        }
+                    }
+                    Some(Err(e)) => {
+                        emit(&app, &request_id, "stream_error", format!("{e}"));
+                        break;
+                    }
+                    None => break,
+                }
             }
         }
     }
+
+    state.0.lock().unwrap().remove(&request_id);
 
     if !buf.is_empty() {
         let s = String::from_utf8_lossy(&buf).to_string();
         emit(&app, &request_id, "line", s);
     }
     emit(&app, &request_id, "done", String::new());
+    let _ = aborted; // 中断即干净收尾：已收到的部分正文保留
+    Ok(())
+}
+
+/// 「停止生成」：中断指定请求的上游流（已收到的部分正文保留）
+#[tauri::command]
+pub async fn ai_abort(state: tauri::State<'_, AbortMap>, request_id: String) -> Result<(), String> {
+    if let Some(notify) = state.0.lock().unwrap().remove(&request_id) {
+        notify.notify_waiters();
+    }
     Ok(())
 }
 
