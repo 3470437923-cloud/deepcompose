@@ -25,6 +25,7 @@ public class UW {
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
     [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, IntPtr e);
+    [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, IntPtr extra);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 
     public static IntPtr Pick(uint pid) {
@@ -61,8 +62,13 @@ $h = [UW]::Pick([uint32]$proc.Id)
 if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL no window"; exit 1 }
 if ([UW]::IsIconic($h)) { [UW]::ShowWindow($h, 9) | Out-Null; Start-Sleep -Milliseconds 700 }
 [UW]::ShowWindow($h, 5) | Out-Null
+# ALT 技巧：解除前台锁，否则后台进程的 SetForegroundWindow 会被系统静默拒绝
+[UW]::keybd_event(0x12, 0, 0, [IntPtr]::Zero)
 [UW]::SetForegroundWindow($h) | Out-Null
+[UW]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
 Start-Sleep -Milliseconds 900
+[UW]::SetForegroundWindow($h) | Out-Null
+Start-Sleep -Milliseconds 400
 
 $r = New-Object UW+RECT
 [UW]::GetWindowRect($h, [ref]$r) | Out-Null

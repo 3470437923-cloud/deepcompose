@@ -3,26 +3,80 @@
  *   1. 截图像素实测（measure_shot*.py）
  *   2. reference/ui-mock.html 声明值
  *   3. 本机 shared_preferences.json: custom_accent_color = 4286343935 = 0xFF7C6AFF
- * 严禁自行改动色值。
+ *
+ * 主题：默认深色（真机实测）；html[data-theme="light"] 为浅色系（writerD 扩展，
+ *   色板由深色令牌语义映射而来，强调色两套主题通用）。
+ * 2026-09-28 起 screens.css/base.css 的中性色已机械替换为本文件的语义变量。
  */
 :root {
-  /* 强调色（三方验证一致） */
+  /* 强调色（三方验证一致；主题色切换即时生效） */
   --accent: #7c6aff;
   --accent-2: #624dff;
+  /* 深底上的强调色文字 / 强调 tint（浅色主题下取更深的强调色） */
+  --accent-text: #b9a9ff;
+  --accent-soft: #211e3a;
+  --accent-fill: #26234a;
+  --accent-line: #34305c;
 
   /* 背景层级 */
   --bg-window: #0a0a0f;
   --bg-bar: #0e0e16;
   --bg-panel: #12121a;
   --bg-rail: #1a1a25;
+  --bg-elev: #1f1f2c;
+  --bg-hover: #1a1a24;
+
+  /* 线与圆角 */
+  --line: #23232f;
+  --line-soft: #1c1c26;
+  --line-strong: #35354a;
 
   /* 文本层级 */
   --tx-1: #e8e8f0;
-  --tx-2: #9898b0;
-  --tx-3: #6e6e85;
+  --tx-2: #b9b9cc;
+  --tx-3: #9a9ab2;
+  --tx-dim: #6e6e85;
 
-  /* 线与圆角 */
-  --line: #22222e;
-  --line-soft: #1c1c26;
+  /* 状态色 */
+  --ok: #3ad07a;
+  --ok-bg: #12281e;
+  --ok-line: #1d4a34;
+  --bad: #f87171;
+  --bad-bg: #2a1418;
+  --bad-line: #4a2028;
+  --warn: #c9a227;
+
   --radius: 10px;
+}
+
+/* ── 浅色系（writerD 扩展；强调色不变，界面底/文字/线全部换浅色） ── */
+html[data-theme="light"] {
+  --accent-text: color-mix(in srgb, var(--accent) 78%, #000);
+  --accent-soft: color-mix(in srgb, var(--accent) 12%, #ffffff);
+  --accent-fill: color-mix(in srgb, var(--accent) 14%, #ffffff);
+  --accent-line: color-mix(in srgb, var(--accent) 34%, #ffffff);
+
+  --bg-window: #f2f3f8;
+  --bg-bar: #fbfcfe;
+  --bg-panel: #ffffff;
+  --bg-rail: #eef0f6;
+  --bg-elev: #f5f6fa;
+  --bg-hover: #eceef4;
+
+  --line: #d9dce6;
+  --line-soft: #e7e9f0;
+  --line-strong: #b9bdcc;
+
+  --tx-1: #22242e;
+  --tx-2: #4c505f;
+  --tx-3: #71758a;
+  --tx-dim: #9298a9;
+
+  --ok: #0f9960;
+  --ok-bg: #e6f6ee;
+  --ok-line: #b5e2cb;
+  --bad: #dc4b4b;
+  --bad-bg: #fdeeee;
+  --bad-line: #f3c4c4;
+  --warn: #b07d12;
 }

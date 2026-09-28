@@ -14,6 +14,8 @@ window.onunhandledrejection = (e) => {
   console.error("REJ:", String(e.reason));
 };
 
+
+
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <App />
