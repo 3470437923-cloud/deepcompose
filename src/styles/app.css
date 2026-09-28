@@ -372,7 +372,8 @@ svg { display: block; }
   max-width: 780px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line-soft);
 }
@@ -1260,6 +1261,8 @@ svg { display: block; }
 .qbox {
   width: 400px;
   max-width: calc(100% - 40px);
+  max-height: calc(100% - 40px);
+  overflow-y: auto;
   border-radius: var(--r-xl);
   padding: 22px 22px 18px;
   text-align: center;
