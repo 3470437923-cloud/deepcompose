@@ -112,11 +112,11 @@ describe("Anthropic 请求体", () => {
     expect(req.headers.authorization).toBeUndefined();
   });
 
-  it("system 走顶层字段；max_tokens 默认 32K（CONTRACT §6.7）", () => {
+  it("system 走顶层字段；max_tokens 默认 32K（32000，CONTRACT §6.7 口径）", () => {
     const b = req.body as Record<string, unknown>;
     expect(b.system).toBe("系统提示");
     expect(b.max_tokens).toBe(DEFAULT_MAX_TOKENS);
-    expect(b.max_tokens).toBe(32768);
+    expect(b.max_tokens).toBe(32000);
     const list = b.messages as Record<string, unknown>[];
     expect(list.some((m) => m.role === "system")).toBe(false);
   });

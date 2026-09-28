@@ -29,6 +29,12 @@ export function InputDialog({ req }: { req: InputRequest | null }) {
       setValue("");
       // 等模态挂载后聚焦
       requestAnimationFrame(() => inputRef.current?.focus());
+      // Esc 任意位置可退出（不依赖焦点）
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === "Escape") req.resolve(null);
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
     }
   }, [req]);
 
@@ -72,6 +78,15 @@ export function InputDialog({ req }: { req: InputRequest | null }) {
 }
 
 export function ConfirmDialog({ req }: { req: ConfirmRequest | null }) {
+  useEffect(() => {
+    if (!req) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") req.resolve(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [req]);
+
   if (!req) return null;
   const done = (ok: boolean) => req.resolve(ok);
   return (

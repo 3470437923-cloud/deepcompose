@@ -35,6 +35,7 @@ export function providerOf(prefs: Prefs): ProviderConfig | null {
     temperature: prefs.temperature,
     useAnthropicFormat: prefs.useAnthropicFormat,
     reservedOutputTokens: prefs.reservedOutputTokens,
+    maxTokens: prefs.maxOutputTokens > 0 ? prefs.maxOutputTokens : undefined,
   };
 }
 
@@ -99,6 +100,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     tools: IMPLEMENTED_TOOLS,
     messages: requestMessages,
     userText: opts.userText,
+    maxToolRounds: Math.max(1, Math.min(50, opts.prefs.toolRoundLimit || 12)),
     transport: opts.transport,
     onEvent: opts.onEvent,
     signal: opts.signal,
