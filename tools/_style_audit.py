@@ -1,0 +1,128 @@
+"""运行时样式审计：找出「匹配不到任何 CSS 规则」的元素。
+
+静态类名校验只能查"某个类有没有被定义过"，查不到作用域选择器的漏写
+（例如 `.memo-card .d` 缺失时，`d` 这个类名在别处定义过，静态检查就放过了）。
+本审计在真实 DOM 上做：对每个元素用 el.matches() 遍历全部规则，一个都匹配
+不上的元素就是"裸奔元素" —— 它没有任何样式落点，是最容易漏掉的组件部位。
+
+用法：
+    python tools/_style_audit.py --flows none,chat,memo,theme,params
+"""
+import argparse
+import json
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _shot_flow import CDP, FLOWS, run_flow  # noqa: E402
+
+AUDIT_JS = r"""
+(() => {
+  const sels = [];
+  for (const sheet of document.styleSheets) {
+    let rules;
+    try { rules = sheet.cssRules; } catch (e) { continue; }
+    const walk = (list) => {
+      for (const r of list) {
+        if (r.selectorText) sels.push(r.selectorText);
+        else if (r.cssRules) walk(r.cssRules);
+      }
+    };
+    walk(rules);
+  }
+  // 把所有选择器拆成单个（逗号分隔），去掉伪元素/伪类以便 matches 用
+  const flat = [];
+  for (const s of sels) {
+    for (const part of s.split(",")) {
+      let p = part.trim();
+      if (!p) continue;
+      // 去掉伪元素，并剥掉 :hover/:active/:focus 等状态伪类（裸元素判定只关心
+      // "这个元素在本状态下有没有样式来源"，状态规则也算来源）
+      p = p.replace(/::[a-zA-Z-]+(\([^)]*\))?/g, "");
+      p = p.replace(/:(hover|active|focus|focus-visible|focus-within|disabled|placeholder)\b/g, "");
+      p = p.replace(/:(nth-child|nth-of-type|not|is|where)\([^()]*(\([^()]*\))?[^()]*\)/g, "");
+      p = p.replace(/^\s*[>+~]\s*/, "");
+      if (!p || p === "*") continue;
+      flat.push(p);
+    }
+  }
+  const bare = [];
+  const seen = new Set();
+  // 没有类名但"必须有样式落点"的标签：漏写后代选择器时它们会以浏览器
+  // 默认尺寸渲染（例如 <img> 按原始像素铺满整屏）。纯文本容器（div/span/p）
+  // 没有样式是正常的，不报。
+  const RISKY = new Set(["IMG", "INPUT", "TEXTAREA", "SELECT",
+    "H1", "H2", "H3", "H4", "H5", "H6", "BUTTON", "A", "CANVAS", "SVG", "TABLE"]);
+  for (const el of document.querySelectorAll("*")) {
+    const classed = el.classList.length > 0;
+    if (!classed && !RISKY.has(el.tagName)) continue;
+    let hit = false;
+    for (const s of flat) {
+      try { if (el.matches(s)) { hit = true; break; } } catch (e) { /* 无效选择器忽略 */ }
+    }
+    if (!hit) {
+      const key = el.tagName + (classed ? "." + [...el.classList].join(".") : " (无类名)");
+      if (!seen.has(key)) { seen.add(key); bare.push(key); }
+    }
+  }
+  return JSON.stringify({
+    ruleCount: flat.length,
+    checked: document.querySelectorAll("*").length,
+    bare: bare,
+  });
+})()
+"""
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--port", type=int, default=9223)
+    ap.add_argument("--base", default="http://localhost:5183")
+    ap.add_argument("--themes", default="dsblue,dark,light")
+    ap.add_argument("--flows", default="none,chat,memo,theme,params,about")
+    ap.add_argument("--size", default="1600x1000")
+    ap.add_argument("--min-text", type=int, default=60)
+    args = ap.parse_args()
+
+    w, h = (int(x) for x in args.size.lower().split("x"))
+    themes = [t.strip() for t in args.themes.split(",") if t.strip()]
+    flows = [f.strip() for f in args.flows.split(",") if f.strip()]
+
+    c = CDP(args.port)
+    all_bare = {}
+    for theme in themes:
+        for flow in flows:
+            c.cmd(
+                "Emulation.setDeviceMetricsOverride",
+                width=w, height=h, deviceScaleFactor=1, mobile=False,
+            )
+            c.cmd("Page.navigate", url="%s/preview.html?theme=%s" % (args.base, theme))
+            if not c.wait_ready(min_text=args.min_text):
+                print("FAIL %s/%s 未渲染" % (theme, flow))
+                continue
+            time.sleep(0.4)
+            run_flow(c, FLOWS[flow], verbose=False)
+            time.sleep(0.35)
+            raw = c.eval(AUDIT_JS)
+            if not raw:
+                print("FAIL %s/%s 审计无输出" % (theme, flow))
+                continue
+            d = json.loads(raw)
+            for b in d["bare"]:
+                all_bare.setdefault(b, []).append("%s/%s" % (theme, flow))
+            print(
+                "  %-8s %-8s 规则 %4d  元素 %4d  裸奔 %d"
+                % (flow, theme, d["ruleCount"], d["checked"], len(d["bare"]))
+            )
+
+    print("\n==== 裸奔元素汇总（没有任何 CSS 规则命中）====")
+    if not all_bare:
+        print("  无 —— 所有带类元素都有样式落点")
+    for sel, where in sorted(all_bare.items(), key=lambda kv: -len(kv[1])):
+        locs = sorted(set(where))
+        print("  %-46s 出现在: %s" % (sel, ", ".join(locs[:6]) + (" …" if len(locs) > 6 else "")))
+
+
+if __name__ == "__main__":
+    main()

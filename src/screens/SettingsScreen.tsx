@@ -48,6 +48,12 @@ interface Props {
 export default function SettingsScreen({ onBack }: Props) {
   const boot = currentBoot();
   const [section, setSection] = useState<NavSection>("provider");
+  /**
+   * 分节切换的推入方向：+1 = 往下走（新分节从右推入），-1 = 往上走（从左推入）。
+   * 方向在点击那一刻算好（与 setSection 同批更新），这样运动会和导航方向
+   * 一致 —— 空间一致是转场可读的前提，方向错了会让人以为"跳回去了"。
+   */
+  const [paneDir, setPaneDir] = useState(1);
   const [form, setForm] = useState<Prefs>(() => ({
     ...(boot?.prefs ?? ({} as Prefs)),
   }));
@@ -308,6 +314,11 @@ export default function SettingsScreen({ onBack }: Props) {
                 key={item.key}
                 className={`a-nav-item glint ${section === item.key ? "on" : ""}`}
                 onClick={() => {
+                  if (item.key !== section) {
+                    const from = navItems.findIndex((n) => n.key === section);
+                    const to = navItems.findIndex((n) => n.key === item.key);
+                    setPaneDir(to >= from ? 1 : -1);
+                  }
                   setSection(item.key);
                   setFlash("");
                 }}
@@ -320,28 +331,31 @@ export default function SettingsScreen({ onBack }: Props) {
         </div>
 
         <div className="a-content glass">
-          {section === "provider" && (
-            <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
-          )}
-          {section === "skill" && (
-            <SkillSection form={form} flash={flash} onFlash={setFlash} />
-          )}
-          {section === "params" && (
-            <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
-          )}
-          {section === "theme" && (
-            <ThemeSection
-              form={form}
-              update={update}
-              flash={flash}
-              onFlash={setFlash}
-              onThemeMode={applyThemeMode}
-              onAccent={applyAccent}
-            />
-          )}
-          {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
-          {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} />}
-          {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
+          {/* key 换 → 分节重新挂载并播放推入动画；方向由导航顺序决定 */}
+          <div key={section} className="a-pane" data-dir={paneDir}>
+            {section === "provider" && (
+              <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
+            )}
+            {section === "skill" && (
+              <SkillSection form={form} flash={flash} onFlash={setFlash} />
+            )}
+            {section === "params" && (
+              <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
+            )}
+            {section === "theme" && (
+              <ThemeSection
+                form={form}
+                update={update}
+                flash={flash}
+                onFlash={setFlash}
+                onThemeMode={applyThemeMode}
+                onAccent={applyAccent}
+              />
+            )}
+            {section === "sync" && <SyncSection flash={flash} onFlash={setFlash} />}
+            {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} />}
+            {section === "about" && <AboutSection flash={flash} onFlash={setFlash} />}
+          </div>
         </div>
       </div>
 
