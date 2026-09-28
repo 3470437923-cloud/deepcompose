@@ -690,7 +690,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 </div>
               </div>
 
-              {/* ── 中：对话列 ── */}
+              {/* ── 中：对话列 + 编辑器列（流体自适应区） ── */}
+              <div className="b-center">
               <div className="b-chat">
                 <div className="b-chat-head">
                   <div className="b-newchat">
@@ -924,6 +925,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     />
                   </div>
                 )}
+              </div>
+
               </div>
 
               {/* ── 右：目录 ── */}

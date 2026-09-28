@@ -4,23 +4,11 @@ import SettingsScreen from "./screens/SettingsScreen";
 
 type View = "main" | "settings";
 
-// 界面画布定标：mock 声明 1920×1032，与真机窗口一致（CONTRACT §1/§2）。
-// 窗口尺寸变化时等比缩放整个画布，保证任何窗口下都与 mock/真机比例一致。
-const CANVAS_W = 1920;
-const CANVAS_H = 1032;
+// 布局为流体式（见 base.css 流体布局段）：窗口即画布，随窗口尺寸自适应，
+// 不再做整体 transform 缩放（等比缩放会产生黑边且文字发虚）。
 
 export default function App() {
   const [view, setView] = useState<View>("main");
-
-  useEffect(() => {
-    const fit = () => {
-      const s = Math.min(window.innerWidth / CANVAS_W, window.innerHeight / CANVAS_H);
-      document.documentElement.style.setProperty("--fit", String(s));
-    };
-    fit();
-    window.addEventListener("resize", fit);
-    return () => window.removeEventListener("resize", fit);
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
