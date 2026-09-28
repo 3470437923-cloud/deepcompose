@@ -153,66 +153,66 @@ svg {
    ────────────────────────────────────────────────────────────── */
 .app-shell .chat-list{position:absolute;left:10px;top:94px;width:775px;bottom:176px;overflow-y:auto;padding-right:6px}
 .app-shell .chat-list::-webkit-scrollbar{width:8px}
-.app-shell .chat-list::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
+.app-shell .chat-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 .app-shell .msg{margin:0 0 14px}
-.app-shell .msg .who{font-size:11.5px;color:#6E6E85;margin-bottom:4px}
+.app-shell .msg .who{font-size:11.5px;color:var(--tx-dim);margin-bottom:4px}
 .app-shell .msg .body{font-size:13.5px;line-height:1.8;color:var(--tx-1);white-space:pre-wrap;word-break:break-word}
-.app-shell .msg.user .body{background:#1A1A25;border-radius:10px;padding:10px 12px;display:inline-block;max-width:100%}
-.app-shell .msg .think{font-size:12px;color:#6E6E85;border-left:2px solid #23232F;padding-left:10px;margin-bottom:8px;white-space:pre-wrap;max-height:120px;overflow:auto}
-.app-shell .tool-line{font-size:12px;color:#8E7DFF;background:#1B1A2A;border:1px solid #2A2742;border-radius:8px;padding:6px 10px;margin:6px 0;word-break:break-all}
-.app-shell .tool-line .ok{color:#3AD07A}
-.app-shell .tool-line .bad{color:#F87171}
-.app-shell .err-line{color:#F87171;font-size:12.5px;margin:8px 0;white-space:pre-wrap}
+.app-shell .msg.user .body{background:var(--bg-rail);border-radius:10px;padding:10px 12px;display:inline-block;max-width:100%}
+.app-shell .msg .think{font-size:12px;color:var(--tx-dim);border-left:2px solid var(--line);padding-left:10px;margin-bottom:8px;white-space:pre-wrap;max-height:120px;overflow:auto}
+.app-shell .tool-line{font-size:12px;color:var(--accent);background:var(--line-soft);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:6px 0;word-break:break-all}
+.app-shell .tool-line .ok{color:var(--ok)}
+.app-shell .tool-line .bad{color:var(--bad)}
+.app-shell .err-line{color:var(--bad);font-size:12.5px;margin:8px 0;white-space:pre-wrap}
 .app-shell .composer-input{width:100%;height:66px;resize:none;font-size:14.5px;line-height:1.6;background:transparent;color:var(--tx-1)}
-.app-shell .composer-input::placeholder{color:#6E6E85}
+.app-shell .composer-input::placeholder{color:var(--tx-dim)}
 .app-shell .qmodal{position:absolute;inset:0;background:rgba(4,4,8,.62);display:flex;align-items:center;justify-content:center;z-index:50}
-.app-shell .qbox{width:620px;max-height:620px;overflow:auto;background:var(--bg-rail);border:1px solid #2A2A38;border-radius:14px;padding:20px 22px}
+.app-shell .qbox{width:620px;max-height:620px;overflow:auto;background:var(--bg-rail);border:1px solid var(--line);border-radius:14px;padding:20px 22px}
 .app-shell .qbox h3{font-size:14px;font-weight:700;margin-bottom:10px;color:var(--tx-1)}
-.app-shell .qopt{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:9px;background:#1F1F2C;margin-bottom:8px;font-size:13px;color:var(--tx-1)}
-.app-shell .qopt:hover{background:#26234A}
+.app-shell .qopt{display:block;width:100%;text-align:left;padding:10px 12px;border-radius:9px;background:var(--bg-elev);margin-bottom:8px;font-size:13px;color:var(--tx-1)}
+.app-shell .qopt:hover{background:var(--accent-fill)}
 .app-shell .qopt .d{display:block;font-size:12px;color:var(--tx-3);margin-top:3px}
-.app-shell .qopt.on{background:#26234A;border:1px solid #5F49FF}
-.app-shell .qsubmit{margin-top:12px;height:34px;padding:0 16px;border-radius:9px;background:linear-gradient(160deg,#8B7BFF,#5F49FF);color:#fff;font-size:13px}
+.app-shell .qopt.on{background:var(--accent-fill);border:1px solid var(--accent)}
+.app-shell .qsubmit{margin-top:12px;height:34px;padding:0 16px;border-radius:9px;background:linear-gradient(160deg,var(--accent),var(--accent));color:#fff;font-size:13px}
 
 /* ──────────────────────────────────────────────────────────────
    设置屏表单控件（mock 未提供，按设计令牌新增）
    ────────────────────────────────────────────────────────────── */
 .app-shell .a-settings-panel{position:absolute;left:375px;top:0;width:992px;height:943px;padding:32px 40px;overflow-y:auto}
-.app-shell .a-settings-title{font-size:20px;font-weight:700;color:#F0F0F6;margin-bottom:8px}
-.app-shell .a-settings-desc{font-size:13px;color:#9898B0;margin-bottom:28px;line-height:1.6}
+.app-shell .a-settings-title{font-size:20px;font-weight:700;color:var(--tx-1);margin-bottom:8px}
+.app-shell .a-settings-desc{font-size:13px;color:var(--tx-3);margin-bottom:28px;line-height:1.6}
 .app-shell .a-form-row{margin-bottom:20px}
 .app-shell .a-form-row-inline{display:flex;gap:20px}
 .app-shell .a-form-col{flex:1}
-.app-shell .a-form-label{display:block;font-size:13px;font-weight:600;color:#C9C9DA;margin-bottom:8px}
+.app-shell .a-form-label{display:block;font-size:13px;font-weight:600;color:var(--tx-2);margin-bottom:8px}
 .app-shell .a-form-input{
   width:100%;height:38px;padding:0 12px;border-radius:8px;
-  background:#1A1A25;border:1px solid #23232F;
-  font-size:13.5px;color:#E8E8F0;
+  background:var(--bg-rail);border:1px solid var(--line);
+  font-size:13.5px;color:var(--tx-1);
   transition:border-color .15s;
 }
-.app-shell .a-form-input:focus{border-color:#7C6AFF;outline:none}
-.app-shell .a-form-input::placeholder{color:#6E6E85}
-.app-shell .a-form-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid #23232F}
+.app-shell .a-form-input:focus{border-color:var(--accent);outline:none}
+.app-shell .a-form-input::placeholder{color:var(--tx-dim)}
+.app-shell .a-form-toggle{display:flex;gap:0;border-radius:8px;overflow:hidden;border:1px solid var(--line)}
 .app-shell .a-toggle-btn{
-  flex:1;height:38px;font-size:13px;color:#9898B0;
-  background:#1A1A25;transition:all .15s;
+  flex:1;height:38px;font-size:13px;color:var(--tx-3);
+  background:var(--bg-rail);transition:all .15s;
 }
-.app-shell .a-toggle-btn:hover{color:#C9C9DA}
-.app-shell .a-toggle-btn.on{background:#211E3A;color:#8B7BFF;font-weight:600}
+.app-shell .a-toggle-btn:hover{color:var(--tx-2)}
+.app-shell .a-toggle-btn.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
 .app-shell .a-form-actions{display:flex;align-items:center;gap:14px;margin-top:32px}
 .app-shell .a-btn-primary{
   height:38px;padding:0 20px;border-radius:9px;
-  background:linear-gradient(160deg,#8B7BFF,#5F49FF);
+  background:linear-gradient(160deg,var(--accent),var(--accent));
   color:#fff;font-size:13.5px;font-weight:600;
   transition:opacity .15s;
 }
 .app-shell .a-btn-primary:hover{opacity:.9}
 .app-shell .a-btn-primary:disabled{opacity:.5;cursor:not-allowed}
-.app-shell .a-save-msg{font-size:12.5px;color:#3AD07A}
-.app-shell .a-save-msg.error{color:#F87171}
-.app-shell .a-form-hint{margin-top:16px;font-size:12px;color:#6E6E85;line-height:1.6}
+.app-shell .a-save-msg{font-size:12.5px;color:var(--ok)}
+.app-shell .a-save-msg.error{color:var(--bad)}
+.app-shell .a-form-hint{margin-top:16px;font-size:12px;color:var(--tx-dim);line-height:1.6}
 .app-shell .a-placeholder{position:absolute;left:375px;top:0;width:992px;height:943px;display:flex;align-items:center;justify-content:center}
-.app-shell .a-placeholder-text{font-size:14px;color:#6E6E85}
+.app-shell .a-placeholder-text{font-size:14px;color:var(--tx-dim)}
 
 /* ──────────────────────────────────────────────────────────────
    主界面交互层（会话滚动列表 / 作品下拉 / 面板开关 / 树折叠）
@@ -220,26 +220,26 @@ svg {
    ────────────────────────────────────────────────────────────── */
 .app-shell .b-left-list{position:absolute;left:0;top:45px;bottom:78px;width:220px;overflow-y:auto;overflow-x:hidden}
 .app-shell .b-left-list::-webkit-scrollbar{width:6px}
-.app-shell .b-left-list::-webkit-scrollbar-thumb{background:#1F1F2A;border-radius:3px}
+.app-shell .b-left-list::-webkit-scrollbar-thumb{background:var(--bg-elev);border-radius:3px}
 .app-shell .b-conv em{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 /* 用户卡：项目名可能较长，占满剩余宽度并省略（mock 的 44px 是"套…"账号名口径） */
 .app-shell .b-user .uname{flex:1;min-width:0;max-width:none;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .app-shell .b-booksel .bk{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;text-align:left}
 .app-shell .b-bookmenu{
   position:absolute;left:12px;top:92px;width:184px;max-height:320px;overflow-y:auto;
-  background:#16161F;border:1px solid #2A2A3A;border-radius:10px;padding:5px;z-index:30;
+  background:var(--line-soft);border:1px solid #2A2A3A;border-radius:10px;padding:5px;z-index:30;
   box-shadow:0 10px 30px rgba(0,0,0,.5);
 }
 .app-shell .b-bookmenu button{
   display:flex;align-items:center;gap:8px;width:100%;height:30px;padding:0 9px;
-  border-radius:7px;font-size:12.5px;color:#DEDEE9;text-align:left;
+  border-radius:7px;font-size:12.5px;color:var(--tx-1);text-align:left;
 }
-.app-shell .b-bookmenu button:hover{background:#22222F}
-.app-shell .b-bookmenu button.on{color:#8B7BFF}
-.app-shell .b-bookmenu button .ic{width:14px;height:14px;color:#8E8EA6;flex:none}
-.app-shell .b-bookmenu button.new{color:#8E7DFF;margin-top:3px;border-top:1px solid #23232F;border-radius:0}
-.app-shell .b-bookmenu button.new .ic{color:#8E7DFF}
-.app-shell .b-bookmenu .empty{font-size:12px;color:#6E6E85;padding:8px 9px}
+.app-shell .b-bookmenu button:hover{background:var(--bg-hover)}
+.app-shell .b-bookmenu button.on{color:var(--accent)}
+.app-shell .b-bookmenu button .ic{width:14px;height:14px;color:var(--tx-3);flex:none}
+.app-shell .b-bookmenu button.new{color:var(--accent);margin-top:3px;border-top:1px solid var(--line);border-radius:0}
+.app-shell .b-bookmenu button.new .ic{color:var(--accent)}
+.app-shell .b-bookmenu .empty{font-size:12px;color:var(--tx-dim);padding:8px 9px}
 .app-shell .tnode .caret{transition:transform .12s}
 .app-shell .tnode .caret.open{transform:rotate(90deg)}
 /* 标题栏面板开关：隐藏对应栏并让中栏回填 */
@@ -258,10 +258,10 @@ svg {
 .app-shell .b-editor-body h1{flex:none}
 .app-shell .editor-area{
   flex:1;min-height:0;width:100%;margin-top:12px;resize:none;border:0;outline:none;
-  font-family:inherit;font-size:15px;line-height:1.9;color:#E8E8F0;background:transparent;
+  font-family:inherit;font-size:15px;line-height:1.9;color:var(--tx-1);background:transparent;
 }
 .app-shell .editor-area::-webkit-scrollbar{width:8px}
-.app-shell .editor-area::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
+.app-shell .editor-area::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 /* 状态栏长文本省略 */
 .app-shell .b-status span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis;max-width:100%}
 /* 备忘录挂边面板：不得盖住标题栏 */
@@ -272,52 +272,52 @@ svg {
    ────────────────────────────────────────────────────────────── */
 .app-shell .a-settings-panel{position:absolute;left:375px;top:0;width:992px;height:943px;padding:32px 40px;overflow-y:auto}
 .app-shell .a-card{
-  background:#171622;border:1px solid #22222E;border-radius:14px;
+  background:var(--bg-elev);border:1px solid var(--line);border-radius:14px;
   padding:20px 24px;margin-bottom:18px;
 }
-.app-shell .a-card.danger{background:#1D1216;border-color:#3A2228}
+.app-shell .a-card.danger{background:var(--bad-bg);border-color:var(--bad-line)}
 .app-shell .a-card-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
-.app-shell .a-card-title{font-size:15px;font-weight:700;color:#F0F0F6}
-.app-shell .a-card-side{margin-left:auto;font-size:13px;color:#6C6C86}
-.app-shell .a-card-num{margin-left:auto;font-size:15px;font-weight:700;color:#8B7BFF}
-.app-shell .a-card-desc{font-size:12.5px;color:#82829A;line-height:1.7;margin-bottom:14px}
-.app-shell .a-card-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid #1D1D28;font-size:13.5px;color:#DEDEE9}
+.app-shell .a-card-title{font-size:15px;font-weight:700;color:var(--tx-1)}
+.app-shell .a-card-side{margin-left:auto;font-size:13px;color:var(--tx-dim)}
+.app-shell .a-card-num{margin-left:auto;font-size:15px;font-weight:700;color:var(--accent)}
+.app-shell .a-card-desc{font-size:12.5px;color:var(--tx-dim);line-height:1.7;margin-bottom:14px}
+.app-shell .a-card-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 0;border-top:1px solid var(--line-soft);font-size:13.5px;color:var(--tx-1)}
 .app-shell .a-card-row > span{flex:1;display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .app-shell .a-num{width:130px;flex:none;margin-left:auto;text-align:left}
 .app-shell .a-card-row.col{flex-direction:column;align-items:flex-start;gap:4px}
-.app-shell .a-path-label{font-size:13px;color:#C9C9DA}
-.app-shell .a-path{font-size:12px;color:#6E6E85;word-break:break-all}
-.app-shell .a-help{width:13px;height:13px;color:#5E5E75;display:inline-block;vertical-align:-2px}
-.app-shell .a-statbar{background:#141420;border:1px solid #22222E;border-radius:9px;padding:10px 14px;font-size:12.5px;color:#9A9AB2}
+.app-shell .a-path-label{font-size:13px;color:var(--tx-2)}
+.app-shell .a-path{font-size:12px;color:var(--tx-dim);word-break:break-all}
+.app-shell .a-help{width:13px;height:13px;color:var(--tx-dim);display:inline-block;vertical-align:-2px}
+.app-shell .a-statbar{background:var(--bg-hover);border:1px solid var(--line);border-radius:9px;padding:10px 14px;font-size:12.5px;color:var(--tx-3)}
 
 /* 滑杆（温度） */
 .app-shell .a-slider{
   -webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:3px;
-  background:#23232F;outline:none;margin:14px 0 4px;
+  background:var(--line);outline:none;margin:14px 0 4px;
 }
 .app-shell .a-slider::-webkit-slider-thumb{
   -webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;
-  background:linear-gradient(160deg,#8B7BFF,#5F49FF);border:none;cursor:pointer;
+  background:linear-gradient(160deg,var(--accent),var(--accent));border:none;cursor:pointer;
   box-shadow:0 2px 8px rgba(95,73,255,.5);
 }
-.app-shell .a-slider::-webkit-slider-runnable-track{background:linear-gradient(90deg,#7C6AFF var(--fill,40%),#23232F var(--fill,40%));border-radius:3px;height:5px}
+.app-shell .a-slider::-webkit-slider-runnable-track{background:linear-gradient(90deg,var(--accent) var(--fill,40%),var(--line) var(--fill,40%));border-radius:3px;height:5px}
 
 /* 文本域（系统提示词） */
 .app-shell .a-textarea{
   width:100%;min-height:120px;resize:vertical;padding:12px 14px;border-radius:10px;
-  background:#12121A;border:1px solid #23232F;font-size:13px;line-height:1.8;color:#E8E8F0;
+  background:var(--bg-panel);border:1px solid var(--line);font-size:13px;line-height:1.8;color:var(--tx-1);
 }
-.app-shell .a-textarea:focus{border-color:#7C6AFF;outline:none}
+.app-shell .a-textarea:focus{border-color:var(--accent);outline:none}
 
 /* 分段选择（主题模式 / 同步方式） */
-.app-shell .a-seg{display:inline-flex;border:1px solid #23232F;border-radius:10px;overflow:hidden}
+.app-shell .a-seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .app-shell .a-seg.wide{display:flex}
 .app-shell .a-seg button{
-  min-width:96px;height:36px;padding:0 18px;font-size:13px;color:#9898B0;background:#141420;
+  min-width:96px;height:36px;padding:0 18px;font-size:13px;color:var(--tx-3);background:var(--bg-hover);
   display:flex;align-items:center;justify-content:center;gap:6px;
 }
-.app-shell .a-seg button + button{border-left:1px solid #23232F}
-.app-shell .a-seg button:hover{color:#DEDEE9}
+.app-shell .a-seg button + button{border-left:1px solid var(--line)}
+.app-shell .a-seg button:hover{color:var(--tx-1)}
 .app-shell .a-seg button.on{background:var(--accent);color:#fff;font-weight:600}
 
 /* 色板（主题颜色，真机采样值） */
@@ -331,60 +331,60 @@ svg {
 
 /* 开关（真机：紫色胶囊滑块） */
 .app-shell .a-switch{
-  width:44px;height:24px;border-radius:12px;background:#23232F;position:relative;flex:none;
+  width:44px;height:24px;border-radius:12px;background:var(--line);position:relative;flex:none;
   transition:background .15s;
 }
 .app-shell .a-switch i{
-  position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:#E8E8F0;
+  position:absolute;left:3px;top:3px;width:18px;height:18px;border-radius:50%;background:var(--tx-1);
   transition:transform .15s;
 }
 .app-shell .a-switch.on{background:var(--accent)}
 .app-shell .a-switch.on i{transform:translateX(20px)}
 
 /* Skill 页 */
-.app-shell .a-skill-topline{font-size:13px;color:#9A9AB2;margin-bottom:16px;line-height:1.6}
+.app-shell .a-skill-topline{font-size:13px;color:var(--tx-3);margin-bottom:16px;line-height:1.6}
 .app-shell .a-skill-toolbar{display:flex;align-items:center;gap:10px;margin-bottom:18px}
 .app-shell .a-search{
-  flex:1;height:38px;border-radius:10px;background:#141420;border:1px solid #23232F;
+  flex:1;height:38px;border-radius:10px;background:var(--bg-hover);border:1px solid var(--line);
   display:flex;align-items:center;gap:9px;padding:0 12px;
 }
-.app-shell .a-search .ic{width:15px;height:15px;color:#6E6E85}
-.app-shell .a-search input{flex:1;font-size:13px;color:#E8E8F0;background:none;border:0;outline:none}
-.app-shell .a-search input::placeholder{color:#6E6E85}
+.app-shell .a-search .ic{width:15px;height:15px;color:var(--tx-dim)}
+.app-shell .a-search input{flex:1;font-size:13px;color:var(--tx-1);background:none;border:0;outline:none}
+.app-shell .a-search input::placeholder{color:var(--tx-dim)}
 .app-shell .a-toolbtn{
-  height:36px;padding:0 14px;border-radius:9px;background:#141420;border:1px solid #23232F;
-  font-size:13px;color:#C9C9DA;display:flex;align-items:center;gap:7px;
+  height:36px;padding:0 14px;border-radius:9px;background:var(--bg-hover);border:1px solid var(--line);
+  font-size:13px;color:var(--tx-2);display:flex;align-items:center;gap:7px;
 }
-.app-shell .a-toolbtn:hover{border-color:#35354A;color:#F0F0F6}
-.app-shell .a-toolbtn.on{background:#211E3A;border-color:#34305C;color:#8B7BFF}
+.app-shell .a-toolbtn:hover{border-color:var(--line-strong);color:var(--tx-1)}
+.app-shell .a-toolbtn.on{background:var(--accent-soft);border-color:var(--accent-line);color:var(--accent)}
 .app-shell .a-group-head{
-  display:flex;align-items:center;justify-content:space-between;font-size:13px;color:#9A9AB2;
+  display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--tx-3);
   padding:6px 2px;cursor:pointer;user-select:none;
 }
-.app-shell .a-group-head em{font-style:normal;color:#6E6E85}
-.app-shell .a-group-head .caret{width:12px;height:12px;color:#6E6E85;transition:transform .12s}
+.app-shell .a-group-head em{font-style:normal;color:var(--tx-dim)}
+.app-shell .a-group-head .caret{width:12px;height:12px;color:var(--tx-dim);transition:transform .12s}
 .app-shell .a-group-head .caret.open{transform:rotate(180deg)}
 .app-shell .a-skill-row{
   display:flex;align-items:center;gap:14px;padding:14px 14px;border-radius:12px;
-  background:#141420;border:1px solid #1E1E2A;margin-bottom:8px;
+  background:var(--bg-hover);border:1px solid var(--line-soft);margin-bottom:8px;
 }
 .app-shell .a-skill-ava{
-  width:36px;height:36px;border-radius:10px;background:#1F1F2C;color:#B9A9FF;flex:none;
+  width:36px;height:36px;border-radius:10px;background:var(--bg-elev);color:var(--accent-text);flex:none;
   display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;
 }
 .app-shell .a-skill-main{flex:1;min-width:0}
-.app-shell .a-skill-name{font-size:14px;font-weight:600;color:#F0F0F6}
+.app-shell .a-skill-name{font-size:14px;font-weight:600;color:var(--tx-1)}
 .app-shell .a-skill-desc{
-  font-size:12px;color:#7A7A92;margin-top:3px;
+  font-size:12px;color:var(--tx-dim);margin-top:3px;
   overflow:hidden;white-space:nowrap;text-overflow:ellipsis;
 }
-.app-shell .a-empty{font-size:13px;color:#6E6E85;padding:24px 4px;line-height:1.7}
-.app-shell .a-flash{font-size:12.5px;color:#C9A227;margin:6px 0 2px}
-.app-shell .a-flash.ok{color:#3AD07A}
-.app-shell .a-flash.error{color:#F87171}
-.app-shell .d-badge.bad{background:#2A1418;border-color:#4A2028;color:#F87171}
-.app-shell .d-badge.bad i{background:#F87171}
-.app-shell .a-model-hint{font-size:12px;font-weight:400;color:#7A7A92;margin-left:8px}
+.app-shell .a-empty{font-size:13px;color:var(--tx-dim);padding:24px 4px;line-height:1.7}
+.app-shell .a-flash{font-size:12.5px;color:var(--warn);margin:6px 0 2px}
+.app-shell .a-flash.ok{color:var(--ok)}
+.app-shell .a-flash.error{color:var(--bad)}
+.app-shell .d-badge.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.app-shell .d-badge.bad i{background:var(--bad)}
+.app-shell .a-model-hint{font-size:12px;font-weight:400;color:var(--tx-dim);margin-left:8px}
 
 /* 参数页脚 */
 .app-shell .a-params-footer{display:flex;align-items:center;gap:14px;margin-top:4px}
@@ -397,111 +397,111 @@ svg {
   box-shadow:0 10px 30px rgba(0,0,0,.45);
 }
 .app-shell .a-about-logo img{width:100%;height:100%;object-fit:contain}
-.app-shell .a-about-hero h2{margin-top:16px;font-size:21px;font-weight:700;color:#F2F2F7}
+.app-shell .a-about-hero h2{margin-top:16px;font-size:21px;font-weight:700;color:var(--tx-1)}
 .app-shell .a-version{
-  margin-top:8px;height:22px;padding:0 12px;border-radius:11px;background:#1F1F2C;
-  font-size:12px;color:#9A9AB2;display:flex;align-items:center;
+  margin-top:8px;height:22px;padding:0 12px;border-radius:11px;background:var(--bg-elev);
+  font-size:12px;color:var(--tx-3);display:flex;align-items:center;
 }
-.app-shell .a-about-hero p{margin-top:10px;font-size:13px;color:#6E6E85}
+.app-shell .a-about-hero p{margin-top:10px;font-size:13px;color:var(--tx-dim)}
 .app-shell .a-list-row{
   display:flex;align-items:center;justify-content:space-between;width:100%;
-  height:42px;padding:0 4px;font-size:13.5px;color:#DEDEE9;border-top:1px solid #1D1D28;text-align:left;
+  height:42px;padding:0 4px;font-size:13.5px;color:var(--tx-1);border-top:1px solid var(--line-soft);text-align:left;
 }
 .app-shell .a-list-row:first-of-type{border-top:0}
-.app-shell .a-list-row:hover{color:#F0F0F6}
-.app-shell .a-list-row em{font-style:normal;color:#5E5E75;font-size:16px}
+.app-shell .a-list-row:hover{color:var(--tx-1)}
+.app-shell .a-list-row em{font-style:normal;color:var(--tx-dim);font-size:16px}
 .app-shell .a-btn-danger{
   height:36px;padding:0 16px;border-radius:9px;margin-left:auto;
-  background:#2A1418;border:1px solid #4A2028;color:#F87171;font-size:13px;font-weight:600;
+  background:var(--bad-bg);border:1px solid var(--bad-line);color:var(--bad);font-size:13px;font-weight:600;
 }
-.app-shell .a-btn-danger:hover{background:#381A20}
+.app-shell .a-btn-danger:hover{background:var(--bad-bg)}
 
 /* 连接徽标（provider 卡片头部；沿用 screens.css 的 .d-badge，补灰色态） */
-.app-shell .d-badge.off{background:#1D1D28;border-color:#2A2A38;color:#7A7A92}
-.app-shell .d-badge.off i{background:#7A7A92}
+.app-shell .d-badge.off{background:var(--line-soft);border-color:var(--line);color:var(--tx-dim)}
+.app-shell .d-badge.off i{background:var(--tx-dim)}
 
 /* ──────────────────────────────────────────────────────────────
    备忘录模态（结构对照真机 shot-ow-memo.png；编辑视图为合理外推）
    ────────────────────────────────────────────────────────────── */
 .app-shell .memo-modal{position:absolute;inset:0;background:rgba(4,4,8,.55);display:flex;align-items:center;justify-content:center;z-index:40}
 .app-shell .memo-box{
-  width:840px;height:680px;background:#12121A;border:1px solid #23232F;border-radius:16px;
+  width:840px;height:680px;background:var(--bg-panel);border:1px solid var(--line);border-radius:16px;
   display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.55);
 }
 .app-shell .memo-box.docked{
   position:absolute;right:208px;top:0;bottom:0;left:auto;width:320px;height:auto;
-  border-radius:0;border:0;border-left:1px solid #23232F;transform:none;
+  border-radius:0;border:0;border-left:1px solid var(--line);transform:none;
 }
 .app-shell .memo-head{display:flex;align-items:center;gap:10px;height:52px;padding:0 16px;flex:none}
-.app-shell .memo-head .ic{color:#8E7DFF;width:17px;height:17px}
-.app-shell .memo-head .ttl{font-size:15px;font-weight:700;color:#F0F0F6}
+.app-shell .memo-head .ic{color:var(--accent);width:17px;height:17px}
+.app-shell .memo-head .ttl{font-size:15px;font-weight:700;color:var(--tx-1)}
 .app-shell .memo-head-tools{margin-left:auto;display:flex;align-items:center;gap:6px}
 .app-shell .memo-tool{
   height:28px;padding:0 9px;border-radius:7px;display:flex;align-items:center;gap:6px;
-  font-size:12.5px;color:#9A9AB4;
+  font-size:12.5px;color:var(--tx-3);
 }
 .app-shell .memo-tool .ic{width:14px;height:14px;color:currentColor}
-.app-shell .memo-tool:hover{background:#1A1A24;color:#E2E2EC}
-.app-shell .memo-tool.accent{color:#8E7DFF}
-.app-shell .memo-tool.on{color:#8E7DFF;background:#211E3A}
+.app-shell .memo-tool:hover{background:var(--bg-hover);color:var(--tx-1)}
+.app-shell .memo-tool.accent{color:var(--accent)}
+.app-shell .memo-tool.on{color:var(--accent);background:var(--accent-soft)}
 .app-shell .memo-filterrow{display:flex;align-items:center;gap:10px;padding:0 16px 10px;flex:none}
-.app-shell .memo-filterrow .lbl{font-size:12.5px;color:#7A7A92;display:flex;align-items:center;gap:6px}
+.app-shell .memo-filterrow .lbl{font-size:12.5px;color:var(--tx-dim);display:flex;align-items:center;gap:6px}
 .app-shell .memo-filterrow .lbl .ic{width:14px;height:14px}
 .app-shell .memo-scope{
-  height:26px;padding:0 10px;border-radius:7px;background:#211E3A;color:#8E7DFF;
+  height:26px;padding:0 10px;border-radius:7px;background:var(--accent-soft);color:var(--accent);
   display:flex;align-items:center;gap:6px;font-size:12.5px;
 }
 .app-shell .memo-scope .ic{width:13px;height:13px}
-.app-shell .memo-scope em{font-style:normal;font-size:10px;color:#8E7DFF}
-.app-shell .memo-cats{display:flex;align-items:center;gap:8px;padding:2px 16px 12px;border-bottom:1px solid #191922;flex:none;flex-wrap:wrap}
+.app-shell .memo-scope em{font-style:normal;font-size:10px;color:var(--accent)}
+.app-shell .memo-cats{display:flex;align-items:center;gap:8px;padding:2px 16px 12px;border-bottom:1px solid var(--bg-hover);flex:none;flex-wrap:wrap}
 .app-shell .mcat{
-  height:26px;padding:0 11px;border-radius:13px;background:#1A1A25;color:#B9B9CC;
+  height:26px;padding:0 11px;border-radius:13px;background:var(--bg-rail);color:var(--tx-2);
   display:flex;align-items:center;gap:6px;font-size:12.5px;
 }
-.app-shell .mcat:hover{background:#23232F}
-.app-shell .mcat.on{background:#211E3A;color:#8E7DFF;font-weight:600}
-.app-shell .mcat em{font-style:normal;color:#6E6E85;font-size:13px}
-.app-shell .mcat em:hover{color:#F87171}
-.app-shell .mcat.add{width:26px;padding:0;justify-content:center;font-size:15px;color:#8E8EA6}
+.app-shell .mcat:hover{background:var(--line)}
+.app-shell .mcat.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.app-shell .mcat em{font-style:normal;color:var(--tx-dim);font-size:13px}
+.app-shell .mcat em:hover{color:var(--bad)}
+.app-shell .mcat.add{width:26px;padding:0;justify-content:center;font-size:15px;color:var(--tx-3)}
 .app-shell .memo-list{flex:1;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
 .app-shell .memo-list::-webkit-scrollbar{width:8px}
-.app-shell .memo-list::-webkit-scrollbar-thumb{background:#23232F;border-radius:4px}
+.app-shell .memo-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 .app-shell .memo-card{
-  text-align:left;background:#171622;border:1px solid #22222E;border-radius:12px;padding:12px 14px;
+  text-align:left;background:var(--bg-elev);border:1px solid var(--line);border-radius:12px;padding:12px 14px;
 }
-.app-shell .memo-card:hover{border-color:#34305C}
+.app-shell .memo-card:hover{border-color:var(--accent-line)}
 .app-shell .memo-card .row1{display:flex;align-items:center;gap:10px}
-.app-shell .memo-card .t{font-size:13.5px;font-weight:600;color:#F0F0F6;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.app-shell .memo-card .c{font-size:11px;color:#8E7DFF;background:#211E3A;border-radius:5px;padding:1px 7px;flex:none}
-.app-shell .memo-card .s{font-size:12.5px;color:#9A9AB2;margin-top:6px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.app-shell .memo-card .d{font-size:11px;color:#5E5E75;margin-top:6px}
+.app-shell .memo-card .t{font-size:13.5px;font-weight:600;color:var(--tx-1);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.app-shell .memo-card .c{font-size:11px;color:var(--accent);background:var(--accent-soft);border-radius:5px;padding:1px 7px;flex:none}
+.app-shell .memo-card .s{font-size:12.5px;color:var(--tx-3);margin-top:6px;line-height:1.6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.app-shell .memo-card .d{font-size:11px;color:var(--tx-dim);margin-top:6px}
 .app-shell .memo-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
 .app-shell .memo-empty .ee-icon{
-  width:64px;height:64px;border-radius:16px;background:#1A1A25;color:#8E8EA6;
+  width:64px;height:64px;border-radius:16px;background:var(--bg-rail);color:var(--tx-3);
   display:flex;align-items:center;justify-content:center;margin-bottom:14px;
 }
 .app-shell .memo-empty .ee-icon .ic{width:26px;height:26px}
-.app-shell .memo-empty .ee-t1{font-size:13.5px;color:#B9B9CC;margin-bottom:8px}
-.app-shell .memo-empty .ee-t2{font-size:12.5px;color:#6E6E85}
+.app-shell .memo-empty .ee-t1{font-size:13.5px;color:var(--tx-2);margin-bottom:8px}
+.app-shell .memo-empty .ee-t2{font-size:12.5px;color:var(--tx-dim)}
 /* 编辑视图（外推：真机编辑视图未取证） */
 .app-shell .memo-edit{flex:1;display:flex;flex-direction:column;padding:14px 16px;gap:10px;min-height:0}
 .app-shell .memo-title{
-  height:38px;padding:0 12px;border-radius:9px;background:#171622;border:1px solid #23232F;
-  font-size:14px;font-weight:600;color:#F0F0F6;
+  height:38px;padding:0 12px;border-radius:9px;background:var(--bg-elev);border:1px solid var(--line);
+  font-size:14px;font-weight:600;color:var(--tx-1);
 }
-.app-shell .memo-title:focus{border-color:#7C6AFF;outline:none}
+.app-shell .memo-title:focus{border-color:var(--accent);outline:none}
 .app-shell .memo-edit-meta{display:flex;align-items:center;gap:10px}
 .app-shell .memo-edit-meta select{
-  height:28px;padding:0 8px;border-radius:7px;background:#1A1A25;border:1px solid #23232F;
-  color:#B9B9CC;font-size:12px;
+  height:28px;padding:0 8px;border-radius:7px;background:var(--bg-rail);border:1px solid var(--line);
+  color:var(--tx-2);font-size:12px;
 }
-.app-shell .memo-del{margin-left:auto;height:28px;padding:0 12px;border-radius:7px;background:#2A1418;border:1px solid #4A2028;color:#F87171;font-size:12px}
-.app-shell .memo-back{height:28px;padding:0 12px;border-radius:7px;background:#1A1A25;color:#B9B9CC;font-size:12px}
+.app-shell .memo-del{margin-left:auto;height:28px;padding:0 12px;border-radius:7px;background:var(--bad-bg);border:1px solid var(--bad-line);color:var(--bad);font-size:12px}
+.app-shell .memo-back{height:28px;padding:0 12px;border-radius:7px;background:var(--bg-rail);color:var(--tx-2);font-size:12px}
 .app-shell .memo-content{
-  flex:1;resize:none;padding:12px 14px;border-radius:10px;background:#171622;border:1px solid #23232F;
-  font-size:13px;line-height:1.8;color:#E8E8F0;min-height:0;
+  flex:1;resize:none;padding:12px 14px;border-radius:10px;background:var(--bg-elev);border:1px solid var(--line);
+  font-size:13px;line-height:1.8;color:var(--tx-1);min-height:0;
 }
-.app-shell .memo-content:focus{border-color:#7C6AFF;outline:none}
+.app-shell .memo-content:focus{border-color:var(--accent);outline:none}
 
 /* ──────────────────────────────────────────────────────────────
    强调色跟随（真机口径：主题颜色变更时按钮/链接/选中态全部跟随）
@@ -527,30 +527,38 @@ svg {
 .app-shell .a-slider::-webkit-slider-thumb{background:var(--accent)}
 .app-shell .tbtn.on{color:var(--accent)}
 .app-shell .b-icon-btn.accent{color:var(--accent)}
-.app-shell .a-nav-item.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, #12121A)}
+.app-shell .a-nav-item.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, var(--bg-panel))}
 .app-shell .a-nav-item.on .ic{color:var(--accent)}
 .app-shell .a-prow.on{color:var(--accent)}
 .app-shell .a-prow.on .ic{color:var(--accent)}
 .app-shell .tnode .folder{color:var(--accent)}
 .app-shell .a-toolbtn.on{color:var(--accent)}
 .app-shell .memo-tool.accent{color:var(--accent)}
-.app-shell .memo-tool.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, #12121A)}
-.app-shell .memo-scope{background:color-mix(in srgb, var(--accent) 16%, #12121A);color:var(--accent)}
+.app-shell .memo-tool.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 16%, var(--bg-panel))}
+.app-shell .memo-scope{background:color-mix(in srgb, var(--accent) 16%, var(--bg-panel));color:var(--accent)}
 .app-shell .memo-scope em{color:var(--accent)}
-.app-shell .mcat.on{background:color-mix(in srgb, var(--accent) 18%, #12121A);color:var(--accent)}
+.app-shell .mcat.on{background:color-mix(in srgb, var(--accent) 18%, var(--bg-panel));color:var(--accent)}
 .app-shell .a-skill-ava{color:var(--accent)}
 .app-shell .a-card-num{color:var(--accent)}
 .app-shell .cbtn.model{
-  background:color-mix(in srgb, var(--accent) 22%, #12121A);
-  border-color:color-mix(in srgb, var(--accent) 45%, #12121A);
+  background:color-mix(in srgb, var(--accent) 22%, var(--bg-panel));
+  border-color:color-mix(in srgb, var(--accent) 45%, var(--bg-panel));
   color:color-mix(in srgb, var(--accent) 80%, #fff);
 }
-.app-shell .cbtn.model:hover{background:color-mix(in srgb, var(--accent) 30%, #12121A)}
+.app-shell .cbtn.model:hover{background:color-mix(in srgb, var(--accent) 30%, var(--bg-panel))}
 .app-shell .cbtn.model .ic{color:inherit}
-.app-shell .tool-line{background:color-mix(in srgb, var(--accent) 9%, #12121A);border-color:color-mix(in srgb, var(--accent) 26%, #12121A)}
-.app-shell .b-composer:focus-within{border-color:color-mix(in srgb, var(--accent) 55%, #23232F)}
+.app-shell .tool-line{background:color-mix(in srgb, var(--accent) 9%, var(--bg-panel));border-color:color-mix(in srgb, var(--accent) 26%, var(--bg-panel))}
+.app-shell .b-composer:focus-within{border-color:color-mix(in srgb, var(--accent) 55%, var(--line))}
 .app-shell .a-form-input:focus,
 .app-shell .a-textarea:focus,
 .app-shell .a-search:focus-within,
 .app-shell .memo-title:focus,
 .app-shell .memo-content:focus{border-color:var(--accent)}
+
+/* ── 浅色主题适配：遮罩/阴影减淡（底色已由语义令牌自动切换） ── */
+html[data-theme="light"] .app-shell .qmodal,
+html[data-theme="light"] .app-shell .memo-modal{background:rgba(235,237,244,.66)}
+html[data-theme="light"] .app-shell .qbox,
+html[data-theme="light"] .app-shell .memo-box,
+html[data-theme="light"] .app-shell .b-bookmenu{box-shadow:0 20px 60px rgba(30,35,60,.16)}
+html[data-theme="light"] .app-shell .b-send{box-shadow:0 6px 18px color-mix(in srgb, var(--accent) 32%, transparent)}

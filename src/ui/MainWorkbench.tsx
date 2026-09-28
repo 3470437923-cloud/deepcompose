@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "../assets/logo.png";
-import { boot, applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
+import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
 import { join, projectChaptersDir, projectDocsDir } from "../core/dirs";
 import {
@@ -203,6 +203,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       try {
         const b = await boot();
         applyAccentFromPrefs(b.prefs);
+        applyThemeFromPrefs(b.prefs);
         const fs = getFs();
         const { scanBooksRoot } = await import("../core/store/project");
         const list = await scanBooksRoot(fs, b.dirs.booksRoot);
@@ -554,7 +555,20 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         <div className="win-frame">
           <div className="win">
             {/* ── 标题栏 ── */}
-            <div className="titlebar" data-tauri-drag-region>
+            <div
+              className="titlebar"
+              onMouseDown={(e) => {
+                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+                if (e.button !== 0) return;
+                const el = e.target as HTMLElement;
+                if (el.closest("button")) return;
+                void win.startDragging();
+              }}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                void win.toggleMaximize();
+              }}
+            >
               <div className="brand">
                 <div className="brand-mark">
                   <img src={logo} alt="" />
@@ -809,7 +823,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     {!currentBoot()?.prefs.apiKey ? (
                       <span className="cbtn plain">未配置 API Key</span>
                     ) : null}
-                    <button className="b-send" title="发送" onClick={() => void doSend()} disabled={busy}>
+                    <button className="b-send" title="发送" onClick={() => void doSend()} disabled={busy || composer.trim() === ""}>
                       <svg viewBox="0 0 24 24" className="ic">
                         <path d="M3.4 11.2L20.4 3.2l-7.8 17-2.2-6.8-7-2.2z" fill="currentColor" stroke="none" />
                       </svg>

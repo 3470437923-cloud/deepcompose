@@ -15,6 +15,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import logo from "../assets/logo.png";
 import { currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
@@ -40,6 +41,7 @@ export default function SettingsScreen({ onBack }: Props) {
   const [saveMsg, setSaveMsg] = useState("");
   const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+  const win = getCurrentWindow();
 
   if (!boot) {
     return (
@@ -47,7 +49,20 @@ export default function SettingsScreen({ onBack }: Props) {
         <div className="holder">
           <div className="win-frame">
             <div className="win">
-              <div className="titlebar" data-tauri-drag-region>
+              <div
+              className="titlebar"
+              onMouseDown={(e) => {
+                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+                if (e.button !== 0) return;
+                const el = e.target as HTMLElement;
+                if (el.closest("button")) return;
+                void win.startDragging();
+              }}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                void win.toggleMaximize();
+              }}
+            >
                 <div className="brand">
                   <div className="brand-mark"><img src={logo} alt="" /></div>
                   <div className="brand-name">writerD</div>
@@ -189,7 +204,20 @@ export default function SettingsScreen({ onBack }: Props) {
         <div className="win-frame">
           <div className="win">
             {/* ── 标题栏 ── */}
-            <div className="titlebar" data-tauri-drag-region>
+            <div
+              className="titlebar"
+              onMouseDown={(e) => {
+                // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
+                if (e.button !== 0) return;
+                const el = e.target as HTMLElement;
+                if (el.closest("button")) return;
+                void win.startDragging();
+              }}
+              onDoubleClick={(e) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                void win.toggleMaximize();
+              }}
+            >
               <div className="brand">
                 <div className="brand-mark"><img src={logo} alt="" /></div>
                 <div className="brand-name">writerD</div>
@@ -308,6 +336,8 @@ function ProviderSection({
       setModels(list);
       setConn(list.length > 0 ? "ok" : "error");
       setConnMsg(list.length > 0 ? `连接正常，获取到 ${list.length} 个模型` : "连接正常，但端点未返回模型清单");
+      // 首次配置便利：当前未选模型时自动选第一个
+      if (list.length > 0 && !form.model?.trim()) update("model", list[0]);
     } catch (e) {
       setConn("error");
       setConnMsg(String(e instanceof Error ? e.message : e));
@@ -380,20 +410,22 @@ function ProviderSection({
           <label className="a-form-label">
             模型{models.length > 0 ? <span className="a-model-hint">（检测到 {models.length} 个，可下拉选择或手填）</span> : null}
           </label>
-          <input
+          <select
             className="a-form-input"
-            type="text"
-            list="model-options"
-            placeholder={models[0] ?? "deepseek-chat"}
-            value={form.model}
+            value={models.includes(form.model) ? form.model : ""}
             onChange={(e) => update("model", e.target.value)}
-            spellCheck={false}
-          />
-          <datalist id="model-options">
+          >
+            {!models.includes(form.model) && (
+              <option value="" disabled>
+                {models.length > 0 ? "请选择模型" : "请先检测连接获取模型"}
+              </option>
+            )}
             {models.map((m) => (
-              <option key={m} value={m} />
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
-          </datalist>
+          </select>
         </div>
 
         <div className="a-form-row a-form-row-inline">
@@ -741,16 +773,24 @@ function ThemeSection({
         </div>
         <div className="a-card-desc">跟随系统时自动适配 Windows 的深浅色设置。</div>
         <div className="a-seg">
-          <button onClick={() => onFlash("跟随系统：暂不支持，已保持当前模式")}>跟随系统</button>
           <button
             className={!form.isDarkMode ? "on" : ""}
-            onClick={() => update("isDarkMode", false)}
+            onClick={() => {
+              update("isDarkMode", false);
+              document.documentElement.dataset.theme = "light";
+              // 即时持久化：返回主界面时 boot 装配会按已存 prefs 重设主题
+              void savePrefs({ ...form, isDarkMode: false });
+            }}
           >
             浅色
           </button>
           <button
             className={form.isDarkMode ? "on" : ""}
-            onClick={() => update("isDarkMode", true)}
+            onClick={() => {
+              update("isDarkMode", true);
+              document.documentElement.dataset.theme = "dark";
+              void savePrefs({ ...form, isDarkMode: true });
+            }}
           >
             深色
           </button>

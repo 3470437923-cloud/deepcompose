@@ -65,3 +65,8 @@ export function applyAccentFromPrefs(prefs: Prefs): void {
   root.setProperty("--accent", hex);
   root.setProperty("--accent-soft", `color-mix(in srgb, ${hex} 16%, #12121A)`);
 }
+
+/** 应用深/浅主题（真机键 is_dark_mode；浅色为 writerD 扩展色板） */
+export function applyThemeFromPrefs(prefs: Prefs): void {
+  document.documentElement.dataset.theme = prefs.isDarkMode ? "dark" : "light";
+}
