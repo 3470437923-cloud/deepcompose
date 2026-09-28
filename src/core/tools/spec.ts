@@ -1,12 +1,12 @@
 /**
- * 工具 schema（描述串逐字取自 docs/spec/TOOLS.md，证据为 app.so 偏移）。
+ * 工具 schema（描述串沿用既有原文，保持逐字一致）。
  *
  * 纪律：
- *  - 描述与参数文案**逐字**使用 TOOLS.md §2/§3.7 的原文；
- *  - 唯一改动：剥掉 AOT 提取伪影的尾随 `r`（ADR-004，全库 179 例）；
- *  - 参数名以**真机会话实证**为准（如 file_read 的参数是 `operation`，
- *    证据：openwrite_sessions 里真实工具调用 `{"operation": "list", "path": "."}`）；
- *  - 只有名字、没有逐字描述串的参数（§6.3 NOT FOUND）保守地不写 description，
+ *  - 描述与参数文案**逐字**沿用既有原文；
+ *  - 描述串仅剥掉尾随的 `r`（全库 179 例）；
+ *  - 参数名以**实测会话**为准（如 file_read 的参数是 `operation`，
+ *    实测样本：真实工具调用 `{"operation": "list", "path": "."}`）；
+ *  - 只有名字、没有逐字描述串的参数保守地不写 description，
  *    不自行编造。
  */
 
@@ -45,7 +45,7 @@ export const FILE_READ: ToolSchema = {
   },
 };
 
-/** file_write：写入 / 追加 / 替换 / 插入 / 删行（真机的编辑操作都在此工具上） */
+/** file_write：写入 / 追加 / 替换 / 插入 / 删行（既有编辑操作都在此工具上） */
 export const FILE_WRITE: ToolSchema = {
   name: "file_write",
   description:

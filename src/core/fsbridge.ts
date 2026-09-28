@@ -3,13 +3,13 @@
  *
  * 业务层（src/core/**）不直接碰 Node/浏览器 API，只依赖本接口；
  * 生产环境走 Tauri IPC（Rust 侧 fs_* 命令），测试环境走 node:fs 替身。
- * 这是 CONTRACT §10「路径分级授权」的落点：所有路径都要先过 pathGuard。
+ * 这是「路径分级授权」的落点：所有路径都要先过 pathGuard。
  */
 
 export interface DirEntry {
   /** 文件名（不含路径） */
   name: string;
-  /** 相对查询目录的路径，'\' 分隔，与真机一致 */
+  /** 相对查询目录的路径，'\' 分隔，保持既有格式 */
   rel: string;
   /** 绝对路径 */
   path: string;

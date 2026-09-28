@@ -3,7 +3,7 @@
   "private": true,
   "version": "2.0.1",
   "type": "module",
-  "description": "writerD — 长篇中文小说 AI 写作工作台（OpenWrite v2.0.1 无收费平替）",
+  "description": "writerD — 长篇中文小说 AI 写作工作台",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

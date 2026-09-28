@@ -1,5 +1,5 @@
 /**
- * 作品目录协议：与真机布局逐项对齐，并做一次真机只读集成校验。
+ * 作品目录协议：与既有布局逐项对齐，并做一次既有目录只读集成校验。
  */
 import { existsSync } from "node:fs";
 import { promises as fsp } from "node:fs";
@@ -69,7 +69,7 @@ describe("章节排序", () => {
   });
 });
 
-describe("新建作品：布局与真机逐项一致", () => {
+describe("新建作品：布局与既有格式逐项一致", () => {
   it("生成 小说资料 三件套 + 章节内容 + .openwrite_manifest.json", async () => {
     const p = await createProject(fs, booksRoot, "测试书籍");
     const entries = await fsp.readdir(p.root);
@@ -78,7 +78,7 @@ describe("新建作品：布局与真机逐项一致", () => {
     const docEntries = (await fsp.readdir(path.join(p.root, "小说资料"))).sort();
     expect(docEntries).toEqual(["世界观.md", "人物库.md", "章节摘要.md"].sort());
 
-    // 真机实测：维护文档内容为 "# 标题\r\n"（测试书籍/世界观.md = 13 字节）
+    // 既有格式（实测）：维护文档内容为 "# 标题\r\n"（测试书籍/世界观.md = 13 字节）
     const shijie = await fsp.readFile(path.join(p.root, "小说资料", "世界观.md"));
     expect(shijie.toString("utf8")).toBe("# 世界观\r\n");
     expect(shijie.length).toBe(13);
@@ -145,9 +145,9 @@ describe("读取作品", () => {
   });
 });
 
-// —— 真机只读集成校验（目录不存在时自动跳过）——
+// —— 既有目录只读集成校验（目录不存在时自动跳过）——
 const REAL_BOOKS = "C:\\Users\\Administrator\\AI写小说";
-describe.skipIf(!existsSync(REAL_BOOKS))("真机作品目录（只读）", () => {
+describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () => {
   it("能列出真实作品，并读到 小说资料 里的用户自建文档", async () => {
     const projects = await scanBooksRoot(fs, REAL_BOOKS);
     const names = projects.map((p) => p.name);

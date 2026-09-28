@@ -2,8 +2,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles/tokens.css";
-import "./styles/base.css";
-import "./styles/screens.css";
+import "./styles/glass.css";
+import "./styles/app.css";
 
 // 运行时错误只进控制台（打包版不污染窗口标题）
 window.onerror = (msg, src, line, col) => {

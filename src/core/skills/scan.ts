@@ -1,19 +1,19 @@
 /**
- * 技能扫描：读取技能根目录（真机即 Documents\skills），解析 SKILL.md frontmatter，
- * 生成 skill_list（prefs 键，真机实证：元素含 id/name/description/directoryPath/
+ * 技能扫描：读取技能根目录（即 Documents\skills），解析 SKILL.md frontmatter，
+ * 生成 skill_list（prefs 键，既有格式：元素含 id/name/description/directoryPath/
  * isBuiltIn/marketplaceSkillId/marketplaceVersion）。
  *
  * frontmatter 实测格式（Documents\skills\novel-writer\SKILL.md）：
  *   ---\nname: novel-writer\ndescription: …\n---
- * id 取目录名（稳定、可复现）。isBuiltIn = name 属于真机「内置」组
- * （设置页实证：内置 2 = novel-writer / skill-creator）。
+ * id 取目录名（稳定、可复现）。isBuiltIn = name 属于「内置」组
+ * （设置页实测：内置 2 = novel-writer / skill-creator）。
  * 扫描为只读；写入 skillsDir 属于后续批次（资产释放）。
  */
 
 import type { FsBridge } from "../fsbridge";
 import type { SkillMeta } from "../prefs";
 
-/** 真机设置页「内置」分组实证（2026-09-28 shot-ow-set-Skill.png） */
+/** 内置分组的实测依据（2026-09-28） */
 export const BUILTIN_SKILL_NAMES = new Set(["novel-writer", "skill-creator"]);
 
 /** 解析 SKILL.md 头部 frontmatter 的 name/description（单行值） */

@@ -1,8 +1,8 @@
 //! 系统目录与配置存储。
 //!
-//! 目录口径与 CONTRACT §3.2 / ADR-003 一致：
+//! 目录口径：
 //!   配置：%APPDATA%\com.writerd\writerD\shared_preferences.json
-//!   作品根默认：%USERPROFILE%\AI写小说（真机实测路径）
+//!   作品根默认：%USERPROFILE%\AI写小说
 
 use serde::{Deserialize, Serialize};
 use std::fs;

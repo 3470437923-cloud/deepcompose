@@ -44,7 +44,7 @@ function memFs(dirs: Record<string, string>): FsBridge {
 }
 
 describe("parseFrontmatter", () => {
-  it("解析 name/description（真机 novel-writer 实测格式）", () => {
+  it("解析 name/description（novel-writer 实测样本格式）", () => {
     const r = parseFrontmatter(NOVEL_WRITER_SKILL);
     expect(r.name).toBe("novel-writer");
     expect(r.description).toContain("写小说时使用的技能");
@@ -55,7 +55,7 @@ describe("parseFrontmatter", () => {
 });
 
 describe("scanSkills", () => {
-  it("扫描子目录生成 SkillMeta；isBuiltIn 按真机内置名单判定", async () => {
+  it("扫描子目录生成 SkillMeta；isBuiltIn 按内置名单判定", async () => {
     const fs = memFs({
       "C:\\skills\\novel-writer": NOVEL_WRITER_SKILL,
       "C:\\skills\\烂人风格": LANREN_SKILL,
@@ -74,7 +74,7 @@ describe("scanSkills", () => {
     const fs = memFs({ "C:\\skills\\empty": "# 无 SKILL.md 的目录" });
     expect(await scanSkills(fs, "C:\\skills")).toHaveLength(0);
   });
-  it("内置名单就是真机设置页的 2 个", () => {
+  it("内置名单就是设置页的 2 个", () => {
     expect([...BUILTIN_SKILL_NAMES].sort()).toEqual(["novel-writer", "skill-creator"]);
   });
 });

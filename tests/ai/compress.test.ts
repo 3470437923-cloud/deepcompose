@@ -1,4 +1,4 @@
-/** 上下文压缩回归锁（CONTRACT §6：标记逐字、校验逐字、只影响请求不影响会话） */
+/** 上下文压缩回归锁（标记逐字、校验逐字、只影响请求不影响会话） */
 import { describe, expect, it } from "vitest";
 import {
   assembleBlock,

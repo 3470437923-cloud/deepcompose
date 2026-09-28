@@ -1,14 +1,14 @@
 /**
- * 写前快照（按会话记录，逐字对齐真机格式）。
+ * 写前快照（按会话记录，保持既有格式）。
  *
- * 实测样本（Documents\openwrite_snapshots\0114dbe9-….json）：
+ * 实测样本（Documents\writerd_snapshots\0114dbe9-….json）：
  * {"sessionId":"…","snapshots":[{"snapshotId":"<uuid>","sessionId":"…",
  *   "callId":"call_00_…","timestamp":"2026-07-05T04:55:23.302527","operation":"write",
  *   "relativePath":"章节内容/第37章.md","previousContent":null,"previousExists":false,
  *   "previousType":"none","renameNewPath":null,"createdPaths":null,
  *   "postContentHash":"<sha256 hex>","directoryEntries":null}]}
  *
- * 纪律（CONTRACT §6.2 写前快照）：任何回写先留快照；模型侧通用 write/edit 也要走这里。
+ * 纪律（写前快照）：任何回写先留快照；模型侧通用 write/edit 也要走这里。
  */
 
 import type { FsBridge } from "../fsbridge";

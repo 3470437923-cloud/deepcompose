@@ -1,18 +1,19 @@
 /**
- * 配置模型：键名与真机同构、商业化键永不写出、novel_projects 为 '\n' 分隔。
- * 样本值取自 docs/spec/PREFS.md 的实测值（敏感值一律用占位串）。
+ * 配置模型：键名沿用既有格式、商业化键永不写出、novel_projects 为 '\n' 分隔。
+ * 样本值为实测值（敏感值一律用占位串）。
  */
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PREFS,
   DEFAULT_SYSTEM_PROMPT,
+  DS_BLUE_ARGB,
   accentHex,
   activeProvider,
   parsePrefs,
   serializePrefs,
 } from "../../src/core/prefs";
 
-/** 真机同构样本：键名逐字，密钥/手机号用占位 */
+/** 既有格式样本：键名逐字，密钥/手机号用占位 */
 const REAL_SHAPE = JSON.stringify({
   "flutter.llm_base_url": "https://newapi.example.cn",
   "flutter.api_key": "PLACEHOLDER",
@@ -24,7 +25,7 @@ const REAL_SHAPE = JSON.stringify({
   "flutter.auto_clear_context": true,
   "flutter.saved_providers": JSON.stringify([
     { name: "公益模型", baseUrl: "https://a.example", apiKey: "PLACEHOLDER", model: "m1", useAnthropicFormat: false },
-    { name: "OpenWrite", baseUrl: "https://newapi.example.cn", apiKey: "PLACEHOLDER", model: "deepseek-v4-pro", useAnthropicFormat: false },
+    { name: "示例供应商", baseUrl: "https://newapi.example.cn", apiKey: "PLACEHOLDER", model: "deepseek-v4-pro", useAnthropicFormat: false },
   ]),
   "flutter.panel_session_width": 220.0,
   "flutter.panel_chat_width": 523.0,
@@ -58,7 +59,7 @@ const REAL_SHAPE = JSON.stringify({
 });
 
 describe("配置解析", () => {
-  it("逐字段读到真机键名对应的值", () => {
+  it("逐字段读到既有键名对应的值", () => {
     const p = parsePrefs(REAL_SHAPE);
     expect(p.llmBaseUrl).toBe("https://newapi.example.cn");
     expect(p.model).toBe("deepseek-v4-pro");
@@ -107,6 +108,39 @@ describe("配置解析", () => {
   });
 });
 
+describe("主题模式（theme_mode 扩展键）", () => {
+  it("默认深色", () => {
+    expect(DEFAULT_PREFS.themeMode).toBe("dark");
+    expect(parsePrefs("").themeMode).toBe("dark");
+  });
+
+  it("显式 theme_mode 三态直读", () => {
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "light" })).themeMode).toBe("light");
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dark" })).themeMode).toBe("dark");
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" })).themeMode).toBe("dsblue");
+  });
+
+  it("缺失 theme_mode 时按既有 is_dark_mode 派生（旧配置平滑升级）", () => {
+    expect(parsePrefs(JSON.stringify({ "flutter.is_dark_mode": true })).themeMode).toBe("dark");
+    expect(parsePrefs(JSON.stringify({ "flutter.is_dark_mode": false })).themeMode).toBe("light");
+  });
+
+  it("非法 theme_mode 回落 is_dark_mode 派生", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "solarized", "flutter.is_dark_mode": false }));
+    expect(p.themeMode).toBe("light");
+  });
+
+  it("往返保留 themeMode", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" }));
+    expect(parsePrefs(serializePrefs(p)).themeMode).toBe("dsblue");
+  });
+
+  it("默认强调色为 DS 品牌蓝", () => {
+    expect(DEFAULT_PREFS.customAccentColor).toBe(DS_BLUE_ARGB);
+    expect(accentHex(DS_BLUE_ARGB).toLowerCase()).toBe("#4d6bfe");
+  });
+});
+
 describe("配置序列化", () => {
   it("往返后语义一致（JSON 字段仍是字符串、novel_projects 仍是换行文本）", () => {
     const p = parsePrefs(REAL_SHAPE);
@@ -129,7 +163,7 @@ describe("配置序列化", () => {
     expect(text.includes("\n")).toBe(false);
   });
 
-  it("默认系统提示词非空且不逐字复制对标产品文案", () => {
+  it("默认系统提示词非空且非照搬文案", () => {
     expect(DEFAULT_SYSTEM_PROMPT.length).toBeGreaterThan(30);
     expect(DEFAULT_SYSTEM_PROMPT).toContain("小说");
   });
@@ -138,7 +172,7 @@ describe("配置序列化", () => {
 describe("当前供应商判定", () => {
   it("baseUrl + model 同时匹配才算选中", () => {
     const p = parsePrefs(REAL_SHAPE);
-    expect(activeProvider(p)?.name).toBe("OpenWrite");
+    expect(activeProvider(p)?.name).toBe("示例供应商");
     const p2 = { ...p, model: "其他" };
     expect(activeProvider(p2)).toBeNull();
   });
