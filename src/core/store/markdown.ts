@@ -91,7 +91,13 @@ export function endsWithNewline(doc: LineDoc): boolean {
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 
-/** 解析标题层级结构（只认 ATX 标题，保持既有格式） */
+/**
+ * 解析标题层级结构（只认 ATX 标题 `# …`，`#` 后必须有空白；保持既有格式）。
+ * 节尾 = 下一个同级或更高级标题（子节归属于父节）；文档首部视作 level=0 无名节。
+ * 已知限制：不识别代码围栏——``` 块内形如 `# 注释` 的行也会被当作标题，
+ * 维护文档场景可接受，不做围栏跟踪以保持行级简单性。
+ * 重复标题合法：findSection 等按「首个命中」处理。
+ */
 export function parseSections(text: string): Section[] {
   const { lines } = splitLines(text);
   const heads: { level: number; title: string; line: number }[] = [];
@@ -127,7 +133,7 @@ export function parseSections(text: string): Section[] {
   return sections;
 }
 
-/** 按标题找节（标题文本全等匹配，逐个比较） */
+/** 按标题找节（标题文本 trim 后全等匹配；同名标题命中第一个） */
 export function findSection(text: string, title: string): Section | null {
   const want = title.trim();
   for (const s of parseSections(text)) {
@@ -160,9 +166,15 @@ export function sectionBody(text: string, title: string, includeSubsections = tr
   return joinLines(sub);
 }
 
-/** 文档末尾追加（不动任何既有字节） */
+/**
+ * 文档末尾追加（不动任何既有字节）。
+ * 原文末尾无换行时先补一个主导 EOL 再接追加内容；追加内容自身的行尾原样保留。
+ * 空文档直接返回追加内容（避免凭空产生一个前导空行）。
+ */
 export function appendToDoc(text: string, addition: string): string {
   if (addition === "") return text;
+  // 空文档没有「既有字节」可保护，直接落成，防止 splitLines("") 的幻影空行带出前导 EOL
+  if (text === "") return addition;
   const doc = splitLines(text);
   if (!endsWithNewline(doc)) {
     doc.eols[doc.eols.length - 1] = dominantEol(doc);
@@ -174,8 +186,10 @@ export function appendToDoc(text: string, addition: string): string {
 }
 
 /**
- * 节尾追加：把 addition 插到该节正文末尾（下一个同级/更高级标题之前）。
+ * 节尾追加：把 addition 插到该节正文末尾（下一个同级/更高级标题之前，节尾空行之后）。
  * 找不到该标题时抛错——**不静默新建节**，避免把用户格式改坏。
+ * addition 不带结尾换行且插入点后面还有内容时，自动补一个主导 EOL，
+ * 防止追加文本与下一行粘连成同一行（破坏行结构即破坏「格式优先」）。
  */
 export function appendToSection(text: string, title: string, addition: string): string {
   const sec = findSection(text, title);
@@ -189,7 +203,13 @@ export function appendToSection(text: string, title: string, addition: string): 
   let at = sec.bodyEnd;
   while (at > sec.bodyStart && doc.lines[at - 1].trim() === "") at--;
 
+  // 前一行若是文件末尾的无换行残行，先补 EOL，保证追加内容另起一行
   if (at > 0 && doc.eols[at - 1] === "") doc.eols[at - 1] = dominantEol(doc);
+
+  // 插入点之后仍有内容且追加内容不带结尾换行时补 EOL（插在文件末尾则保持原样，与 appendToDoc 一致）
+  if (at < doc.lines.length && add.eols[add.eols.length - 1] === "") {
+    add.eols[add.eols.length - 1] = dominantEol(doc);
+  }
 
   doc.lines.splice(at, 0, ...add.lines);
   doc.eols.splice(at, 0, ...add.eols);
@@ -211,6 +231,8 @@ function findWithEolTolerance(regionText: string, needle: string, eol: string): 
  * 节内文本替换：只在指定节范围内查找替换。
  * replaceAll=false 时只替换首个匹配（与 edit_file 的 replace 语义保持一致）。
  * 区域按**原始 EOL** 取出与放回，除被替换的文本外逐字节不变。
+ * newText 按字面处理——其中的 `$&`、`$'` 等替换模式不会被展开
+ * （String.replace 的字符串替换会解释 `$` 模式，故走函数形式绕开）。
  */
 export function replaceInSection(
   text: string,
@@ -231,10 +253,11 @@ export function replaceInSection(
   const needle = findWithEolTolerance(regionText, oldText, eol);
   if (needle === null) throw new Error(`节「${title}」内未找到待替换文本`);
 
+  // 替换文本统一为文档主导 EOL（其余字节按字面写入）
   const replacement = newText.replace(/\r\n|\r|\n/g, eol);
   const replaced = replaceAll
     ? regionText.split(needle).join(replacement)
-    : regionText.replace(needle, replacement);
+    : regionText.replace(needle, () => replacement); // 函数形式：newText 里的 $ 序列不被解释
 
   const rd = splitLines(replaced);
   doc.lines.splice(sec.bodyStart, sec.bodyEnd - sec.bodyStart, ...rd.lines);

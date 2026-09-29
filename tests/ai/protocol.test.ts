@@ -1,5 +1,12 @@
 /**
  * 双协议请求构造与 SSE 解析（实测样本实证）。
+ *
+ * 锁定的契约：
+ *  - 端点拼接（/v1 后缀两种习惯都兼容）与鉴权头（Bearer vs x-api-key + 版本头）；
+ *  - OpenAI 形态：system 首条消息、tool_calls 展开 + tool 结果消息、stream_options；
+ *  - Anthropic 形态：system 顶层字段、tool_use/tool_result 块、max_tokens 默认 32000；
+ *  - SSE：event:/data: 行解析、[DONE]、工具调用分片按 index 归并、
+ *    Anthropic event 行缺失时回退 data JSON 的 type 字段。
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -42,6 +49,7 @@ describe("端点拼接", () => {
 
   it("Anthropic：/v1/messages，或 base 已含 /v1 时 /messages", () => {
     expect(anthropicUrl("https://api.anthropic.com")).toBe("https://api.anthropic.com/v1/messages");
+    // 中转站常见的子路径形态（/anthropic）同样只在末尾补一次 /v1
     expect(anthropicUrl("https://api.deepseek.com/anthropic")).toBe(
       "https://api.deepseek.com/anthropic/v1/messages",
     );
@@ -83,6 +91,7 @@ describe("OpenAI 请求体", () => {
   });
 
   it("assistant 的 toolCalls 展开为 tool_calls + 后续 tool 消息", () => {
+    // 历史回放契约：每个 tool_call 必须紧跟一条同 id 的 role:"tool" 结果消息
     const withTools: ChatMessage[] = [
       {
         id: "a",
@@ -117,6 +126,7 @@ describe("Anthropic 请求体", () => {
     expect(b.system).toBe("系统提示");
     expect(b.max_tokens).toBe(DEFAULT_MAX_TOKENS);
     expect(b.max_tokens).toBe(32000);
+    // system 不再出现在 messages 里（顶层字段唯一）
     const list = b.messages as Record<string, unknown>[];
     expect(list.some((m) => m.role === "system")).toBe(false);
   });
@@ -134,6 +144,8 @@ describe("Anthropic 请求体", () => {
   });
 
   it("assistant 的 toolCalls 转 tool_use + tool_result(user)", () => {
+    // Anthropic 历史回放契约：tool_use 块在 assistant 消息里，
+    // 结果作为紧随其后的 user 消息（tool_result 块），id 一一配对
     const withTools: ChatMessage[] = [
       {
         id: "a",
@@ -157,6 +169,7 @@ describe("SSE 行解析", () => {
   it("识别 event: 与 data:，忽略其余行", () => {
     expect(parseSseLine("event: content_block_delta")).toEqual({ event: "content_block_delta" });
     expect(parseSseLine("data: {\"a\":1}")).toEqual({ data: '{"a":1}' });
+    // 心跳注释行与空行（事件边界）都被忽略
     expect(parseSseLine(": heartbeat")).toBeNull();
     expect(parseSseLine("")).toBeNull();
   });
@@ -165,12 +178,14 @@ describe("SSE 行解析", () => {
     expect(mapOpenAiChunk({ choices: [{ delta: { content: "你好" } }] })).toEqual([
       { type: "text_delta", text: "你好" },
     ]);
+    // reasoning_content（DeepSeek 系字段）→ thinking_delta
     expect(mapOpenAiChunk({ choices: [{ delta: { reasoning_content: "想…" } }] })).toEqual([
       { type: "thinking_delta", text: "想…" },
     ]);
     expect(
       mapOpenAiChunk({ choices: [{ delta: { tool_calls: [{ index: 0, id: "c1", function: { name: "file_read", arguments: '{"op' } }] } }] }),
     ).toEqual([{ type: "tool_call_delta", index: 0, id: "c1", name: "file_read", argsDelta: '{"op' }]);
+    // usage 统计块（choices 为空）也要放行
     expect(mapOpenAiChunk({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 7 } })).toEqual([
       { type: "usage", inputTokens: 12, outputTokens: 7 },
     ]);
@@ -196,6 +211,7 @@ describe("StreamParser 状态机", () => {
     out.push(...p.feed('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"file_read"}}]}}]}'));
     out.push(...p.feed('data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\\"path\\":\\".\\"}"}}]}}]}'));
     out.push(...p.feed("data: [DONE]"));
+    // 首片带 id+name、后续片带 args 片段：都按 index 归一成 tool_call_delta
     expect(out).toContainEqual({ type: "tool_call_delta", index: 0, id: "c1", name: "file_read", argsDelta: undefined });
     expect(out).toContainEqual({ type: "tool_call_delta", index: 0, id: undefined, name: undefined, argsDelta: '{"path":"."}' });
     expect(out[out.length - 1]).toEqual({ type: "stop", reason: "done" });
@@ -203,11 +219,22 @@ describe("StreamParser 状态机", () => {
 
   it("Anthropic：event 行 + data 行配对，message_stop 收尾", () => {
     const p = new StreamParser(true);
+    // event: 行只进缓存不出事件；随后的 data 行配对消费
     expect(p.feed("event: content_block_delta")).toEqual([]);
     expect(p.feed('data: {"delta":{"type":"text_delta","text":"丙"}}')).toEqual([
       { type: "text_delta", text: "丙" },
     ]);
     expect(p.feed("event: message_stop")).toEqual([]);
     expect(p.feed("data: {}")).toEqual([{ type: "stop", reason: "end_turn" }]);
+  });
+
+  it("Anthropic：event 行缺失时回退 data JSON 的 type 字段（中继丢行兜底）", () => {
+    // 非标准中继可能只转发 data 行；type 字段与 event 名同义（Anthropic 规范），
+    // 缺了 event 行也不能整流静默丢事件
+    const p = new StreamParser(true);
+    expect(p.feed('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"丁"}}')).toEqual([
+      { type: "text_delta", text: "丁" },
+    ]);
+    expect(p.feed('data: {"type":"message_stop"}')).toEqual([{ type: "stop", reason: "end_turn" }]);
   });
 });

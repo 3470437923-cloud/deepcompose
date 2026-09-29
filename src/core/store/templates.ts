@@ -1,5 +1,5 @@
 /**
- * 新建作品初始化模板（writerD 3.0 · 单主线工作流）。
+ * 新建作品初始化模板（KeepCompose 单主线工作流）。
  *
  * 14 份基础文档全部落在 `小说资料\`，由 createProject 一次性生成；
  * `审核\`、`个人改稿\`、`待确认\已处理\` 按「首次使用时创建」原则不预建。
@@ -17,6 +17,7 @@ export interface DocTemplate {
   content: string;
 }
 
+/** 模板文件名常量（磁盘契约：createProject 落盘名与 UI/规则文档引用名必须逐字一致） */
 export const STATE_DOC = "00-项目状态.md";
 export const POSITIONING_DOC = "01-开书定位.md";
 export const CORE_SETTING_DOC = "02-核心设定.md";
@@ -26,8 +27,13 @@ export const ROLLING_DOC = "05-滚动细纲.md";
 export const RULES_DOC = "06-写作规则.md";
 export const CAST_DOC = "人物库.md";
 export const SUMMARY_DOC = "章节摘要.md";
+/** 五份追踪表共用前缀（追踪-伏笔/角色状态/时间线/资源与权限/废弃设定） */
 export const TRACK_PREFIX = "追踪-";
 
+/**
+ * 14 件套模板（README 契约：00-项目状态 … 追踪-废弃设定，共 14 份，缺一不可）。
+ * project.test.ts 对数量与文件名逐一对齐，增删模板必须同步改 README 与测试。
+ */
 export const DOC_TEMPLATES: DocTemplate[] = [
   {
     name: STATE_DOC,

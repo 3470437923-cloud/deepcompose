@@ -50,11 +50,16 @@ export interface OplogEntry {
   detail: OplogDetail;
 }
 
+/** 操作日志文件路径：<作品根>\writerd_oplog\log.jsonl（目录名为磁盘契约，不随产品改名） */
 export function oplogFile(projectRoot: string): string {
   return join(projectOplogDir(projectRoot), "log.jsonl");
 }
 
-/** 追加一条操作日志（目录不存在时自动建；失败不阻断用户操作） */
+/**
+ * 追加一条操作日志（目录不存在时自动建；失败不阻断用户操作）。
+ * JSONL 契约：每条一行 JSON、以 '\n'（LF）结尾——追加即写入，不回读不重排，
+ * 读取侧按 /\r?\n/ 拆行，两种行尾都兼容。relPath 统一 '/' 分隔落盘。
+ */
 export async function appendOplog(
   fs: FsBridge,
   projectRoot: string,
@@ -79,7 +84,10 @@ export async function appendOplog(
   }
 }
 
-/** 读取最近 limit 条日志（文件缺失/损坏行跳过） */
+/**
+ * 读取最近 limit 条日志（文件缺失/读取失败 → 空数组；损坏行跳过）。
+ * 文件本身按追加序即时间序，取尾部 limit 条即「最近」，返回仍按时间升序。
+ */
 export async function readOplog(
   fs: FsBridge,
   projectRoot: string,
@@ -119,6 +127,7 @@ export interface DiffResult {
   digitsChanged: boolean;
 }
 
+/** 统计行集合的非空白字符总数（空白差异不计入"改动量"） */
 function countNonWs(lines: string[]): number {
   let n = 0;
   for (const l of lines) n += l.replace(/\s/g, "").length;
@@ -133,6 +142,11 @@ export function digitTokens(text: string): string[] {
 /**
  * 行级 diff（前后缀裁剪法）：先去掉公共前缀/后缀，中间即为变更块。
  * 不做完整 LCS——回流只需要"改了哪些行、量有多大"，够用且 O(n)。
+ * 语义边界（有意为之）：
+ *  - 按 /\r?\n/ 拆行，纯 EOL 变化（CRLF↔LF）不视为内容差异；
+ *  - changedChars 是「变更行」的非空白字符总量（增+删两侧相加），不是最小编辑距离；
+ *  - digitsChanged 对**全文**的数字串多重集合比较，与变更块位置无关——
+ *    数字换了位置但集合不变时不算变化（保守：仍会因行变更进入 diff）。
  */
 export function diffLines(before: string, after: string): DiffResult {
   const a = before.split(/\r?\n/);
@@ -160,6 +174,10 @@ export function diffLines(before: string, after: string): DiffResult {
 /** 轻量回流阈值：变更非空白字符数不超过该值且数字未变 → 只记日志，不惊动 AI */
 export const LIGHT_EDIT_CHARS = 24;
 
+/**
+ * 是否轻量编辑：变更非空白字符数 ≤ 阈值（默认 24）**且**数字串集合未变。
+ * 满足 → 只记 oplog，不触发完整回流；任一不满足 → 事实可能变了，必须回流审查。
+ */
 export function isLightEdit(diff: DiffResult, threshold = LIGHT_EDIT_CHARS): boolean {
   return diff.changedChars <= threshold && !diff.digitsChanged;
 }

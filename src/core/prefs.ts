@@ -6,14 +6,15 @@
  * 存储位置：%APPDATA%\com.writerd\writerD\shared_preferences.json。
  */
 
+/** 既有配置键名统一前缀（磁盘契约：shared_preferences.json 里的键都长 `flutter.xxx`，不可改） */
 export const PREFIX = "flutter.";
 
 /**
- * 主题模式（writerD 3.0 扩展）：
+ * 主题模式（KeepCompose 扩展）：
  *   dark   = 曜石黑（实色深色）
  *   light  = 晨雾白（实色浅色，冷调）
  *   dsblue = 深海 DS 蓝（DeepSeek 品牌蓝作强调色）
- * 键名 `theme_mode` 为 writerD 自有扩展（既有格式中无此键，如实标注）；
+ * 键名 `theme_mode` 为 KeepCompose 自有扩展（既有格式中无此键，如实标注）；
  * 兼容策略：配置里没有 theme_mode 时按既有键 is_dark_mode 派生。
  * 注意：这三个字符串是**磁盘格式**，已经被写进用户的配置文件里，
  * 改字符串等于让老配置失效 —— 只能改注释，不能改值。
@@ -23,6 +24,7 @@ export type ThemeMode = "dark" | "light" | "dsblue";
 /** DS 品牌蓝（0xAARRGGBB）：默认强调色，也是 DS 蓝主题的身份色 */
 export const DS_BLUE_ARGB = 4283263998; // 0xFF4D6BFE
 
+/** AI 供应商条目（`saved_providers` 键 JSON 数组的元素；字段名为既有格式，逐字保留） */
 export interface Provider {
   name: string;
   baseUrl: string;
@@ -31,6 +33,7 @@ export interface Provider {
   useAnthropicFormat: boolean;
 }
 
+/** 技能清单条目（`skill_list` 键 JSON 数组的元素；字段名为既有格式，逐字保留） */
 export interface SkillMeta {
   id: string;
   name: string;
@@ -41,6 +44,7 @@ export interface SkillMeta {
   marketplaceVersion: number | null;
 }
 
+/** WebDAV 配置（`webdav_config` 键的 JSON 形态；同步 UI 已下线，字段保留仅为往返不丢数据） */
 export interface WebdavConfig {
   url: string;
   username: string;
@@ -49,6 +53,7 @@ export interface WebdavConfig {
   lastSyncTime: string;
 }
 
+/** 应用配置全集：内部字段名 ↔ `flutter.*` 磁盘键一一对应（映射见 KEY_MAP） */
 export interface Prefs {
   // —— AI 接入（11 键中的非商业化部分）——
   llmBaseUrl: string;
@@ -82,14 +87,15 @@ export interface Prefs {
   defaultSkillsInitialized: boolean;
 
   // —— 同步（3 键）——
+  // 同步 UI 已下线（传输层从未实现）；键保留仅为旧配置往返不丢数据。
   isConnected: boolean;
   webdavConfig: WebdavConfig;
   webdavSyncMeta: Record<string, unknown>;
 
-  // —— 外观主题（既有 2 键 + writerD 扩展 1 键）——
+  // —— 外观主题（既有 2 键 + KeepCompose 扩展 1 键）——
   customAccentColor: number;
   isDarkMode: boolean;
-  /** 主题模式（writerD 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
+  /** 主题模式（KeepCompose 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
   themeMode: ThemeMode;
 
   // —— 路径（2 键）——
@@ -118,6 +124,7 @@ export const DEFAULT_SYSTEM_PROMPT =
   "当用户要求写作、续写、修改或审阅内容时，先用可用工具读取相关章节与设定资料，再据此动笔。" +
   "始终与既有故事线、人物设定和世界观保持一致。请使用与用户相同的语言回复。";
 
+/** 默认配置：解析时缺失/非法的键一律回落到这里（也是"恢复默认"的基准） */
 export const DEFAULT_PREFS: Prefs = {
   llmBaseUrl: "",
   apiKey: "",
@@ -191,13 +198,14 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   activeSkillIds: "active_skill_ids",
   defaultSkillsInitialized: "default_skills_initialized",
 
+  // 同步 UI 已下线（传输层从未实现）；键保留仅为旧配置往返不丢数据。
   isConnected: "is_connected",
   webdavConfig: "webdav_config",
   webdavSyncMeta: "webdav_sync_meta",
 
   customAccentColor: "custom_accent_color",
   isDarkMode: "is_dark_mode",
-  themeMode: "theme_mode", // writerD 扩展键（既有格式无此键）
+  themeMode: "theme_mode", // KeepCompose 扩展键（既有格式无此键）
 
   customNovelsDir: "custom_novels_dir",
   customSkillsDir: "custom_skills_dir",
@@ -231,21 +239,32 @@ export const CUT_KEYS = [
   "device_id",
 ] as const;
 
+/** 数值键容错：非有限 number（含数字字符串）一律回落默认值，不做隐式转换 */
 function asNumber(v: unknown, def: number): number {
   return typeof v === "number" && Number.isFinite(v) ? v : def;
 }
+/** 布尔键容错：非 boolean 一律回落默认值（"true" 字符串不算 true） */
 function asBool(v: unknown, def: boolean): boolean {
   return typeof v === "boolean" ? v : def;
 }
+/** 字符串键容错：非 string 一律回落默认值 */
 function asString(v: unknown, def: string): string {
   return typeof v === "string" ? v : def;
 }
 
-function parseJsonField<T>(v: unknown, def: T): T {
+/**
+ * 解析以 JSON 字符串落盘的键（见 JSON_KEYS）。
+ * shape 声明期望形态：坏 JSON、null、数组键收到非数组（或反之）都回落默认值——
+ * 否则坏数据会带着错误形态进入运行期（如 skill_list 是对象时 .filter 直接崩）。
+ */
+function parseJsonField<T>(v: unknown, def: T, shape: "array" | "object" | "any" = "any"): T {
   if (typeof v !== "string" || v.trim() === "") return def;
   try {
     const parsed: unknown = JSON.parse(v);
-    return (parsed ?? def) as T;
+    if (parsed === null || parsed === undefined) return def;
+    if (shape === "array" && !Array.isArray(parsed)) return def;
+    if (shape === "object" && (typeof parsed !== "object" || Array.isArray(parsed))) return def;
+    return parsed as T;
   } catch {
     return def;
   }
@@ -275,10 +294,14 @@ export function parsePrefs(text: string): Prefs {
   p.temperature = asNumber(get("temperature"), p.temperature);
   p.contextLimit = asNumber(get("contextLimit"), p.contextLimit);
   p.useAnthropicFormat = asBool(get("useAnthropicFormat"), p.useAnthropicFormat);
-  p.savedProviders = parseJsonField<Provider[]>(get("savedProviders"), p.savedProviders);
+  p.savedProviders = parseJsonField<Provider[]>(get("savedProviders"), p.savedProviders, "array");
   p.systemPrompt = asString(get("systemPrompt"), p.systemPrompt);
   p.reservedOutputTokens = asNumber(get("reservedOutputTokens"), p.reservedOutputTokens);
   p.autoClearContext = asBool(get("autoClearContext"), p.autoClearContext);
+  // toolRoundLimit / maxOutputTokens 是既有可写键：序列化会写出，解析也必须读回，
+  // 否则用户改过的值重启后会静默丢回默认（round-trip 断裂）。
+  p.toolRoundLimit = asNumber(get("toolRoundLimit"), p.toolRoundLimit);
+  p.maxOutputTokens = asNumber(get("maxOutputTokens"), p.maxOutputTokens);
 
   p.panelSessionWidth = asNumber(get("panelSessionWidth"), p.panelSessionWidth);
   p.panelChatWidth = asNumber(get("panelChatWidth"), p.panelChatWidth);
@@ -288,17 +311,17 @@ export function parsePrefs(text: string): Prefs {
   p.panelShowDirectory = asBool(get("panelShowDirectory"), p.panelShowDirectory);
   p.panelShowMemo = asBool(get("panelShowMemo"), p.panelShowMemo);
 
-  p.skillList = parseJsonField<SkillMeta[]>(get("skillList"), p.skillList);
-  p.activeSkillIds = parseJsonField<string[]>(get("activeSkillIds"), p.activeSkillIds);
+  p.skillList = parseJsonField<SkillMeta[]>(get("skillList"), p.skillList, "array");
+  p.activeSkillIds = parseJsonField<string[]>(get("activeSkillIds"), p.activeSkillIds, "array");
   p.defaultSkillsInitialized = asBool(get("defaultSkillsInitialized"), p.defaultSkillsInitialized);
 
   p.isConnected = asBool(get("isConnected"), p.isConnected);
-  p.webdavConfig = parseJsonField<WebdavConfig>(get("webdavConfig"), p.webdavConfig);
-  p.webdavSyncMeta = parseJsonField<Record<string, unknown>>(get("webdavSyncMeta"), p.webdavSyncMeta);
+  p.webdavConfig = parseJsonField<WebdavConfig>(get("webdavConfig"), p.webdavConfig, "object");
+  p.webdavSyncMeta = parseJsonField<Record<string, unknown>>(get("webdavSyncMeta"), p.webdavSyncMeta, "object");
 
   p.customAccentColor = asNumber(get("customAccentColor"), p.customAccentColor);
   p.isDarkMode = asBool(get("isDarkMode"), p.isDarkMode);
-  // theme_mode 为 writerD 扩展键：合法值直接采用；缺失/非法时按既有键
+  // theme_mode 为 KeepCompose 扩展键：合法值直接采用；缺失/非法时按既有键
   // is_dark_mode 派生（旧配置文件平滑升级，两个键独立往返以保 round-trip）
   const tm = get("themeMode");
   p.themeMode =

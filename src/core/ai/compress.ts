@@ -7,6 +7,11 @@
  *
  * 真实会话中没有压缩实例可对照（127 个会话均未触发阈值），块内拼装顺序按
  * 标记语义组合，标 [待实测]。
+ *
+ * 关键不变量（tests/ai/compress.test.ts 锁定）：
+ *  - 切分永不丢最新消息：保留段至少含最后一条（即使它单条超出保留预算）；
+ *  - 摘要不比原文短即拒绝（SUMMARY_TOO_BIG 逐字文案）并回退为不压缩；
+ *  - 同一会话第二次压缩命中内存缓存，不再发摘要请求。
  */
 
 import { isoMicros } from "../ids";
@@ -22,6 +27,7 @@ import type { StreamTransport } from "./agent";
 export const SUMMARY_OPEN = "<compacted-summary>";
 export const SUMMARY_CLOSE = "</compacted-summary>";
 export const VERBATIM_OPEN = "<verbatim-user-messages>";
+/** 检查点消息 id 前缀（请求序列首条；只进请求，不进会话文件） */
 export const CHECKPOINT_PREFIX = "context_summary_checkpoint_";
 export const SUMMARY_TITLE = "【上下文压缩摘要 v1】";
 
@@ -62,6 +68,7 @@ export function estimateTokens(text: string): number {
   return cjk + Math.ceil(rest / 4);
 }
 
+/** 整段对话的 token 估算：正文 + 思考流 + 工具调用参数与结果全部计入（口径与请求体一致） */
 export function estimateMessageTokens(messages: ChatMessage[]): number {
   let n = 0;
   for (const m of messages) {
@@ -101,7 +108,15 @@ export function assembleBlock(summary: string, verbatimUserTexts: string[]): str
   return out;
 }
 
-/** 从切点把消息分成「压缩段」与「保留段」；保留段约占总预算的 keepRatio（0..1） */
+/**
+ * 从切点把消息分成「压缩段」与「保留段」；保留段约占总预算的 keepRatio（0..1）。
+ *
+ * 切法：从最新一条往旧累加，超出保留预算即停。两个特殊情形：
+ *  - 只有一条消息且它就超预算 → 返回 null（无可压缩，宁可不压）；
+ *  - 最新一条单独超预算（消息数 > 1）→ 仍整条留在保留段（绝不丢最新消息），
+ *    只压缩更早的部分。
+ * 返回 null 一律表示「无需/无法压缩」，调用方按完整上下文发送。
+ */
 export function splitMessages(
   messages: ChatMessage[],
   budgetTokens: number,
@@ -113,8 +128,11 @@ export function splitMessages(
   let kept = 0;
   while (i > 0) {
     const t = estimateMessageTokens([messages[i - 1]]);
+    // 超预算且不是最新一条 → 切点定在这里（i 之前全压缩）
     if (kept + t > keepBudget && i < messages.length) break;
+    // 唯一一条消息就超预算 → 无可压缩
     if (kept + t > keepBudget && i === messages.length && messages.length === 1) return null;
+    // 最新一条即使超预算也整条保留（继续往旧扫，下一轮必然 break）
     kept += t;
     i -= 1;
     if (i === 0) return null; // 全部都在保留段内，无需压缩
@@ -123,17 +141,27 @@ export function splitMessages(
   return { compress: messages.slice(0, i), keep: messages.slice(i) };
 }
 
+/**
+ * 会话级检查点缓存：sessionId → { upToId: 压缩段最后一条消息 id, block: 摘要块 }。
+ * 仅内存（重启即失效，重算即可）；依赖「会话消息只追加不改写」的成立——
+ * 命中时 upToId 之前的前缀与建缓存时一致，块可以直接复用。
+ */
 const cache = new Map<string, { upToId: string; block: string }>();
 
+/** 清空压缩缓存（仅供测试隔离用例） */
 export function __clearCompressCache(): void {
   cache.clear();
 }
 
+/** maybeCompress 的输入 */
 export interface CompressOptions {
   cfg: ProviderConfig;
   transport: StreamTransport;
+  /** 完整原始会话消息（压缩只读不改） */
   messages: ChatMessage[];
+  /** 上游上下文窗口总量（token 估算口径） */
   contextLimit: number;
+  /** 给输出预留的 token 数：预算 = contextLimit - reservedOutputTokens */
   reservedOutputTokens: number;
   sessionId: string;
   /** 压缩失败时的观测出口（不阻断对话） */
@@ -159,6 +187,7 @@ async function summarize(
     text: [transcript, COMPRESS_PROMPT_1, COMPRESS_PROMPT_2, extraRules].filter(Boolean).join("\n\n"),
     createdAt: isoMicros(),
   };
+  // 低温采样求稳定摘要；无工具、无系统提示词（摘要任务不需要身份装配）
   const req = buildRequest({ ...cfg, temperature: 0.3 }, [promptMsg], [], "");
   const parser = new StreamParser(cfg.useAnthropicFormat);
   let text = "";
@@ -168,6 +197,7 @@ async function summarize(
         if (e.type === "text_delta") text += e.text;
       }
     },
+    // 摘要失败不抛：空文本会被 maybeCompress 的校验拦下并回退为不压缩
     onError: () => {},
   });
   return text;
@@ -178,11 +208,14 @@ async function summarize(
  * 校验不通过时拒绝该摘要并回退为不压缩 [待实测：既有的重试策略]。
  */
 export async function maybeCompress(opts: CompressOptions): Promise<CompressResult | null> {
+  // 预算口径：上下文窗口总量减去输出预留；配置非法（预算 <= 0）直接不压缩
   const budget = opts.contextLimit - opts.reservedOutputTokens;
   if (budget <= 0) return null;
   const total = estimateMessageTokens(opts.messages);
   if (total <= budget) return null;
 
+  // 缓存命中：upToId 仍在消息序列里 → 直接复用摘要块，不再发摘要请求。
+  // 请求序列 = [检查点块] + upToId 之后的全部消息（最新消息必然保留）
   const cached = cache.get(opts.sessionId);
   if (cached && opts.messages.some((m) => m.id === cached.upToId)) {
     const idx = opts.messages.findIndex((m) => m.id === cached.upToId);
@@ -206,20 +239,24 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
   const hasOldCheckpoint = split.compress.some((m) => m.id.startsWith(CHECKPOINT_PREFIX));
   const summary = await summarize(opts.cfg, opts.transport, transcript, hasOldCheckpoint ? CHECKPOINT_MERGE_RULES : "");
 
+  // 校验一：空摘要（上游失败/被中止）→ 回退为不压缩
   if (summary.trim() === "") {
     opts.onNotice?.("上下文压缩失败：模型未返回摘要，本次按完整上下文发送");
     return null;
   }
+  // 校验二（逐字）：摘要不比原文短 → 拒绝该摘要，回退为不压缩
   if (summary.length >= transcript.length) {
     opts.onNotice?.(SUMMARY_TOO_BIG);
     return null;
   }
 
+  // 压缩区间内的用户原话逐字保留（写作要求/承诺不因摘要失真）
   const verbatim = split.compress.filter((m) => m.role === "user").map((m) => m.text ?? "");
   const block = assembleBlock(summary, verbatim);
   const upTo = split.compress[split.compress.length - 1];
   cache.set(opts.sessionId, { upToId: upTo.id, block });
 
+  // 检查点以 user 角色进请求序列头部（两种协议都要求首条为 user/system，user 最稳）
   const checkpoint: ChatMessage = {
     id: CHECKPOINT_PREFIX + opts.sessionId,
     role: "user",

@@ -192,7 +192,7 @@ export const SKILL_LOOKUP: ToolSchema = {
   },
 };
 
-/** 已实现的工具集合（顺序即注入顺序） */
+/** 已实现的工具集合（顺序即注入顺序；与 exec.ts executeTool 的分发分支一一对应） */
 export const IMPLEMENTED_TOOLS: ToolSchema[] = [
   FILE_READ,
   FILE_WRITE,
@@ -202,6 +202,7 @@ export const IMPLEMENTED_TOOLS: ToolSchema[] = [
   SKILL_LOOKUP,
 ];
 
+/** 按名字取工具 schema 子集：未实现/拼错的名字静默跳过，返回顺序随入参 names */
 export function toolsByName(names: string[]): ToolSchema[] {
   const all = IMPLEMENTED_TOOLS;
   return names

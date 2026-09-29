@@ -99,6 +99,12 @@ describe("appendToDoc：只在末尾追加", () => {
   it("追加空串是恒等操作", () => {
     expect(appendToDoc(CUSTOM_DOC, "")).toBe(CUSTOM_DOC);
   });
+
+  it("空文档追加不产生前导空行（幻影空行回归锁）", () => {
+    // splitLines("") 会产出一个空行占位；若不特判，输出会凭空多出前导 EOL
+    expect(appendToDoc("", "x\r\n")).toBe("x\r\n");
+    expect(appendToDoc("", "x")).toBe("x");
+  });
 });
 
 describe("appendToSection：节尾追加，节外不动", () => {
@@ -124,6 +130,14 @@ describe("appendToSection：节尾追加，节外不动", () => {
   it("中文标题与空白标题都能命中", () => {
     const out = appendToSection(CUSTOM_DOC, "附：用户自建小节", "又记一笔\r\n");
     expect(out).toContain("随手记的东西\r\n又记一笔\r\n");
+  });
+
+  it("追加内容不带结尾换行时自动补主导 EOL，不与下一行粘连（粘连回归锁）", () => {
+    const doc = "## A\r\nx\r\n## B\r\ny\r\n";
+    // 修复前会输出 "…x\r\nz## B\r\n…"——追加文本与下一节标题粘成同一行
+    expect(appendToSection(doc, "A", "z")).toBe("## A\r\nx\r\nz\r\n## B\r\ny\r\n");
+    // 插在文件末尾（后面没有内容）则保持无结尾换行，与 appendToDoc 语义一致
+    expect(appendToSection(doc, "B", "z")).toBe("## A\r\nx\r\n## B\r\ny\r\nz");
   });
 });
 
@@ -156,6 +170,13 @@ describe("replaceInSection：只在节内替换", () => {
 
   it("节不存在时抛错", () => {
     expect(() => replaceInSection(CUSTOM_DOC, "反派", "a", "b")).toThrow(/未找到标题/);
+  });
+
+  it("替换文本中的 $& / $' 等模式按字面写入（$ 注入回归锁）", () => {
+    const doc = "## A\r\nprice old end\r\n";
+    // 修复前 String.replace 会把 $& 展开为匹配原文、$' 展开为匹配后文本
+    expect(replaceInSection(doc, "A", "old", "$& $' x")).toBe("## A\r\nprice $& $' x end\r\n");
+    expect(replaceInSection(doc, "A", "old", "$$100", true)).toBe("## A\r\nprice $$100 end\r\n");
   });
 });
 
