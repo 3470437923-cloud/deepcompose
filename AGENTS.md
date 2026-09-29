@@ -38,7 +38,7 @@ src/core/store/     作品目录协议(project) · 14 件套模板(templates) ·
 src/core/tools/     工具 schema(spec) · 执行(exec) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
-src/ui/             主工作台(MainWorkbench) · 备忘录(MemoModal) · 对话框(Dialogs)
+src/ui/             主工作台(MainWorkbench) · 标题栏鲸鱼(TitlebarWhale) · 用量面板(UsagePanel) · 备忘录(MemoModal) · 对话框(Dialogs)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
 src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于)
 src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进产物）
@@ -52,7 +52,9 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 >
 > **已落地（逐批更新）**：`src/core/usage/stats|peak|persist.ts`（B2）、`src/core/ai/platforms.ts`（B1）、
 > `src/core/ai/profiles.ts` + `platformNotice.ts`（B3）、`src/core/ai/thinking.ts`（B4，思考档位模型；
-> 档位是**会话级内存值**，见 D-028）、`src/core/ai/balance.ts`（余额查询，面板用）。
+> 档位是**会话级内存值**，见 D-028）、`src/core/ai/balance.ts`（余额查询，面板用）、
+> `src/core/usage/view.ts` + `src/ui/TitlebarWhale.tsx` + `src/ui/UsagePanel.tsx`（B6：鲸鱼游动与用量面板；
+> 几何与交互裁决见 D-031，闲置开关见 D-030）。
 
 数据流：`MainWorkbench` 只依赖 `core/*` 的纯函数 + `fsbridge`；Rust 只做三件事——
 文件原语、SSE 转发、窗口几何。**业务策略（路径分级、格式优先、快照）全部在 TS 侧且有单测**。
@@ -65,7 +67,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **331 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **345 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 **真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。

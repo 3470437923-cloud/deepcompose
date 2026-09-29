@@ -178,6 +178,44 @@ writeFile(MEMOS_FILE, JSON.stringify({
   ],
 }), now - DAY);
 
+/* ── 种子：用量统计（`usage_stats.json`，鲸鱼面板的今日块读它） ──
+   与真实文件同形：按本地日期分桶 + 最近一次余额快照。数值刻意留一组
+   有缓存命中的样本（命中率高/低两种读法都能看出来）。 */
+const dayKeyOf = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+writeFile(
+  `${PREFS_DIR}\\usage_stats.json`,
+  JSON.stringify({
+    version: 1,
+    days: {
+      [dayKeyOf(new Date(now))]: {
+        inputTokens: 128_400,
+        outputTokens: 43_260,
+        cacheHitTokens: 102_400,
+        cacheMissTokens: 26_000,
+        requests: 7,
+      },
+      [dayKeyOf(new Date(now - DAY))]: {
+        inputTokens: 61_000,
+        outputTokens: 18_000,
+        cacheHitTokens: 0,
+        cacheMissTokens: 61_000,
+        requests: 3,
+      },
+    },
+    lastBalance: {
+      at: new Date(now - 3600_000).toISOString(),
+      isAvailable: true,
+      currency: "CNY",
+      total: "42.18",
+      granted: "0.00",
+      toppedUp: "42.18",
+    },
+    lastError: null,
+  }),
+  now,
+);
+
 /* ── 配置 ── */
 const seedPrefs: Record<string, unknown> = {
   "flutter.llm_base_url": "https://api.deepseek.com/v1",

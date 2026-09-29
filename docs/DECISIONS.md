@@ -66,6 +66,8 @@
 | D-027 | **ADR（新增配置键）**：`platform_notice_dismissed`（boolean，DeepCompose 扩展键）——D-022 的「不再提示」需要一个持久位；缺失按 `false`，与既有键同文件，只写不删 | 已同步 `prefs.ts` 的 `Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs` 四处；新增键必须四处同改（本 ADR 即该纪律的实例） |
 | D-028 | 思考档位的 **UI 入口只做「会话级」**（主界面输入区 chip + 四档浮层，只存内存）；配置级默认（具名配置的 `thinking` / `reasoningEffort`）**本批不开设置页入口**——用户已确认会话级为准，且旧版设置页从来没有这两个字段的编辑器；字段保留兼容并参与 D-011 的回落链 | 回落链：会话级 > 配置级 > 平台内置初值（开启 + high）。若将来要在设置页暴露，按 D-027 的四点同步纪律走 |
 | D-029 | **思考参数的最终形状（B5 真实 Key 实测）**：两种协议**开关都是** `thinking: {type: "enabled"|"disabled"}`；档位 OpenAI 用 `reasoning_effort`、Anthropic 用 `output_config.effort`；非 DeepSeek 端点一个字段都不发 | 实测否掉了两种"文档直觉写法"：Anthropic 的 `reasoning.effort: "none"` **关不掉思考**（thinking_delta 仍有 68 个），`thinking.type:"disabled"` 才是真开关（thinking_delta = 0）。证据：`tools/ds_probe.py --only anthropic/anth2` |
+| D-030 | **ADR（新增配置键）**：`whale_idle_pause`（boolean，默认 `true`，DeepCompose 扩展键）——标题栏鲸鱼「闲置时停下游动」的开关需要一个持久位；键缺失/非法一律按 `true`（默认开） | 已同步 `prefs.ts` 四处（`Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs`）+ `tests/core/prefs.test.ts` 往返用例（键缺失 → true；显式 false 能存住） |
+| D-031 | **鲸鱼的几何与交互**：① 走廊 = 「面板开关簇右缘 + 24px」到「设置齿轮左缘 − 24px」，24px 与标题栏 gap 都由 CSS 变量单点定义（`--whale-gutter` / `--tb-gap`），JS 只**实测**跨度（ResizeObserver）后写进 `--whale-span` 供关键帧用；② 展开状态是三个来源的**并集**（悬停预览 120ms / 点击钉住 / 键盘聚焦），不是单个布尔取反；③ `prefers-reduced-motion` 下完全不游动（无障碍优先于装饰）；④ 闲置 45s 停下游动，开关见 D-030 | ②的原因是实测出来的：早先用「单 open + 点击取反」时，鼠标点一下会先触发 focus 展开、紧接着的 click 又把它关掉 —— 表现是"点鲸鱼什么都不弹"。另记一个 CSS 陷阱：`.surface-raised` 的 `raise-in` 动画末帧是 `transform: none`（fill-mode: both），**动画声明在层叠里压过普通声明**，所以面板的让位量必须用 `margin-left` 而不是 `transform: translateX`，否则一开就被清成 identity、面板被窗口右缘切掉 |
 
 ---
 

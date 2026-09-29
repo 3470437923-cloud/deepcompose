@@ -221,6 +221,15 @@ describe("往返与容错回归锁（审计补强）", () => {
       false,
     );
   });
+
+  it("whale_idle_pause 可往返（D-030 新增键：缺失/类型不符回落 true —— 默认「闲置就停」）", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.whale_idle_pause": false }));
+    expect(p.whaleIdlePause).toBe(false);
+    expect(parsePrefs(serializePrefs(p)).whaleIdlePause).toBe(false);
+    // 老配置文件里没有这个键 → 默认开（鲸鱼闲置即停）
+    expect(parsePrefs("{}").whaleIdlePause).toBe(true);
+    expect(parsePrefs(JSON.stringify({ "flutter.whale_idle_pause": "no" })).whaleIdlePause).toBe(true);
+  });
 });
 
 describe("供应商平台与具名配置（DeepCompose 扩展，DECISIONS D-006 / D-007）", () => {
