@@ -281,7 +281,34 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       if (f) writeFile(S("to"), f.content, f.mtimeMs);
       return null;
     }
-    case "ai_stream":
+    case "ai_stream": {
+      // 预览里造一段真实形状的 SSE 流（含思考流 + 被 max_tokens 截断的收尾），
+      // 这样主界面的流式渲染、用量块、截断提示条（.notice-line）都能走真实路径。
+      // 桌面端由 Rust 转发；这里按 ai_chunk 事件逐条派发，末尾必发 done。
+      const req = ((args ?? {}).request ?? {}) as { requestId?: string; body?: { stream?: boolean } };
+      const id = String(req.requestId ?? "");
+      if (!id) return null;
+      const script: { kind: string; data: string }[] = [
+        { kind: "line", data: 'data: {"choices":[{"delta":{"reasoning_content":"先想一下这一章该怎么接。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"【预览】"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"这是沙箱里造的一段正文，用来验证流式渲染。"}}]}' },
+        // 截断收尾：assistant 正文照常入库，界面另给 warn 色提示条
+        { kind: "line", data: 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}' },
+        {
+          kind: "line",
+          data:
+            'data: {"choices":[],"usage":{"prompt_tokens":2048,"completion_tokens":32000,' +
+            '"prompt_tokens_details":{"cached_tokens":1792},"prompt_cache_hit_tokens":1792,' +
+            '"prompt_cache_miss_tokens":256}}',
+        },
+        { kind: "line", data: "data: [DONE]" },
+        { kind: "done", data: "" },
+      ];
+      script.forEach((chunk, i) => {
+        setTimeout(() => emitMockEvent("ai_chunk", { requestId: id, kind: chunk.kind, data: chunk.data }), 40 * (i + 1));
+      });
+      return null;
+    }
     case "ai_abort":
       return null;
     // 应用身份（桌面端为 Rust app_info）：设置屏「关于」的名称/版本取自这里

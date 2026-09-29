@@ -92,6 +92,8 @@ export interface SendResult {
   error?: string;
   /** 本次运行的 token 用量合计（面板「本次会话累计」据此累加，D-019） */
   usage: UsageTotals;
+  /** 任一回合撞上 max_tokens 上限（界面须给可见提示：别让用户以为模型写完了） */
+  truncated: boolean;
 }
 
 /**
@@ -107,7 +109,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
     opts.onEvent?.({ type: "error", message });
-    return { session, error: message, usage: { ...ZERO_USAGE } };
+    return { session, error: message, usage: { ...ZERO_USAGE }, truncated: false };
   }
 
   const systemPrompt = buildSystemPrompt({
@@ -191,7 +193,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     // 静默：统计文件损坏/拒绝写入都不阻断对话
   }
 
-  return { session: next, error: result.error, usage: result.usage };
+  return { session: next, error: result.error, usage: result.usage, truncated: result.truncated };
 }
 
 /** 重读会话索引（界面在落盘后刷新会话列表用） */
@@ -228,7 +230,7 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
     opts.onEvent?.({ type: "error", message });
-    return { session: opts.session, error: message, usage: { ...ZERO_USAGE } };
+    return { session: opts.session, error: message, usage: { ...ZERO_USAGE }, truncated: false };
   }
 
   const result = await runAgent({
@@ -265,5 +267,5 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
   } catch {
     // 同上
   }
-  return { session: next, error: result.error, usage: result.usage };
+  return { session: next, error: result.error, usage: result.usage, truncated: result.truncated };
 }

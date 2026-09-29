@@ -38,9 +38,9 @@
 |---|---|---|
 | D-010 | 主界面输入框旁加**思考开关 chip** + **三档吸附滑轨**（关闭 / 低 / 高 / 最高） | 底层只有 `low/high/max` 三档真语义，故不做连续滑条（假精度）；档位带代价提示 |
 | D-011 | 状态优先级：平台内置初值 → 配置级默认（每个具名配置各存一份）→ **会话级临时值**；会话级**只存内存**，不写会话文件 | 不碰磁盘契约 |
-| D-012 | `reasoning_content` 回传策略：**按平台 + 是否带 tools 自动**——DeepSeek 带工具必回传、冷读（零工具）不回传、其他平台不回传 | 官方规则（附录 A §5）；写进 `protocol.ts` 装配层 + 回归锁 |
-| D-013 | 思考开启时 `temperature` / `presence_penalty` / `frequency_penalty` **置灰**并标注「思考模式下不生效」；`top_p` 标注有效区间 0.95–1.0 | 官方明确「设了不报错但无效」，静默无效是体验陷阱 |
-| D-014 | 后台任务：**回流 / 压缩强制关闭思考**；冷读跟随用户开关 | 结构化输出任务，思考只增时延与 token |
+| D-012 | **回传策略（B5 实测后改写）**：本软件**一律不回传**历史 `reasoning_content` | 原策略是「按平台 + 是否带 tools 自动回传」。B5 用真实 Key 实测：带 `tools` + 历史轮缺 `reasoning_content` → **200**（不 400）；补上回传同样 200；零工具亦 200。既然官方不强求，不回传更优：省 token，且不改写历史前缀（前缀缓存按完整匹配命中，回传等于每轮追加新内容）。回归锁见 `tests/ai/agent.test.ts`「历史消息回放形态」。prefs 里的 `reasoning_replay` 字段保留兼容但**引擎不再读** |
+| D-013 | 思考开启时 `temperature` / `presence_penalty` / `frequency_penalty` **置灰**并标注「思考模式下不生效」；`top_p` 标注有效区间 0.95–1.0 | 官方明确「设了不报错但无效」，静默无效是体验陷阱。现状：只发 `temperature`（官方为兼容既有软件故意不报错），不发 `top_p` |
+| D-014 | 后台任务：**回流 / 压缩强制关闭思考**；冷读跟随用户开关 | 结构化输出任务，思考只增时延与 token；B4 已按此实现（`thinking: "off"` / `{...cfg, thinking:false}`） |
 
 ## 五、标题栏鲸鱼与统计面板
 
@@ -62,9 +62,10 @@
 | D-023 | **新增本地文件** `%APPDATA%\com.writerd\writerD\usage_stats.json`（按日 token 分桶 + 余额快照 + 最近错误），**additive 契约**，可随时删除 | README 契约表已加行；与 `shared_preferences.json`、`window_state.json` 同目录 |
 | D-024 | 上限放宽：`contextLimit` → **1M**、`maxOutputTokens` → **384K** | 对应 KL-DF-09（原钳在 200K） |
 | D-025 | 引擎侧**不传 `user_id`**（少一个变量）；**不内置价格表** | 官方 `user_id` 只做内容安全/KVCache/调度隔离，且要求 `[a-zA-Z0-9\-_]+` |
-| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线（随批次滚动刷新）：vitest 316 例、cargo 13 例 |
+| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线（随批次滚动刷新）：vitest 331 例、cargo 13 例 |
 | D-027 | **ADR（新增配置键）**：`platform_notice_dismissed`（boolean，DeepCompose 扩展键）——D-022 的「不再提示」需要一个持久位；缺失按 `false`，与既有键同文件，只写不删 | 已同步 `prefs.ts` 的 `Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs` 四处；新增键必须四处同改（本 ADR 即该纪律的实例） |
 | D-028 | 思考档位的 **UI 入口只做「会话级」**（主界面输入区 chip + 四档浮层，只存内存）；配置级默认（具名配置的 `thinking` / `reasoningEffort`）**本批不开设置页入口**——用户已确认会话级为准，且旧版设置页从来没有这两个字段的编辑器；字段保留兼容并参与 D-011 的回落链 | 回落链：会话级 > 配置级 > 平台内置初值（开启 + high）。若将来要在设置页暴露，按 D-027 的四点同步纪律走 |
+| D-029 | **思考参数的最终形状（B5 真实 Key 实测）**：两种协议**开关都是** `thinking: {type: "enabled"|"disabled"}`；档位 OpenAI 用 `reasoning_effort`、Anthropic 用 `output_config.effort`；非 DeepSeek 端点一个字段都不发 | 实测否掉了两种"文档直觉写法"：Anthropic 的 `reasoning.effort: "none"` **关不掉思考**（thinking_delta 仍有 68 个），`thinking.type:"disabled"` 才是真开关（thinking_delta = 0）。证据：`tools/ds_probe.py --only anthropic/anth2` |
 
 ---
 
@@ -105,6 +106,12 @@
 - 思考模式**默认开启**，默认 effort = `high`。
 - effort 别名映射：`minimal/low → low`、`medium/high → high`、`max → max`、`xhigh/ultra → max`。
   **真正有区分度的只有 low / high / max 三档**。
+- **实测补注（B5，2026-08，deepseek-flash，`tools/ds_probe.py --only effort2`）**：
+  - 不带任何思考字段 → 默认开启（响应里 733 个 thinking_delta）；
+  - `thinking:{type:"disabled"}` → thinking_delta = 0（**这才是开关**）；
+  - Anthropic 格式的 `reasoning:{effort:"none"}` → thinking_delta **仍有 68 个**（关不掉，文档该行易误读）；
+  - `reasoning_effort` 三档确实不同（同一简单题：low 42 / high 32 / max 69 reasoning_tokens），
+    但小样本下**非单调**，别把它当"越高质量越好"的旋钮。
 
 ### 3. 思考模式下的采样参数
 
@@ -127,6 +134,12 @@
 ### 6. 用量、缓存与余额
 
 - `usage` 含 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`（磁盘上下文缓存，默认开启，best-effort）。
+- **实测补注（B5，`tools/ds_probe.py --only cache`）**：OpenAI 格式一条响应里**两套缓存字段同发**——
+  `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` 与 `prompt_tokens_details.cached_tokens`；
+  同一前缀第二次请求命中 2048/2287（首次 0）→ 缓存确实生效且可观测。
+  Anthropic 格式给的是 `{input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens, service_tier}`。
+  `completion_tokens_details.reasoning_tokens` 也在（思考 token 的可观测口径）。
+  另：`max_tokens: 384000` 与 3.8 万 token 的输入都被接受（D-024 成立）。
 - 缓存按「前缀单元」**完整匹配**命中；缓存几小时到几天自动清理；**改写历史前缀会打掉缓存**。
 - `GET /user/balance` → `is_available` + `balance_infos[{currency: CNY|USD, total_balance, granted_balance, topped_up_balance}]`。
 - **API Reference 里没有「按日用量 / 账单」端点**（只有余额）→ 这也是本改造放弃人民币用量估算的直接原因之一（D-020）。
@@ -140,6 +153,9 @@
 
 - 流式请求会持续返回 SSE 注释行 `: keep-alive`；非流式持续返回空行。
 - 请求发出后 **10 分钟未开始推理**，服务端关闭连接。
+- **实测补注（B5，`tools/ds_probe.py --only keepalive`）**：本轮 6 组请求（含 900 token 长思考、
+  3.8 万 token 前缀）**都没有出现**注释行——它只在服务端排队等待时出现，按需触发、不可召之即来。
+  解析层因此按"白名单"实现（只有 `event:` / `data:` 算数据），不依赖是否见过注释行。
 
 ### 9. 价格时段（仅用于理解闲时/忙时）
 

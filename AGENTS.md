@@ -44,7 +44,7 @@ src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数
 src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进产物）
 src-tauri/src/      sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何)
 tests/              vitest；与 src 同构目录
-tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · e2e_*.ps1
+tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
 ```
 
 > **本轮改造（B0–B9）计划新增**：`src/core/usage/`（token 统计与闲时判定）、`src/core/store/recycle.ts`（回收站）、
@@ -65,8 +65,12 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **316 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **331 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
+
+**真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。
+它只读本机 prefs 里的 Key（`%APPDATA%\com.writerd\writerD\shared_preferences.json`），**绝不打印 Key**
+（输出统一过 `redact()`），请求都压在几百 token 量级。KL-DF-01/02/03/04/05 的 `[已实测]` 结论都由它产生。
 
 回归锁（改坏即产品事故）：
 - `tests/store/markdown.test.ts` —— 格式优先（只 append / 节内替换）

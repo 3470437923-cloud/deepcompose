@@ -14,6 +14,7 @@ import {
   StreamParser,
   anthropicUrl,
   buildRequest,
+  isTruncatedReason,
   mapAnthropicEvent,
   mapOpenAiChunk,
   openAiUrl,
@@ -70,17 +71,117 @@ describe("思考参数（附录 A §2）", () => {
     expect(b.reasoning_effort).toBe("high");
   });
 
-  it("Anthropic：开关与档位同为 reasoning.effort（none = 关闭）", () => {
+  it("Anthropic：开关是 thinking.type，档位是 output_config.effort（B5 真实 Key 实测结论）", () => {
+    // 实测：reasoning.effort="none" 关不掉思考（响应仍有 thinking_delta），
+    // 而 thinking:{type:"disabled"} 的 thinking_delta 数为 0 → 开关只能是前者。
     const on = buildRequest({ ...anthropicCfg, thinking: true, reasoningEffort: "low" }, msgs, [], "").body as Record<
       string,
       unknown
     >;
-    expect(on.reasoning).toEqual({ effort: "low" });
-    const off = buildRequest({ ...anthropicCfg, thinking: false }, msgs, [], "").body as Record<string, unknown>;
-    expect(off.reasoning).toEqual({ effort: "none" });
+    expect(on.thinking).toEqual({ type: "enabled" });
+    expect(on.output_config).toEqual({ effort: "low" });
+    expect(on.reasoning).toBeUndefined();
+    const off = buildRequest({ ...anthropicCfg, thinking: false, reasoningEffort: "max" }, msgs, [], "").body as Record<
+      string,
+      unknown
+    >;
+    expect(off.thinking).toEqual({ type: "disabled" });
+    expect(off.output_config).toBeUndefined();
     const absent = buildRequest({ ...anthropicCfg }, msgs, [], "").body as Record<string, unknown>;
+    expect(absent.thinking).toBeUndefined();
     expect(absent.reasoning).toBeUndefined();
     expect(absent.output_config).toBeUndefined();
+  });
+
+  it("Anthropic：开启但未给档位时回落官方默认 high", () => {
+    const b = buildRequest({ ...anthropicCfg, thinking: true }, msgs, [], "").body as Record<string, unknown>;
+    expect(b.output_config).toEqual({ effort: "high" });
+  });
+});
+
+describe("usage 缓存字段（B5 真实响应形态）", () => {
+  it("OpenAI：prompt_cache_hit/miss_tokens 优先（实测两套字段同发）", () => {
+    const ev = mapOpenAiChunk({
+      choices: [],
+      usage: {
+        prompt_tokens: 2287,
+        completion_tokens: 1,
+        prompt_tokens_details: { cached_tokens: 2048 },
+        prompt_cache_hit_tokens: 2048,
+        prompt_cache_miss_tokens: 239,
+      },
+    });
+    const u = ev.find((e) => e.type === "usage") as Extract<ReturnType<typeof mapOpenAiChunk>[number], { type: "usage" }>;
+    expect(u.inputTokens).toBe(2287);
+    expect(u.cacheHitTokens).toBe(2048);
+    expect(u.cacheMissTokens).toBe(239);
+  });
+
+  it("OpenAI：只有 prompt_tokens_details.cached_tokens 时兜底，未命中数由总数推得", () => {
+    const ev = mapOpenAiChunk({
+      choices: [],
+      usage: { prompt_tokens: 1000, completion_tokens: 5, prompt_tokens_details: { cached_tokens: 768 } },
+    });
+    const u = ev.find((e) => e.type === "usage") as Extract<ReturnType<typeof mapOpenAiChunk>[number], { type: "usage" }>;
+    expect(u.cacheHitTokens).toBe(768);
+    expect(u.cacheMissTokens).toBe(232);
+  });
+
+  it("OpenAI：完全没有缓存字段时不凭空造数（缓存命中率显示为未知）", () => {
+    const ev = mapOpenAiChunk({ choices: [], usage: { prompt_tokens: 10, completion_tokens: 1 } });
+    const u = ev.find((e) => e.type === "usage") as Extract<ReturnType<typeof mapOpenAiChunk>[number], { type: "usage" }>;
+    expect(u.cacheHitTokens).toBeUndefined();
+    expect(u.cacheMissTokens).toBeUndefined();
+  });
+
+  it("Anthropic：读过缓存 → 命中数取 cache_read_input_tokens，未命中 = 未读缓存的那部分输入", () => {
+    const ev = mapAnthropicEvent("message_start", {
+      type: "message_start",
+      message: {
+        usage: {
+          input_tokens: 67,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 512,
+          output_tokens: 1,
+        },
+      },
+    });
+    const u = ev[0] as Extract<ReturnType<typeof mapAnthropicEvent>[number], { type: "usage" }>;
+    expect(u.type).toBe("usage");
+    expect(u.inputTokens).toBe(67);
+    expect(u.cacheHitTokens).toBe(512);
+    expect(u.cacheMissTokens).toBe(67);
+  });
+});
+
+describe("SSE 行过滤与截断标记", () => {
+  it("注释行 / 空行 / retry: 行一律不产生事件（`: keep-alive` 不会污染 data）", () => {
+    expect(parseSseLine(": keep-alive")).toBeNull();
+    expect(parseSseLine("")).toBeNull();
+    expect(parseSseLine("retry: 3000")).toBeNull();
+    expect(parseSseLine(":")).toBeNull();
+    expect(parseSseLine("event: ping")).toEqual({ event: "ping" });
+    expect(parseSseLine("data: {}")).toEqual({ data: "{}" });
+  });
+
+  it("喂进完整流（含注释行）后事件序列不变", () => {
+    const p = new StreamParser(false);
+    const got = [
+      ...p.feed(": keep-alive"),
+      ...p.feed(""),
+      ...p.feed('data: {"choices":[{"delta":{"content":"好"}}]}'),
+      ...p.feed(": keep-alive"),
+      ...p.feed("data: [DONE]"),
+    ];
+    expect(got.map((e) => e.type)).toEqual(["text_delta", "stop"]);
+  });
+
+  it("两种协议的截断叫法都认（length / max_tokens）", () => {
+    expect(isTruncatedReason("length")).toBe(true);
+    expect(isTruncatedReason("max_tokens")).toBe(true);
+    expect(isTruncatedReason("stop")).toBe(false);
+    expect(isTruncatedReason("end_turn")).toBe(false);
+    expect(isTruncatedReason("tool_calls")).toBe(false);
   });
 });
 

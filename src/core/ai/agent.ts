@@ -20,6 +20,7 @@ import { AI_ERRORS, classifyHttpError, classifyStreamError } from "./errors";
 import {
   StreamParser,
   buildRequest,
+  isTruncatedReason,
   type ChatMessage,
   type HttpRequest,
   type ProviderConfig,
@@ -81,6 +82,8 @@ export type AgentEvent =
     }
   | { type: "cleanup_started" }
   | { type: "cleanup_completed" }
+  /** 本轮被 max_tokens 截断（reason 为上游原文：length / max_tokens） */
+  | { type: "truncated"; reason: string }
   | { type: "run_completed"; message: ChatMessage }
   | { type: "error"; message: string; detail?: string };
 
@@ -118,6 +121,8 @@ export interface RunResult {
   error?: string;
   /** 本次运行（含工具循环的全部回合）的用量合计：轮内快照、轮间求和 */
   usage: UsageTotals;
+  /** 任一回合碰到 max_tokens 上限（界面要给出可见提示，不能装作写完了） */
+  truncated: boolean;
 }
 
 /** 生成消息/运行 id：优先 crypto.randomUUID，测试环境无 crypto 时退化为时间戳随机数 */
@@ -125,6 +130,13 @@ function newId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return `m_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 }
+
+/**
+ * apply() 透传给界面的事件：协议事件原样透传，外加一个**装配层**事件
+ * `truncated`（收尾原因表示被 max_tokens 截断）——它不是协议词汇，
+ * 但如果只当协议细节丢掉，用户就会把"写到一半停住"误当成"写完了"。
+ */
+type PassthroughEvent = StreamEvent | Extract<AgentEvent, { type: "truncated" }>;
 
 /** 累积中的工具调用（流式片段拼装） */
 interface PendingCall {
@@ -161,8 +173,8 @@ class TurnAccumulator {
     };
   }
 
-  apply(events: StreamEvent[]): StreamEvent[] {
-    const passthrough: StreamEvent[] = [];
+  apply(events: StreamEvent[]): PassthroughEvent[] {
+    const passthrough: PassthroughEvent[] = [];
     for (const e of events) {
       switch (e.type) {
         case "text_delta":
@@ -199,7 +211,9 @@ class TurnAccumulator {
           });
           break;
         case "stop":
-          // 收尾以传输层 done 为准，stop 事件仅协议信息，不透传
+          // 收尾以传输层 done 为准，stop 仅协议信息，不透传；唯一例外是"被截断"——
+          // 它必须让用户看见（length / max_tokens 两种叫法见 protocol.isTruncatedReason）
+          if (isTruncatedReason(e.reason)) passthrough.push({ type: "truncated", reason: e.reason });
           break;
       }
     }
@@ -269,12 +283,14 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let history = [...opts.messages, userMsg];
   let textStarted = false;
   let thinkingStarted = false;
+  /** 木桶效应：任何一回合被截断，整轮就标记截断（界面提示是"本轮"级别的） */
+  let truncated = false;
 
   for (let round = 0; round < maxRounds; round++) {
     // 每轮开头检查中止：上一轮工具执行期间用户点了「停止」时在这里收尾
     if (opts.signal?.aborted) {
       emit({ type: "error", message: "已中止" });
-      return { added, error: "已中止", usage };
+      return { added, error: "已中止", usage, truncated };
     }
 
     const req = buildRequest(opts.cfg, history, opts.tools, opts.systemPrompt);
@@ -310,6 +326,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
             } else if (e.type === "usage") {
               // 透传值是 apply() 补全后的「回合累计快照」：直接取累加器当前值（字段均必填）
               emit({ type: "usage", ...acc.usage() });
+            } else if (e.type === "truncated") {
+              truncated = true;
+              emit({ type: "truncated", reason: e.reason });
             }
           }
         },
@@ -329,7 +348,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     if (streamError !== null) {
       const msg = streamError as string;
       emit({ type: "error", message: msg, detail: httpStatus === null ? undefined : `HTTP ${httpStatus}` });
-      return { added, error: msg, usage };
+      return { added, error: msg, usage, truncated };
     }
 
     // 回合结束：部分正文也保留（「停止生成」的语义是截断流，不是丢弃已收内容）
@@ -344,14 +363,14 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         if (c.result === undefined) c.result = abortedToolResult();
       }
       emit({ type: "error", message: "已中止" });
-      return { added, error: "已中止", usage };
+      return { added, error: "已中止", usage, truncated };
     }
 
     const calls = assistant.toolCalls ?? [];
 
     if (calls.length === 0) {
       emit({ type: "run_completed", message: assistant });
-      return { added, usage };
+      return { added, usage, truncated };
     }
 
     emit({ type: "tool_calls_received", calls });
@@ -364,7 +383,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
           if (c.result === undefined) c.result = abortedToolResult();
         }
         emit({ type: "error", message: "已中止" });
-        return { added, error: "已中止", usage };
+        return { added, error: "已中止", usage, truncated };
       }
       emit({ type: "tool_started", call });
       // currentCallId 注入：写前快照按调用 id 关联（既有快照格式）
@@ -387,7 +406,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     type: "error",
     message: `工具调用轮次超过上限（${maxRounds}），已停止`,
   });
-  return { added, error: `超过工具轮次上限 ${maxRounds}`, usage };
+  return { added, error: `超过工具轮次上限 ${maxRounds}`, usage, truncated };
 }
 
 /** 供界面兜底：没有可用配置时给出逐字错误 */

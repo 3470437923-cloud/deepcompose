@@ -170,6 +170,80 @@ describe("写入类工具真的落盘", () => {
   });
 });
 
+describe("截断可见性（KL-DF：撞上 max_tokens 不能装作写完了）", () => {
+  /** 一轮被 max_tokens 截断的流：OpenAI 叫 length */
+  function truncatedScript(): string[] {
+    return [
+      'data: {"choices":[{"delta":{"content":"开头部分"}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+      'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":32000}}',
+      "data: [DONE]",
+    ];
+  }
+
+  it("OpenAI finish_reason=length → truncated=true 且事件透传", async () => {
+    const events: AgentEvent[] = [];
+    const { transport } = fakeTransport([truncatedScript()]);
+    const res = await runAgent(baseOpts(transport, (e) => events.push(e)));
+    expect(res.truncated).toBe(true);
+    expect(events.some((e) => e.type === "truncated" && e.reason === "length")).toBe(true);
+    // 正文照常入库（截断的语义是"少了个尾巴"，不是丢弃）
+    expect(res.added.some((m) => m.text === "开头部分")).toBe(true);
+  });
+
+  it("Anthropic stop_reason=max_tokens → truncated=true", async () => {
+    const anthCfg = { ...cfg, useAnthropicFormat: true };
+    const events: AgentEvent[] = [];
+    const { transport } = fakeTransport([
+      [
+        'event: message_start',
+        'data: {"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}',
+        'event: content_block_delta',
+        'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"半句"}}',
+        'event: message_delta',
+        'data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"},"usage":{"output_tokens":900}}',
+        'event: message_stop',
+        'data: {"type":"message_stop"}',
+      ],
+    ]);
+    const res = await runAgent({ ...baseOpts(transport, (e) => events.push(e)), cfg: anthCfg });
+    expect(res.truncated).toBe(true);
+    expect(events.some((e) => e.type === "truncated" && e.reason === "max_tokens")).toBe(true);
+  });
+
+  it("正常收尾（stop / end_turn）不标记截断", async () => {
+    const { transport } = fakeTransport([textScript("写完了")]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.truncated).toBe(false);
+  });
+});
+
+describe("历史消息回放形态（D-012 + B5 实测）", () => {
+  it("两种协议的请求体里都不会出现 reasoning_content（实测：不回传也 200）", async () => {
+    // 实测结论（tools/ds_probe.py --only replay，deepseek-flash）：
+    // 带 tools + 历史轮缺 reasoning_content → 200；补回传也是 200；零工具也是 200。
+    // 因此本软件**一律不回传**历史思考内容：省 token，且不改写历史前缀（保前缀缓存）。
+    const history = [
+      { id: "1", role: "user" as const, text: "写一段", createdAt: "t" },
+      { id: "2", role: "assistant" as const, text: "好", createdAt: "t" },
+    ];
+    for (const useAnthropicFormat of [false, true]) {
+      const events: AgentEvent[] = [];
+      const { transport, requests } = fakeTransport([textScript("继续")]);
+      await runAgent({
+        ...baseOpts(transport, (e) => events.push(e)),
+        cfg: { ...cfg, useAnthropicFormat },
+        messages: history,
+      });
+      const msgs = (requests[0].body as Record<string, unknown>).messages as Record<string, unknown>[];
+      for (const m of msgs) {
+        expect(m.reasoning_content).toBeUndefined();
+        expect(m.reasoning).toBeUndefined();
+      }
+    }
+  });
+});
+
 describe("错误路径", () => {
   it("HTTP 401 → 逐字 API Key 文案", async () => {
     const events: AgentEvent[] = [];
@@ -192,6 +266,28 @@ describe("错误路径", () => {
     ]);
     const res = await runAgent(baseOpts(transport, () => {}));
     expect(res.error).toBe(AI_ERRORS.temperatureUnsupported);
+  });
+
+  it("HTTP 402 → 余额不足文案（附录 A §7 官方专门列出的码）", async () => {
+    const { transport } = fakeTransport([['__HTTP_ERROR__402|{"error":{"message":"Insufficient Balance"}}']]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBe(AI_ERRORS.insufficientBalance);
+  });
+
+  it("HTTP 422 → 参数无效文案；带上下文关键词时归到上下文超长", async () => {
+    const a = fakeTransport([['__HTTP_ERROR__422|{"error":{"message":"invalid parameter: thinking"}}']]);
+    expect((await runAgent(baseOpts(a.transport, () => {}))).error).toBe(AI_ERRORS.invalidParam);
+    const b = fakeTransport([
+      ['__HTTP_ERROR__422|{"error":{"message":"This model maximum context length is 65536 tokens"}}'],
+    ]);
+    expect((await runAgent(baseOpts(b.transport, () => {}))).error).toBe(AI_ERRORS.contextTooLong);
+  });
+
+  it("HTTP 404 → 地址/模型文案（官方错误码表里没有 404，实务上等价于地址写错）", async () => {
+    const { transport } = fakeTransport([["__HTTP_ERROR__404|{}"]]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBe(AI_ERRORS.modelNotFound);
+    expect(AI_ERRORS.modelNotFound).toContain("Base URL");
   });
 
   it("流中断 → 归类为网络类文案", async () => {
