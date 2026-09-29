@@ -61,7 +61,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **223 例**、cargo **12 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **273 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 回归锁（改坏即产品事故）：

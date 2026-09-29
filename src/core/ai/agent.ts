@@ -27,6 +27,7 @@ import {
   type ToolCall,
   type ToolSchema,
 } from "./protocol";
+import { ZERO_USAGE, addTotals, type UsageTotals } from "../usage/stats";
 
 /**
  * 既有格式的逐字事件名表（wire 契约，不得改）。
@@ -69,7 +70,15 @@ export type AgentEvent =
   | { type: "tool_calls_received"; calls: ToolCall[] }
   | { type: "tool_started"; call: ToolCall }
   | { type: "tool_completed"; call: ToolCall }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | {
+      type: "usage";
+      /** 本回合用量快照（非增量）：上游按请求计费，回合内以最后一次上报为准 */
+      inputTokens: number;
+      outputTokens: number;
+      /** 磁盘缓存命中/未命中的输入 token（DeepSeek 独有；其他上游恒为 0） */
+      cacheHitTokens: number;
+      cacheMissTokens: number;
+    }
   | { type: "cleanup_started" }
   | { type: "cleanup_completed" }
   | { type: "run_completed"; message: ChatMessage }
@@ -107,6 +116,8 @@ export interface RunResult {
   added: ChatMessage[];
   /** 失败/中止时的逐字文案；正常结束为 undefined（即使 error 存在，added 也应入库） */
   error?: string;
+  /** 本次运行（含工具循环的全部回合）的用量合计：轮内快照、轮间求和 */
+  usage: UsageTotals;
 }
 
 /** 生成消息/运行 id：优先 crypto.randomUUID，测试环境无 crypto 时退化为时间戳随机数 */
@@ -133,8 +144,22 @@ class TurnAccumulator {
   thinking = "";
   /** 按上游分片的 index 归并（两种协议的工具调用都是按 index 增量拼装） */
   calls = new Map<number, PendingCall>();
+  // 用量是「请求级快照」：回合内后值覆盖前值（不能累加，见 KL-AI-02），
+  // 跨回合求和由 runAgent 负责。
   inputTokens = 0;
   outputTokens = 0;
+  cacheHitTokens = 0;
+  cacheMissTokens = 0;
+
+  /** 本回合用量快照 */
+  usage(): UsageTotals {
+    return {
+      inputTokens: this.inputTokens,
+      outputTokens: this.outputTokens,
+      cacheHitTokens: this.cacheHitTokens,
+      cacheMissTokens: this.cacheMissTokens,
+    };
+  }
 
   apply(events: StreamEvent[]): StreamEvent[] {
     const passthrough: StreamEvent[] = [];
@@ -158,9 +183,20 @@ class TurnAccumulator {
           break;
         }
         case "usage":
-          this.inputTokens += e.inputTokens;
-          this.outputTokens += e.outputTokens;
-          passthrough.push(e);
+          // 覆盖式更新：Anthropic 的 message_delta.output_tokens 是累计值，
+          // 旧实现用 `+=` 会把输出 token 累加成数倍（KL-AI-02）。
+          if (e.inputTokens !== undefined) this.inputTokens = e.inputTokens;
+          if (e.outputTokens !== undefined) this.outputTokens = e.outputTokens;
+          if (e.cacheHitTokens !== undefined) this.cacheHitTokens = e.cacheHitTokens;
+          if (e.cacheMissTokens !== undefined) this.cacheMissTokens = e.cacheMissTokens;
+          // 透传给界面的是「回合累计快照」，而不是上游的原始分片
+          passthrough.push({
+            type: "usage",
+            inputTokens: this.inputTokens,
+            outputTokens: this.outputTokens,
+            cacheHitTokens: this.cacheHitTokens,
+            cacheMissTokens: this.cacheMissTokens,
+          });
           break;
         case "stop":
           // 收尾以传输层 done 为准，stop 事件仅协议信息，不透传
@@ -218,6 +254,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   const runId = newId();
   emit({ type: "run_started", runId });
 
+  // 本次运行的用量合计：每回合结束时把该回合快照累加进来（含报错/中止前已产生的部分）
+  let usage: UsageTotals = { ...ZERO_USAGE };
+
   // 用户消息先行入库（即使后续失败，added 里也带着它，会话不丢用户输入）
   const userMsg: ChatMessage = {
     id: newId(),
@@ -235,7 +274,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     // 每轮开头检查中止：上一轮工具执行期间用户点了「停止」时在这里收尾
     if (opts.signal?.aborted) {
       emit({ type: "error", message: "已中止" });
-      return { added, error: "已中止" };
+      return { added, error: "已中止", usage };
     }
 
     const req = buildRequest(opts.cfg, history, opts.tools, opts.systemPrompt);
@@ -269,7 +308,8 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
               }
               emit({ type: "thinking_delta", text: e.text });
             } else if (e.type === "usage") {
-              emit({ type: "usage", inputTokens: e.inputTokens, outputTokens: e.outputTokens });
+              // 透传值是 apply() 补全后的「回合累计快照」：直接取累加器当前值（字段均必填）
+              emit({ type: "usage", ...acc.usage() });
             }
           }
         },
@@ -283,10 +323,13 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       streamError = classifyStreamError(String(e instanceof Error ? e.message : e));
     }
 
+    // 无论成功、报错还是中止，本回合已产生的用量都要计入（上游按实际用量计费）
+    usage = addTotals(usage, acc.usage());
+
     if (streamError !== null) {
       const msg = streamError as string;
       emit({ type: "error", message: msg, detail: httpStatus === null ? undefined : `HTTP ${httpStatus}` });
-      return { added, error: msg };
+      return { added, error: msg, usage };
     }
 
     // 回合结束：部分正文也保留（「停止生成」的语义是截断流，不是丢弃已收内容）
@@ -301,14 +344,14 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
         if (c.result === undefined) c.result = abortedToolResult();
       }
       emit({ type: "error", message: "已中止" });
-      return { added, error: "已中止" };
+      return { added, error: "已中止", usage };
     }
 
     const calls = assistant.toolCalls ?? [];
 
     if (calls.length === 0) {
       emit({ type: "run_completed", message: assistant });
-      return { added };
+      return { added, usage };
     }
 
     emit({ type: "tool_calls_received", calls });
@@ -321,7 +364,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
           if (c.result === undefined) c.result = abortedToolResult();
         }
         emit({ type: "error", message: "已中止" });
-        return { added, error: "已中止" };
+        return { added, error: "已中止", usage };
       }
       emit({ type: "tool_started", call });
       // currentCallId 注入：写前快照按调用 id 关联（既有快照格式）
@@ -344,7 +387,7 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     type: "error",
     message: `工具调用轮次超过上限（${maxRounds}），已停止`,
   });
-  return { added, error: `超过工具轮次上限 ${maxRounds}` };
+  return { added, error: `超过工具轮次上限 ${maxRounds}`, usage };
 }
 
 /** 供界面兜底：没有可用配置时给出逐字错误 */

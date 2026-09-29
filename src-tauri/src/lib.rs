@@ -47,6 +47,7 @@ pub fn run() {
             fs::fs_stat,
             ai::ai_stream,
             ai::ai_models,
+            ai::ai_balance,
             ai::ai_abort,
         ])
         .setup(|app| {

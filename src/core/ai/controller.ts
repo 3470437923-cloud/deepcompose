@@ -30,6 +30,8 @@ import {
   type SessionFile,
 } from "../store/session";
 import { isoMicros } from "../ids";
+import { recordUsage } from "../usage/persist";
+import { ZERO_USAGE, type UsageTotals } from "../usage/stats";
 
 /** 当前注册给模型的工具（web_search/terminal/rank_data_query 尚未实现，故不在其中） */
 export const ENABLED_TOOLS = IMPLEMENTED_TOOLS.map((t) => t.name);
@@ -71,6 +73,8 @@ export interface SendResult {
   /** 已落盘的最新会话（含本轮全部新消息；即使 error 存在也已保存） */
   session: SessionFile;
   error?: string;
+  /** 本次运行的 token 用量合计（面板「本次会话累计」据此累加，D-019） */
+  usage: UsageTotals;
 }
 
 /**
@@ -86,7 +90,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
     opts.onEvent?.({ type: "error", message });
-    return { session, error: message };
+    return { session, error: message, usage: { ...ZERO_USAGE } };
   }
 
   const systemPrompt = buildSystemPrompt({
@@ -161,7 +165,15 @@ export async function send(opts: SendOptions): Promise<SendResult> {
   };
 
   await saveSession(fs, opts.dirs.sessionsDir, next);
-  return { session: next, error: result.error };
+
+  // token 统计落盘（usage_stats.json，D-023）。统计是旁路：写失败不影响对话主流程。
+  try {
+    await recordUsage(fs, opts.dirs.usageStatsFile, result.usage);
+  } catch {
+    // 静默：统计文件损坏/拒绝写入都不阻断对话
+  }
+
+  return { session: next, error: result.error, usage: result.usage };
 }
 
 /** 重读会话索引（界面在落盘后刷新会话列表用） */
@@ -198,7 +210,7 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
     opts.onEvent?.({ type: "error", message });
-    return { session: opts.session, error: message };
+    return { session: opts.session, error: message, usage: { ...ZERO_USAGE } };
   }
 
   const result = await runAgent({
@@ -229,5 +241,11 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
     messages,
   };
   await saveSession(fs, opts.dirs.sessionsDir, next);
-  return { session: next, error: result.error };
+  // 冷读同样消耗 token，一并计入统计（旁路，失败静默）
+  try {
+    await recordUsage(fs, opts.dirs.usageStatsFile, result.usage);
+  } catch {
+    // 同上
+  }
+  return { session: next, error: result.error, usage: result.usage };
 }
