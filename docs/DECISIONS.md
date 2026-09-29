@@ -17,6 +17,8 @@
 | D-003 | 四道安全门：① 目标必须是 `booksRoot` 的**直接子目录**（拒绝盘符根、拒绝 `booksRoot` 自身）；② 先 `stat` 拒 reparse point（只删链接本身，绝不穿透）；③ 输入书名全等确认；④ **活性保护**（该书正被 AI 会话/回流/冷读占用时拒绝执行） | 对应 KL-DF-10 |
 | D-032 | **新增本地文件写入者**：`.openwrite_recycle\recycle_manifest.json` 从"预留契约"变成"我们在写"，形状 `{version:1, items:[{id,name,originalPath,movedAt,sizeBytes}]}`，id 形态沿用 `ids.newRecycleId()`（本地时间 + 微秒纪元） | 清单损坏/缺字段一律容错回落（坏 JSON → 空清单），回收站清单不该让删除功能瘫痪。**磁盘契约名一个字没改**（D-005） |
 | D-033 | **会话级内存缓存的寿命**：压缩检查点缓存改为 **LRU 封顶 32 条** + 导出 `dropCompressCache(sessionId)`；删作品时按 `deleteSessionsForProject` 交回的 id 列表逐个丢弃 | 对应 KL-AI-11：早期只增不淘汰，会话删了摘要块还在内存里。LRU 兜住"总会有人忘了调 drop"，显式 drop 兜住"我们知道它已经死了" |
+| D-034 | **快照纪律（B8 统一）**：① 一切改动盘的写路径**先落快照再动盘**（新内容已在内存里，写后哈希不依赖磁盘）；② copy / rename 的**目标侧也要各记一条写前快照**（目标不存在时记 `previousExists:false`，作为"回滚该删掉它"的依据） | 对应 KL-TL-02 / KL-TL-07。理由：两步之间崩掉时，"改了却没有回滚依据"是最坏的顺序；而覆盖目标不记快照，等于把用户的原稿直接吃掉 |
+| D-035 | **删除备忘录分类 = 把该分类下的条目迁移到「默认」**（不删条目）；老文件里残留的失效分类名在界面上显示为「未归类」 | 对应 KL-ST-09。原始注释声称"由 UI 兜底展示未归类"，复核发现 UI 没有这个兜底（过滤只看当前 chips）——分类名一消失，条目就再也点不到。迁移保数据、可回退（重建同名分类再挪回去即可） |
 
 > **落地补注（B7）**：D-001–D-003 已实现，实现时补了四条原裁决没写到的约束：
 > - **D-003①「直接子目录」用结构保证，而不是字符串比较**：新增受限删除命令
@@ -81,7 +83,7 @@
 | D-023 | **新增本地文件** `%APPDATA%\com.writerd\writerD\usage_stats.json`（按日 token 分桶 + 余额快照 + 最近错误），**additive 契约**，可随时删除 | README 契约表已加行；与 `shared_preferences.json`、`window_state.json` 同目录 |
 | D-024 | 上限放宽：`contextLimit` → **1M**、`maxOutputTokens` → **384K** | 对应 KL-DF-09（原钳在 200K） |
 | D-025 | 引擎侧**不传 `user_id`**（少一个变量）；**不内置价格表** | 官方 `user_id` 只做内容安全/KVCache/调度隔离，且要求 `[a-zA-Z0-9\-_]+` |
-| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线（随批次滚动刷新）：vitest 379 例、cargo 19 例 |
+| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线（随批次滚动刷新）：vitest 390 例、cargo 19 例 |
 | D-027 | **ADR（新增配置键）**：`platform_notice_dismissed`（boolean，DeepCompose 扩展键）——D-022 的「不再提示」需要一个持久位；缺失按 `false`，与既有键同文件，只写不删 | 已同步 `prefs.ts` 的 `Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs` 四处；新增键必须四处同改（本 ADR 即该纪律的实例） |
 | D-028 | 思考档位的 **UI 入口只做「会话级」**（主界面输入区 chip + 四档浮层，只存内存）；配置级默认（具名配置的 `thinking` / `reasoningEffort`）**本批不开设置页入口**——用户已确认会话级为准，且旧版设置页从来没有这两个字段的编辑器；字段保留兼容并参与 D-011 的回落链 | 回落链：会话级 > 配置级 > 平台内置初值（开启 + high）。若将来要在设置页暴露，按 D-027 的四点同步纪律走 |
 | D-029 | **思考参数的最终形状（B5 真实 Key 实测）**：两种协议**开关都是** `thinking: {type: "enabled"|"disabled"}`；档位 OpenAI 用 `reasoning_effort`、Anthropic 用 `output_config.effort`；非 DeepSeek 端点一个字段都不发 | 实测否掉了两种"文档直觉写法"：Anthropic 的 `reasoning.effort: "none"` **关不掉思考**（thinking_delta 仍有 68 个），`thinking.type:"disabled"` 才是真开关（thinking_delta = 0）。证据：`tools/ds_probe.py --only anthropic/anth2` |

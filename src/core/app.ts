@@ -6,7 +6,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createTauriFs, setFs } from "./fsbridge";
 import { resolveDirs, type AppDirs, type DirsInput } from "./dirs";
-import { parsePrefs, serializePrefs, type Prefs } from "./prefs";
+import { accentHex, parsePrefs, serializePrefs, type Prefs } from "./prefs";
 
 export interface SysDirsReply {
   home: string;
@@ -31,7 +31,25 @@ export function currentBoot(): Boot | null {
   return booted;
 }
 
-export async function boot(): Promise<Boot> {
+/**
+ * 启动（**幂等**，KL-TL-10）：并发/重复调用共用同一次装配。
+ * 装配含 `setFs`（进程级单例赋值）与四次 mkdir，重复跑既浪费也会把
+ * `booted` 覆盖成另一份对象（界面上看到的两份 prefs 可能不是同一个引用）。
+ * 失败则把 promise 清掉 —— 让下一次调用还有重试机会，而不是永久卡在失败态。
+ */
+let bootPromise: Promise<Boot> | null = null;
+
+export function boot(): Promise<Boot> {
+  if (bootPromise === null) {
+    bootPromise = doBoot().catch((e: unknown) => {
+      bootPromise = null;
+      throw e;
+    });
+  }
+  return bootPromise;
+}
+
+async function doBoot(): Promise<Boot> {
   setFs(createTauriFs(invoke));
 
   const sys = await invoke<SysDirsReply>("app_dirs");
@@ -78,8 +96,9 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
  *  只写 --accent 本体；--accent-2/--accent-soft 等派生色在 tokens.css 里
  *  以 color-mix(var(--accent)) 定义，随主题与强调色自动联动。 */
 export function applyAccentFromPrefs(prefs: Prefs): void {
-  const hex = `#${(prefs.customAccentColor & 0xffffff).toString(16).padStart(6, "0")}`;
-  document.documentElement.style.setProperty("--accent", hex);
+  // 与 prefs.accentHex 同一份实现（KL-TL-10：这里原先自带一遍位运算，
+  // 两处大小写还不一致；CSS 十六进制大小写不敏感，但"两处各写一遍"迟早会漂）
+  document.documentElement.style.setProperty("--accent", accentHex(prefs.customAccentColor));
 }
 
 /** 应用主题（KeepCompose：dark / light / dsblue 三套实色主题；

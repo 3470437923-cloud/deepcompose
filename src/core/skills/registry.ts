@@ -4,10 +4,16 @@
  * 技能的权威清单在配置键 `skill_list`（既有格式：元素含 id/name/description/directoryPath/
  * isBuiltIn/marketplaceSkillId/marketplaceVersion），不在目录扫描结果里。
  *
- * 注入格式逐字：
+ * 注入格式（**实际字节，不是理想排版**）：
  *   `## Available Skills\n\n技能按需加载。…\n\n<available_skills>\n`
- *   + `  <skill>` / `    <name>…</name>` / `    <description>…</description>` / `  </skill>`
+ *   + 每个技能：`  <skill>` + `    <name>…</name>` + `    <description>…</description>` + `  </skill>\n`
  *   + `</available_skills>`
+ *   —— 注意这四段之间**没有换行**（KL-TL-01）：一个技能在提示词里是一整行
+ *   `  <skill>    <name>甲</name>    <description>…</description>  </skill>`。
+ *   标签本身完好，模型读得懂（标签间的空白无语义），但**与"逐字排版"的设想不符**。
+ *   手里的证据不足以判定原产品到底发的是哪种（`cjk_exe.tsv` 只有含中文的字符串样本，
+ *   纯 ASCII 片段天生不在里面；运行期请求体没有留档），故**保持现有字节不动**，
+ *   只把注释改成与代码一致 —— 无据不改契约。
  *
  * skill_lookup 命中后回注的目录说明逐字。
  */

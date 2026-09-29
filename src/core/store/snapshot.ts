@@ -123,11 +123,27 @@ export interface RecordInput {
 }
 
 /**
- * 追加一条快照并落盘（读旧文件 → 追加条目 → 整体写回）。
+ * 快照写入的串行化队列（进程内）。
+ * recordSnapshot 是「读文件 → 追加条目 → 整体写回」三步，并发调用会互相覆盖、
+ * 丢快照（快照是回滚的唯一依据，丢了就真回不去了）。用一个 promise 链把全部
+ * 写入排成一队，按调用顺序生效；队列永不拒绝（前序失败不阻断后续任务），
+ * 异常仍抛给各自调用方。
+ * 跨进程并发（双开应用）不在本层解决范围 —— 与 session 索引同一条边界（KL-ST-08）。
+ */
+let writeQueue: Promise<unknown> = Promise.resolve();
+function serialized<T>(task: () => Promise<T>): Promise<T> {
+  const run = writeQueue.then(task);
+  writeQueue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
+
+/**
+ * 追加一条快照并落盘（读旧文件 → 追加条目 → 整体写回；经串行化队列）。
  * 目录创建依赖 fs.writeText 的契约（生产 Rust 侧与测试 nodeFs 都会自动建父目录）。
  * previousType 缺省时按 previousExists 推导（true→"file"，false→"none"）。
- * 已知边界：读-改-写非原子，同一会话并发记录可能丢条目——现有调用方
- * （工具执行/手动保存）在单会话内是串行的，暂不加锁，见审计报告。
  */
 export async function recordSnapshot(
   fs: FsBridge,
@@ -135,31 +151,33 @@ export async function recordSnapshot(
   input: RecordInput,
   now: Date = new Date(),
 ): Promise<SessionSnapshots> {
-  const file = snapshotFile(snapshotsDir, input.sessionId);
-  const existing = (await fs.exists(file)) ? parseSnapshots(await fs.readText(file), input.sessionId) : emptySnapshots(input.sessionId);
+  return serialized(async () => {
+    const file = snapshotFile(snapshotsDir, input.sessionId);
+    const existing = (await fs.exists(file)) ? parseSnapshots(await fs.readText(file), input.sessionId) : emptySnapshots(input.sessionId);
 
-  const entry: SnapshotEntry = {
-    snapshotId: uuid(),
-    sessionId: input.sessionId,
-    callId: input.callId,
-    timestamp: isoMicros(now),
-    operation: input.operation,
-    relativePath: input.relativePath,
-    previousContent: input.previousContent,
-    previousExists: input.previousExists,
-    previousType: input.previousType ?? (input.previousExists ? "file" : "none"),
-    renameNewPath: input.renameNewPath ?? null,
-    createdPaths: input.createdPaths ?? null,
-    postContentHash: input.postContentHash ?? null,
-    directoryEntries: input.directoryEntries ?? null,
-  };
+    const entry: SnapshotEntry = {
+      snapshotId: uuid(),
+      sessionId: input.sessionId,
+      callId: input.callId,
+      timestamp: isoMicros(now),
+      operation: input.operation,
+      relativePath: input.relativePath,
+      previousContent: input.previousContent,
+      previousExists: input.previousExists,
+      previousType: input.previousType ?? (input.previousExists ? "file" : "none"),
+      renameNewPath: input.renameNewPath ?? null,
+      createdPaths: input.createdPaths ?? null,
+      postContentHash: input.postContentHash ?? null,
+      directoryEntries: input.directoryEntries ?? null,
+    };
 
-  const next: SessionSnapshots = {
-    sessionId: input.sessionId,
-    snapshots: [...existing.snapshots, entry],
-  };
-  await fs.writeText(file, serializeSnapshots(next));
-  return next;
+    const next: SessionSnapshots = {
+      sessionId: input.sessionId,
+      snapshots: [...existing.snapshots, entry],
+    };
+    await fs.writeText(file, serializeSnapshots(next));
+    return next;
+  });
 }
 
 /** 读取某会话的全部快照（文件缺失 → 空容器；损坏 → parseSnapshots 兜底为空） */

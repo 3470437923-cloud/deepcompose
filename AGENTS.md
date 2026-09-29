@@ -56,7 +56,8 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 > `src/core/usage/view.ts` + `src/ui/TitlebarWhale.tsx` + `src/ui/UsagePanel.tsx`（B6：鲸鱼游动与用量面板；
 > 几何与交互裁决见 D-031，闲置开关见 D-030）、`src/core/store/recycle.ts` + `src/core/store/names.ts`
 > + `src/ui/RecycleBin.tsx`（B7：两段式删除；安全门与受限删除命令见 D-032，名字规则单一来源见
-> 落地补注；Rust 侧新增 `fs_remove_child`）。
+> 落地补注；Rust 侧新增 `fs_remove_child`）、快照纪律统一（B8：先落快照再动盘 + 覆盖前给目标
+> 记快照，见 D-034）与备忘录分类迁移（B8，见 D-035）。
 
 数据流：`MainWorkbench` 只依赖 `core/*` 的纯函数 + `fsbridge`；Rust 只做三件事——
 文件原语、SSE 转发、窗口几何。**业务策略（路径分级、格式优先、快照）全部在 TS 侧且有单测**。
@@ -69,7 +70,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **379 例**、cargo **19 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **390 例**、cargo **19 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 **真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。

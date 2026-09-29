@@ -52,12 +52,12 @@
 | KL-ST-04 | `project.ts`：`scanBooksRoot` 只跳过 `.` 前缀条目——`booksRoot` 下若出现 `writerd_*` 目录会被当成作品列出 | 代码判定 | **已修**（B7）：改用 `isSystemEntryName`（覆盖 `.` 前缀、`writerd_*`、`recycle_manifest.json`）。回归锁：`tests/store/project.test.ts`（`writerd_backup` 与同名清单目录都不出现在作品表里） |
 | KL-ST-05 | `markdown.ts`：`parseSections` 不识别代码围栏，` ``` ` 块内以 `#` 开头的行会被当标题 | 代码判定 | 保留（回写仍走格式优先，风险局限于解析） |
 | KL-ST-06 | `manifest.ts`：损坏 JSON 直接抛错（由 `loadProject` 兜底） | 代码判定 | **保留（判定为契约，非缺陷）** |
-| KL-ST-07 | `snapshot.ts`：`recordSnapshot` 读-改-写非原子，同会话并发会丢条目 | 代码判定 | 保留（B8 复核） |
+| KL-ST-07 | `snapshot.ts`：`recordSnapshot` 读-改-写非原子，同会话并发会丢条目 | 代码判定 | **已修**（B8）：`recordSnapshot` 经进程内串行队列（读→追加→写回整条链排队，与 `session.ts` 同一手法）；队列永不因前序失败而拒绝，异常仍抛给各自调用方。跨进程双开仍不在本层范围（见 KL-ST-08）。回归锁：`tests/core/app.test.ts` 同款幂等纪律 + 工具层快照顺序用例 |
 | KL-ST-07b | `snapshot.ts`：`parseSnapshots` 不逐条校验元素形态，坏条目直接进内存 | 代码判定 | 保留 |
 | KL-ST-08 | `session.ts`：索引串行化只覆盖单进程——**双开应用会互相覆盖 `index.json`** | 推演 | 保留（需要文件锁，跨进程锁是独立议题） |
 | KL-ST-08b | `session.ts`：`titleFromText` 按 UTF-16 码元截断，emoji 会被截成半个代理对 | 代码判定 | 保留 |
 | KL-ST-08c | `session.ts`：`parseSession` 不逐条校验消息形态 | 代码判定 | 保留 |
-| KL-ST-09 | `memo.ts`：`removeCategory` 不迁移该分类下的备忘录（条目仍指向已删分类） | 代码判定 | 保留（产品语义待定，B8 复核） |
+| KL-ST-09 | `memo.ts`：`removeCategory` 不迁移该分类下的备忘录（条目仍指向已删分类） | 代码判定 | **已修**（B8）：删除分类时**把该分类下的备忘录迁移到「默认」**。原注释声称「由 UI 按『未归类』兜底展示」，复核发现 UI 根本没有这个兜底 —— 过滤只看当前 chips（`MemoModal` 的 `visible`），分类名一消失条目就再也点不到；迁移保数据、可回退（重建同名分类再挪回去即可）。另给**老文件**里残留的失效分类名补了「未归类」显示兜底。回归锁：`tests/store/memo.test.ts`（迁移 2 条 + 删不存在的分类原样返回） |
 | KL-ST-09b | `memo.ts`：`newMemo` 同毫秒会撞 id | 推演 | 保留 |
 | KL-ST-10 | `oplog.ts`：`diffLines` 对纯 EOL 变化（CRLF↔LF）不计差异 | 代码判定 | 保留（有意为之） |
 | KL-ST-10b | `oplog.ts`：`readOplog` 全量读，日志极大时慢 | 代码判定 | 保留 |
@@ -66,16 +66,16 @@
 
 | ID | 问题 | 等级 | 处置 |
 |---|---|---|---|
-| KL-TL-01 | `registry.availableSkillsBlock` 注入块是无换行拼接，与注释宣称的「逐字 4 片段」不一致 | 代码判定 | 保留（**无实测样本，不敢动**；B8 先补样本） |
-| KL-TL-02 | copy / rename 目标已存在时**直接覆盖**，且不为被覆盖目标落快照（`SnapshotOperation` 枚举里有 `copy`，暗示原产品会落） | 代码判定 | **本轮修**（B8，与删除/移动类操作的快照纪律统一） |
+| KL-TL-01 | `registry.availableSkillsBlock` 注入块是无换行拼接，与注释宣称的「逐字 4 片段」不一致 | 代码判定 | **已复核（B8），字节保持不动**：B8 去证据库里找过样本 —— `cjk_exe.tsv` 里能查到块头那句中文（`0x0039F8BA`），但**纯 ASCII 的 `<skill>`/`</skill>` 片段天生不在"含中文字符串"抽样里**（计数 0 不等于不存在），运行期请求体也没有留档 → **手里的证据不足以判定原产品发的是哪种排版**。处置：不改注入字节（无据不改契约，标签间空白对模型无语义），把注释改成与代码一致并写明"无据不改"。要真销项得先拿到原产品的请求体抓包 |
+| KL-TL-02 | copy / rename 目标已存在时**直接覆盖**，且不为被覆盖目标落快照（`SnapshotOperation` 枚举里有 `copy`，暗示原产品会落） | 代码判定 | **已修**（B8）：copy / rename **先给目标记一条写前快照**（目标不存在也记一条 `previousExists:false` —— 这是"回滚时该把目标删掉"的唯一依据；存在则记 `previousContent` 与 `previousType`），再动盘。另补：copy 的源不存在时改报 `Directory not found`（原先直接落到 fs 层）。回归锁：`tests/tools/exec.test.ts`（覆盖已有目标 / 全新路径 / rename 双侧 / 源不存在） |
 | KL-TL-03 | `skill_lookup` 的 schema 描述串宣称返回「base directory path + sampled file list」，实际只有 `{skill_name, content}` | 代码判定 | 保留（描述串属逐字契约，改它要同步模型行为） |
 | KL-TL-04 | `resolveToolPath` 对 `C:file`（盘符相对）会拼出含冒号的路径（NTFS ADS 语义），写入必失败 | 代码判定 | **已修**（B7）：`guardPath` 在**去掉盘符前缀之后**检查冒号，命中即拒（`第1章.md:payload` 这类"根内路径 + ADS 尾巴"原本能绕过全部目录检查）。解析层 `resolveToolPath` 保持原样回报路径，判定只在 `guardPath`。回归锁：`tests/tools/pathGuard.test.ts`（含"`C:\` 的冒号不算 ADS，不许误伤"） |
 | KL-TL-05 | `"Directory not found"` 文案对「文件不存在」也使用 | 代码判定 | **保留（判定为非缺陷）**（被测试锁为既有文案） |
 | KL-TL-06 | `mergeSkillList` 不清除已删技能的 `activeSkillIds` 残留 | 代码判定 | 保留（刻意保留：目录暂时不可见时不丢勾选） |
-| KL-TL-07 | 快照落盘顺序不统一：`write` 先写盘后落快照，`delete`/`rename` 先落快照后动盘 | 代码判定 | 保留（B8 复核是否统一语义） |
+| KL-TL-07 | 快照落盘顺序不统一：`write` 先写盘后落快照，`delete`/`rename` 先落快照后动盘 | 代码判定 | **已修**（B8）：统一为「**先落快照再动盘**」（`file_write` 的五个操作都是；新内容已在内存里，写后哈希不依赖磁盘）。理由：两步之间崩掉时，"改了却没有回滚依据"是最坏的顺序。回归锁：`tests/tools/exec.test.ts` 用「写盘必定失败的桥」验证失败后快照仍在、盘上内容未变 |
 | KL-TL-08 | `normalizeForCompare` 会折叠 UNC 前缀 | 推演 | 保留（推演无可利用误判，已加注释） |
 | KL-TL-09 | `question` 工具不校验单项内部形态（缺 `options` 直接透传 UI） | 代码判定 | 保留 |
-| KL-TL-10 | 核心根 `app.ts`：`boot()` 不幂等；`applyAccentFromPrefs` 与 `prefs.accentHex` 逻辑重复且大小写不一致 | 代码判定 | 保留（CSS 层无行为差异；B8 复核） |
+| KL-TL-10 | 核心根 `app.ts`：`boot()` 不幂等；`applyAccentFromPrefs` 与 `prefs.accentHex` 逻辑重复且大小写不一致 | 代码判定 | **已修**（B8）：`boot()` 改幂等（共用同一个 promise，失败则清空以允许重试；重复装配会覆盖 `booted`，界面可能拿到两份不同的 prefs 引用）；`applyAccentFromPrefs` 直接调 `prefs.accentHex`（单份实现；CSS 十六进制大小写不敏感，但两处各写一遍迟早漂）。回归锁：`tests/core/app.test.ts`（并发只装配 1 次 / 启动后零 invoke / 失败可重试） |
 
 ---
 
@@ -105,7 +105,7 @@
 | B4 | KL-DF-05（部分：只发 `reasoning.effort`）、KL-DF-07（按地址过滤的默认策略落地） |
 | B5 | KL-AI-06、KL-AI-16、KL-DF-01（核实并加锁）、KL-DF-02/03/04/05（实测出结论并修）、KL-DF-07（无 Key，保留安全默认） |
 | B7 | KL-AI-11、KL-ST-02、KL-ST-04、KL-TL-04、KL-DF-10 |
-| B8 | KL-TL-02、其余保留项的复核（不强制销项） |
+| B8 | KL-ST-07、KL-ST-09、KL-TL-02、KL-TL-07、KL-TL-10；KL-TL-01 复核后**保持字节不动**（证据不足，只改注释）；**复核后保留**：KL-AI-03/04/05/07/09/10/12/13/14/15、KL-ST-03/05/06/08/08b/08c/09b/10/10b、KL-TL-03/05/06/08/09、KL-DF-06/07/08（逐条理由见上表「处置」列） |
 
 ## 6. 销项规则
 

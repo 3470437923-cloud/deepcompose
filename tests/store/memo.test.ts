@@ -93,4 +93,23 @@ describe("memo store", () => {
     d = removeCategory(d, "灵感");
     expect(d.categories).toEqual(["默认"]);
   });
+
+  it("删分类时该分类下的备忘录迁移到默认（KL-ST-09：不留点不到的孤儿）", () => {
+    let d: MemoFile = emptyMemoFile();
+    d = addCategory(d, "灵感");
+    d = { ...d, memos: [newMemo("p1"), newMemo("p1")] };
+    d = { ...d, memos: d.memos.map((m) => ({ ...m, category: "灵感" })) };
+    const after = removeCategory(d, "灵感");
+    expect(after.categories).toEqual([DEFAULT_CATEGORY]);
+    // 条目还在（不删数据），只是换到默认分类
+    expect(after.memos.length).toBe(2);
+    expect(after.memos.every((m) => m.category === DEFAULT_CATEGORY)).toBe(true);
+  });
+
+  it("删不存在的分类 → 原样返回（幂等，且不动任何条目）", () => {
+    let d: MemoFile = emptyMemoFile();
+    d = { ...d, memos: [newMemo("p1")] };
+    const after = removeCategory(d, "没有这个分类");
+    expect(after).toBe(d);
+  });
 });
