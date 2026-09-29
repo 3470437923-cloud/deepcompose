@@ -59,6 +59,16 @@ pub async fn ai_stream(
         body,
     } = request;
 
+    // 中断句柄**进门就注册**（早于连接）：连接阶段（弱网可达数秒）用户点
+    // 「停止生成」时 ai_abort 也能拿到句柄。配合 ai_abort 的 notify_one
+    // （无等待者时存许可），abort 早于本处 select 注册也不会丢。
+    let notify = Arc::new(Notify::new());
+    state
+        .0
+        .lock()
+        .unwrap()
+        .insert(request_id.clone(), notify.clone());
+
     let client = reqwest::Client::builder()
         .build()
         .map_err(|e| format!("HTTP 客户端创建失败: {e}"))?;
@@ -68,9 +78,21 @@ pub async fn ai_stream(
         req = req.header(k.as_str(), v.as_str());
     }
 
-    let resp = match req.send().await {
+    // 连接阶段同样可中断：abort 即干净收尾（TS 侧按中止契约以「已中止」结束，
+    // 不发任何 line，界面保留已有内容）
+    let sent = tokio::select! {
+        _ = notify.notified() => {
+            state.0.lock().unwrap().remove(&request_id);
+            emit(&app, &request_id, "done", String::new());
+            return Ok(());
+        }
+        res = req.send() => res,
+    };
+
+    let resp = match sent {
         Ok(r) => r,
         Err(e) => {
+            state.0.lock().unwrap().remove(&request_id);
             emit(&app, &request_id, "stream_error", format!("{e}"));
             emit(&app, &request_id, "done", String::new());
             return Ok(());
@@ -80,6 +102,7 @@ pub async fn ai_stream(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
+        state.0.lock().unwrap().remove(&request_id);
         emit(
             &app,
             &request_id,
@@ -92,14 +115,6 @@ pub async fn ai_stream(
 
     let mut stream = resp.bytes_stream();
     let mut buf: Vec<u8> = Vec::new();
-
-    // 注册中断句柄；「停止生成」通过 ai_abort 触发
-    let notify = Arc::new(Notify::new());
-    state
-        .0
-        .lock()
-        .unwrap()
-        .insert(request_id.clone(), notify.clone());
 
     let mut aborted = false;
     loop {
@@ -141,11 +156,13 @@ pub async fn ai_stream(
     Ok(())
 }
 
-/// 「停止生成」：中断指定请求的上游流（已收到的部分正文保留）
+/// 「停止生成」：中断指定请求的上游流（已收到的部分正文保留）。
+/// 用 notify_one 而非 notify_waiters：abort 先于流循环注册等待者到达时，
+/// 许可会被存下，随后的 notified() 立即返回，不丢中断。
 #[tauri::command]
 pub async fn ai_abort(state: tauri::State<'_, AbortMap>, request_id: String) -> Result<(), String> {
     if let Some(notify) = state.0.lock().unwrap().remove(&request_id) {
-        notify.notify_waiters();
+        notify.notify_one();
     }
     Ok(())
 }

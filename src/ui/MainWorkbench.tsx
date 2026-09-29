@@ -238,6 +238,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   /** 是否自动跟随到最新一条：用户往上翻时置 false，翻回底部再置 true */
   const pinned = useRef(true);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
+  /** 挂起中的 question 弹窗（停止生成时强制空选择收尾，避免弹窗残留卡住 agent 循环） */
+  const pendingQuestionRef = useRef<{ items: QuestionItem[]; resolve: (v: string[][]) => void } | null>(null);
   const transport = useMemo(() => createTauriTransport(), []);
   /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
   const busyRef = useRef(false);
@@ -566,8 +568,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const askQuestions = useCallback(
     (items: QuestionItem[]) =>
       new Promise<string[][]>((resolve) => {
+        // 包装 resolve：无论正常提交还是「停止生成」强制收尾，都先清挂起引用
+        const wrapped = (v: string[][]) => {
+          pendingQuestionRef.current = null;
+          resolve(v);
+        };
+        pendingQuestionRef.current = { items, resolve: wrapped };
         setQSel({});
-        setPending({ items, resolve });
+        setPending({ items, resolve: wrapped });
       }),
     [],
   );
@@ -1640,6 +1648,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   onClick={() => {
                     abortRef.current.aborted = true;
                     abortActiveStream();
+                    // question 弹窗挂起时点停止：关弹窗并以空选择 resolve，
+                    // agent 循环的中止检查随即以「已中止」收尾本轮
+                    const pq = pendingQuestionRef.current;
+                    if (pq) {
+                      pendingQuestionRef.current = null;
+                      setPending(null);
+                      pq.resolve(pq.items.map(() => []));
+                    }
                     setStatus("正在停止…");
                   }}
                 >
