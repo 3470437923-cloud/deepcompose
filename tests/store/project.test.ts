@@ -138,8 +138,20 @@ describe("新建作品：3.0 布局（14 件套 + 待确认）", () => {
   });
 
   it("书名含非法字符时拒绝", async () => {
-    await expect(createProject(fs, booksRoot, "a/b")).rejects.toThrow(/不能包含/);
+    await expect(createProject(fs, booksRoot, "a/b")).rejects.toThrow(/不合法/);
     await expect(createProject(fs, booksRoot, "   ")).rejects.toThrow(/不能为空/);
+  });
+
+  it("保留设备名 / 冒号(ADS) / 尾随点 也在建目录之前挡掉（KL-ST-02）", async () => {
+    // 这些名字在 Windows 上要么建不出来，要么写进别的地方 —— 必须在 mkdir 之前拒绝
+    for (const bad of ["CON", "nul.md", "aux", "COM1", "第1章.md:payload", "雾都."]) {
+      await expect(createProject(fs, booksRoot, bad)).rejects.toThrow(/不合法/);
+    }
+    // 没被误伤的正常名字
+    for (const ok of ["COM0", "console", "雾都谍影"]) {
+      const ref = await createProject(fs, booksRoot, ok);
+      expect(await fs.exists(ref.root)).toBe(true);
+    }
   });
 });
 
@@ -148,7 +160,22 @@ describe("读取作品", () => {
     await createProject(fs, booksRoot, "第二本");
     await fsp.mkdir(path.join(booksRoot, ".openwrite_recycle"), { recursive: true });
     const list = await scanBooksRoot(fs, booksRoot);
-    expect(list.map((p) => p.name).sort()).toEqual(["第二本", "测试书籍"].sort());
+    const names = list.map((p) => p.name);
+    // 只断言"过滤"而不是整表相等：本文件的用例共享同一个作品根，整表相等会被别的用例带崩
+    expect(names).not.toContain(".openwrite_recycle");
+    expect(names).toContain("第二本");
+    expect(names).toContain("测试书籍");
+  });
+
+  it("scanBooksRoot 也跳过 writerd_* 与清单文件（KL-ST-04）", async () => {
+    // 早期只跳 `.` 前缀：作品根下冒出 writerd_* 目录时会被当成一部作品列出来
+    await fsp.mkdir(path.join(booksRoot, "writerd_backup"), { recursive: true });
+    await fsp.mkdir(path.join(booksRoot, "recycle_manifest.json"), { recursive: true });
+    const list = await scanBooksRoot(fs, booksRoot);
+    const names = list.map((p) => p.name);
+    expect(names).not.toContain("writerd_backup");
+    expect(names).not.toContain("recycle_manifest.json");
+    expect(names).toContain("测试书籍");
   });
 
   it("listDocs / listChapters 认 .md，且章节按章号排序", async () => {

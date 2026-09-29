@@ -67,7 +67,11 @@ import {
 import { recordSnapshot } from "../core/store/snapshot";
 import { scanSkills, mergeSkillList } from "../core/skills/scan";
 import MemoModal from "./MemoModal";
-import { ConfirmDialog, InputDialog, type ConfirmRequest, type InputRequest } from "./Dialogs";
+import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
+import RecycleBin from "./RecycleBin";
+import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycle";
+import { deleteSessionsForProject } from "../core/store/session";
+import { dropCompressCache } from "../core/ai/compress";
 
 interface OpenTab {
   /** 相对作品根路径（'\' 分隔） */
@@ -261,6 +265,10 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [memoOpen, setMemoOpen] = useState(false);
   const [inputReq, setInputReq] = useState<InputRequest | null>(null);
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
+  const [typedReq, setTypedReq] = useState<TypedConfirmRequest | null>(null);
+  /** 回收站模态 + 条目数（书下拉菜单的角标） */
+  const [recycleOpen, setRecycleOpen] = useState(false);
+  const [recycleItems, setRecycleItems] = useState(0);
 
   /** 应用内输入框（替代 window.prompt；resolve 时同步关闭对话框） */
   const askText = useCallback(
@@ -286,6 +294,25 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           ...opts,
           resolve: (ok) => {
             setConfirmReq(null);
+            resolve(ok);
+          },
+        });
+      }),
+    [],
+  );
+
+  /** 手打名字确认（彻底删除/清空回收站；不拿到一致的名字就不给确认键） */
+  const askTypedConfirm = useCallback(
+    (title: string, body: string, expected: string, confirmLabel?: string, noun?: string) =>
+      new Promise<boolean>((resolve) => {
+        setTypedReq({
+          title,
+          body,
+          expected,
+          noun,
+          confirmLabel,
+          resolve: (ok) => {
+            setTypedReq(null);
             resolve(ok);
           },
         });
@@ -576,6 +603,75 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       setStatus(`新建失败：${String(e)}`);
     }
   }, [dirs, refreshProjects, openProject, askText]);
+
+  /** 回收站条目数（书下拉菜单角标）；读不到按 0，不让角标拖垮主界面 */
+  const refreshRecycleCount = useCallback(async () => {
+    if (!dirs) return;
+    try {
+      setRecycleItems((await loadManifest(getFs(), dirs.booksRoot)).items.length);
+    } catch {
+      setRecycleItems(0);
+    }
+  }, [dirs]);
+
+  useEffect(() => {
+    void refreshRecycleCount();
+  }, [refreshRecycleCount, projects]);
+
+  /**
+   * 移入回收站（两段式删除的第一段：可还原）。
+   *
+   * 三道门在动作前：
+   *   ① 活动门（checkActivity）—— 正在生成 / 当前会话属于它 / 编辑器开着它的文件，一律先拒绝；
+   *   ② 名字门（moveToRecycle 内的 childNameProblem + 作品根直接子项校验）；
+   *   ③ 用户确认（说清楚"可还原"和"会话不跟着回来"）。
+   * 彻底删除的门在回收站里（四道门 + 手打名字），见 RecycleBin。
+   */
+  const recycleProject = useCallback(
+    async (ref: ProjectRef) => {
+      if (!dirs) return;
+      const fs = getFs();
+      const block = checkActivity(
+        {
+          busy: busyRef.current,
+          sessionProjectPath: session?.projectPath ?? null,
+          openFilePath: activeTab?.path ?? null,
+        },
+        ref.root,
+      );
+      if (block) {
+        setStatus(`不能删除「${ref.name}」：${block}`);
+        return;
+      }
+      const ok = await askConfirm(
+        "移入回收站？",
+        `「${ref.name}」会移到回收站，可以还原。它的会话记录会一并删除 —— 还原作品不会带回这些会话。`,
+        { danger: true, confirmLabel: "移入回收站" },
+      );
+      if (!ok) return;
+      try {
+        await moveToRecycle(fs, dirs.booksRoot, { name: ref.name, originalPath: ref.root });
+        const gone = await deleteSessionsForProject(fs, dirs.sessionsDir, ref.root);
+        // 会话没了，AI 侧的压缩检查点缓存也要跟着放掉（KL-AI-11）
+        for (const id of gone.ids) dropCompressCache(id);
+        // 原版文案就是「已移至回收站，并删除 N 个会话」，N 为 0 时不画蛇添足
+        setStatus(gone.count > 0 ? `已移至回收站，并删除 ${gone.count} 个会话` : "已移至回收站");
+        // 删掉的正是当前作品：清空工作台，别停在一棵已经不存在的树上
+        if (project?.ref.root.toLowerCase() === ref.root.toLowerCase()) {
+          setProject(null);
+          setTabs([]);
+          setActiveRel(null);
+          setTreeFolders({});
+          setSession(newSession(""));
+        }
+        await refreshProjects();
+        await refreshRecycleCount();
+      } catch (e) {
+        setStatus(`移至回收站失败：${String(e instanceof Error ? e.message : e)}`);
+      }
+    },
+    [dirs, session, activeTab, project, askConfirm, refreshProjects, refreshRecycleCount],
+  );
 
   /** 继续写作：优先打开最新候选稿，其次第一章、第一份资料（无作品则提示） */
   const continueWriting = useCallback(async () => {
@@ -1260,19 +1356,36 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             {bookMenu ? (
               <div className="bookmenu surface-raised" role="listbox" aria-label="作品列表">
                 {projects.map((p) => (
-                  <button
-                    key={p.root}
-                    className={project?.ref.root === p.root ? "on" : ""}
-                    title={p.root}
-                    role="option"
-                    aria-selected={project?.ref.root === p.root}
-                    onClick={() => void openProject(p)}
-                  >
-                    <svg viewBox="0 0 20 20" className="ic">
-                      <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
-                    </svg>
-                    <span className="lbl">{p.name}</span>
-                  </button>
+                  <div className="bookrow" key={p.root}>
+                    <button
+                      className={`bookrow-pick${project?.ref.root === p.root ? " on" : ""}`}
+                      title={p.root}
+                      role="option"
+                      aria-selected={project?.ref.root === p.root}
+                      onClick={() => void openProject(p)}
+                    >
+                      <svg viewBox="0 0 20 20" className="ic">
+                        <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
+                      </svg>
+                      <span className="lbl">{p.name}</span>
+                    </button>
+                    <button
+                      className="bookrow-del"
+                      title="移入回收站"
+                      aria-label={`把「${p.name}」移入回收站`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void recycleProject(p);
+                      }}
+                    >
+                      <svg viewBox="0 0 20 20" className="ic">
+                        {/* 垃圾桶：盖 + 桶身 + 两条竖线 */}
+                        <path d="M4.4 6.6h11.2M8 6.6V5.2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.4" />
+                        <path d="M6 6.6l.7 8.6a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.6" />
+                        <path d="M8.6 9.4v4.4M11.4 9.4v4.4" />
+                      </svg>
+                    </button>
+                  </div>
                 ))}
                 {ready && projects.length === 0 ? <div className="empty">作品根下还没有作品</div> : null}
                 <button
@@ -1286,6 +1399,20 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     <path d="M10 4.5v11M4.5 10h11" />
                   </svg>
                   <span className="lbl">新建作品</span>
+                </button>
+                <button
+                  className="recycle"
+                  onClick={() => {
+                    setBookMenu(false);
+                    setRecycleOpen(true);
+                  }}
+                >
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M4.4 6.6h11.2M8 6.6V5.2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.4" />
+                    <path d="M6 6.6l.7 8.6a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.6" />
+                  </svg>
+                  <span className="lbl">回收站</span>
+                  {recycleItems > 0 ? <span className="rb-badge">{recycleItems}</span> : null}
                 </button>
               </div>
             ) : null}
@@ -1830,8 +1957,16 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
       <MemoModal open={memoOpen} onClose={() => setMemoOpen(false)} project={project} onStatus={setStatus} askText={askText} />
 
-      <InputDialog req={inputReq} />
-      <ConfirmDialog req={confirmReq} />
+      <RecycleBin
+        open={recycleOpen}
+        onClose={() => setRecycleOpen(false)}
+        dirs={dirs}
+        booksRoot={dirs?.booksRoot ?? null}
+        onStatus={setStatus}
+        onChanged={() => void refreshProjects()}
+        askTypedConfirm={askTypedConfirm}
+        askConfirm={askConfirm}
+      />
 
       {coldReq ? (
         <div className="qmodal scrim">
@@ -1941,6 +2076,17 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           </div>
         </div>
       ) : null}
+
+      {/* ── 三个通用对话框永远排在最后 ──
+          `.qmodal` 都是 z-index:90，**同层的先后由 DOM 顺序决定**。
+          它们会被"模态里的按钮"唤起（回收站的「彻底删除」→ 手打确认、
+          备忘录的改名 → 输入框），所以必须盖在其它模态之上；
+          实测过的坑：把 TypedConfirmDialog 放在 RecycleBin 之前，
+          手打确认框会整块躲在回收站底下（只露出一条边），
+          点得到（DOM 在）但看不见 —— 最坏的那种 bug。 */}
+      <InputDialog req={inputReq} />
+      <ConfirmDialog req={confirmReq} />
+      <TypedConfirmDialog req={typedReq} />
     </div>
   );
 }

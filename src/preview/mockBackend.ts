@@ -68,10 +68,61 @@ function exists(path: string): boolean {
 function stat(path: string) {
   if (files.has(norm(path))) {
     const f = files.get(norm(path))!;
-    return { isDir: false, size: new TextEncoder().encode(f.content).length, mtimeMs: f.mtimeMs };
+    return { isDir: false, size: new TextEncoder().encode(f.content).length, mtimeMs: f.mtimeMs, isLink: false };
   }
-  if (dirs.has(norm(path))) return { isDir: true, size: 0, mtimeMs: now };
+  if (dirs.has(norm(path))) return { isDir: true, size: 0, mtimeMs: now, isLink: false };
   return null;
+}
+/**
+ * 删目录/文件（含子孙）。桌面端由 Rust fs_remove_child/fs_remove 完成；
+ * 沙箱里必须同样"整棵子树一起走"，否则删掉作品后它的章节还会挂在列表里。
+ */
+function removeTree(path: string, recursive: boolean) {
+  const n = norm(path);
+  if (files.has(n)) {
+    files.delete(n);
+    return;
+  }
+  if (!dirs.has(n)) return;
+  if (recursive) {
+    for (const k of [...files.keys()]) if (k.startsWith(n + "/")) files.delete(k);
+  }
+  for (const k of [...dirs.keys()]) if (k === n || (recursive && k.startsWith(n + "/"))) dirs.delete(k);
+}
+/** 改名/搬家（目录连同子孙）。回收站的「移入」就是靠它把整部作品搬走。 */
+function renameTree(from: string, to: string) {
+  const fn = norm(from);
+  const tn = norm(to);
+  const fromOrig = from.replace(/[\\/]+$/, "");
+  const toOrig = to.replace(/[\\/]+$/, "");
+  const single = files.get(fn);
+  if (single) {
+    files.delete(fn);
+    writeFile(to, single.content, single.mtimeMs);
+    return;
+  }
+  if (!dirs.has(fn)) return;
+  const relOf = (k: string) => k.slice(fn.length); // "" 或 "/章节内容/第1章.md"
+  const movedFiles: { rel: string; node: FNode }[] = [];
+  for (const [k, v] of [...files]) {
+    if (k === fn || k.startsWith(fn + "/")) {
+      movedFiles.push({ rel: relOf(k), node: v });
+      files.delete(k);
+    }
+  }
+  const movedDirs: string[] = [];
+  for (const [k] of [...dirs]) {
+    if (k === fn || k.startsWith(fn + "/")) {
+      movedDirs.push(relOf(k));
+      dirs.delete(k);
+    }
+  }
+  for (const rel of movedDirs) dirs.set(tn + rel, toOrig + rel.replace(/\//g, "\\"));
+  for (const { rel, node } of movedFiles) {
+    files.set(tn + rel, { path: toOrig + rel.replace(/\//g, "\\"), content: node.content, mtimeMs: node.mtimeMs });
+  }
+  ensureDir(toOrig);
+  void fromOrig;
 }
 interface DirEntry { name: string; rel: string; path: string; isDir: boolean; size: number; mtimeMs: number; }
 function listDir(dir: string): DirEntry[] {
@@ -306,14 +357,15 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "fs_stat":
       return stat(S("path"));
     case "fs_remove":
-      files.delete(norm(S("path")));
-      dirs.delete(norm(S("path")));
+      removeTree(S("path"), Boolean((args ?? {}).recursive));
       return null;
-    case "fs_rename": {
-      const f = files.get(norm(S("from")));
-      if (f) { files.delete(norm(S("from"))); writeFile(S("to"), f.content, f.mtimeMs); }
+    case "fs_remove_child":
+      // 对齐 Rust fs_remove_child：父目录 + 单个路径段（名字校验在 Rust/recycle 层）
+      removeTree(`${S("parent")}\\${S("name")}`, Boolean((args ?? {}).recursive));
       return null;
-    }
+    case "fs_rename":
+      renameTree(S("from"), S("to"));
+      return null;
     case "fs_copy": {
       const f = files.get(norm(S("from")));
       if (f) writeFile(S("to"), f.content, f.mtimeMs);

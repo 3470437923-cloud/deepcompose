@@ -33,7 +33,7 @@
 | KL-AI-08 | `question` 弹窗不随「停止生成」关闭，停在屏幕上等用户点 | 生成中弹问题、用户点停止 | 已实测 | **已修** `c5854d4` |
 | KL-AI-09 | 压缩阈值判定不含本轮新用户消息，压缩延后一轮才触发 | 单条超长消息过后才压缩 | 代码判定 | 保留（可接受） |
 | KL-AI-10 | 会话在 `runAgent` 返回后一次性落盘：生成过程中崩溃/被杀会丢本轮全部消息 | 进程被强杀、断电 | 代码判定 | 保留（分段落盘会牵动索引一致性语义） |
-| KL-AI-11 | 压缩模块级缓存按 sessionId 增长、**永不淘汰**；会话删除后仍留在内存里 | 长时间多会话运行 | 代码判定 | **本轮修**（B7，删除会话/作品时连带清理） |
+| KL-AI-11 | 压缩模块级缓存按 sessionId 增长、**永不淘汰**；会话删除后仍留在内存里 | 长时间多会话运行 | 代码判定 | **已修**（B7）：改为 **LRU 封顶 32 条**（`COMPRESS_CACHE_MAX`，命中/写入都挪队尾，超限丢队首）+ 导出 `dropCompressCache(sessionId)`；删作品时按 `deleteSessionsForProject` 交回的 id 逐个丢弃。回归锁：`tests/ai/compress.test.ts`（drop 后重新摘要 / 塞满 33 条后最早那条被挤出去）|
 | KL-AI-12 | 压缩观测信息借 `error` 事件通道上报，非致命提示走红色报错样式 | 触发压缩时 | 代码判定 | 保留（无独立 notice 通道，属设计取舍） |
 | KL-AI-13 | 压缩后无二次预算校验，极端情况靠上游 400 兜底 | 摘要自身超预算 | 推演 | 保留（错误文案逐字冻结） |
 | KL-AI-14 | `CHECKPOINT_MERGE_RULES` 生产路径实际不可达（检查点永不进会话文件） | — | 代码判定 | 保留（被测试锁定，动它要改测试） |
@@ -47,9 +47,9 @@
 | KL-ST-01 | `chapter.ts`：中文数字**连写**被判为一个数（「一二三」→ 3） | 代码判定 | 保留（命名罕见，回归锁已锁现状） |
 | KL-ST-01b | `chapter.ts`：混写数字回落 null（「3十」「1万」） | 代码判定 | 保留 |
 | KL-ST-01c | `chapter.ts`：不识别「第1.5章」这类小数章号 | 代码判定 | 保留 |
-| KL-ST-02 | `project.ts`：`createProject` 不校验 Windows 保留设备名（`CON`/`NUL`/`AUX`…），建了也写不进去 | 代码判定 | **本轮修**（B7，删除/新建路径判定一起处理） |
+| KL-ST-02 | `project.ts`：`createProject` 不校验 Windows 保留设备名（`CON`/`NUL`/`AUX`…），建了也写不进去 | 代码判定 | **已修**（B7）：名字规则提到 `store/names.ts`（单一来源，删除路径同一份），新建作品在建目录前就挡掉保留设备名 / 冒号(ADS) / 尾随空格或点 / 控制字符，错误信息是人话。回归锁：`tests/store/project.test.ts`（`CON`/`nul.md`/`COM1`/`第1章.md:payload`/`雾都.` 全拒，`COM0`/`console` 不被误伤） |
 | KL-ST-03 | `project.ts`：`exists → mkdir` 非原子，两处并发创建同名书会撞 | 推演 | 保留 |
-| KL-ST-04 | `project.ts`：`scanBooksRoot` 只跳过 `.` 前缀条目——`booksRoot` 下若出现 `writerd_*` 目录会被当成作品列出 | 代码判定 | **本轮修**（B7，与「彻底删除」的安全门同批） |
+| KL-ST-04 | `project.ts`：`scanBooksRoot` 只跳过 `.` 前缀条目——`booksRoot` 下若出现 `writerd_*` 目录会被当成作品列出 | 代码判定 | **已修**（B7）：改用 `isSystemEntryName`（覆盖 `.` 前缀、`writerd_*`、`recycle_manifest.json`）。回归锁：`tests/store/project.test.ts`（`writerd_backup` 与同名清单目录都不出现在作品表里） |
 | KL-ST-05 | `markdown.ts`：`parseSections` 不识别代码围栏，` ``` ` 块内以 `#` 开头的行会被当标题 | 代码判定 | 保留（回写仍走格式优先，风险局限于解析） |
 | KL-ST-06 | `manifest.ts`：损坏 JSON 直接抛错（由 `loadProject` 兜底） | 代码判定 | **保留（判定为契约，非缺陷）** |
 | KL-ST-07 | `snapshot.ts`：`recordSnapshot` 读-改-写非原子，同会话并发会丢条目 | 代码判定 | 保留（B8 复核） |
@@ -69,7 +69,7 @@
 | KL-TL-01 | `registry.availableSkillsBlock` 注入块是无换行拼接，与注释宣称的「逐字 4 片段」不一致 | 代码判定 | 保留（**无实测样本，不敢动**；B8 先补样本） |
 | KL-TL-02 | copy / rename 目标已存在时**直接覆盖**，且不为被覆盖目标落快照（`SnapshotOperation` 枚举里有 `copy`，暗示原产品会落） | 代码判定 | **本轮修**（B8，与删除/移动类操作的快照纪律统一） |
 | KL-TL-03 | `skill_lookup` 的 schema 描述串宣称返回「base directory path + sampled file list」，实际只有 `{skill_name, content}` | 代码判定 | 保留（描述串属逐字契约，改它要同步模型行为） |
-| KL-TL-04 | `resolveToolPath` 对 `C:file`（盘符相对）会拼出含冒号的路径（NTFS ADS 语义），写入必失败 | 代码判定 | **本轮修**（B7，删除路径判定必须显式拒绝冒号/ADS） |
+| KL-TL-04 | `resolveToolPath` 对 `C:file`（盘符相对）会拼出含冒号的路径（NTFS ADS 语义），写入必失败 | 代码判定 | **已修**（B7）：`guardPath` 在**去掉盘符前缀之后**检查冒号，命中即拒（`第1章.md:payload` 这类"根内路径 + ADS 尾巴"原本能绕过全部目录检查）。解析层 `resolveToolPath` 保持原样回报路径，判定只在 `guardPath`。回归锁：`tests/tools/pathGuard.test.ts`（含"`C:\` 的冒号不算 ADS，不许误伤"） |
 | KL-TL-05 | `"Directory not found"` 文案对「文件不存在」也使用 | 代码判定 | **保留（判定为非缺陷）**（被测试锁为既有文案） |
 | KL-TL-06 | `mergeSkillList` 不清除已删技能的 `activeSkillIds` 残留 | 代码判定 | 保留（刻意保留：目录暂时不可见时不丢勾选） |
 | KL-TL-07 | 快照落盘顺序不统一：`write` 先写盘后落快照，`delete`/`rename` 先落快照后动盘 | 代码判定 | 保留（B8 复核是否统一语义） |
@@ -92,7 +92,7 @@
 | KL-DF-07 | 硅基流动是否接受 `thinking` 参数？（不接受而我们发了 → 422） | 决定参数过滤策略 | 待实测 | **默认策略已落地**（B4）：按**请求地址**判定，非 DeepSeek 端点默认一个思考字段都不发（档位 chip 直接禁用）。**仍无法实测**：本机只有 DeepSeek 官方 Key，没有硅基流动 Key → 不猜、不放行（保持"不发"这条安全默认） |
 | KL-DF-08 | 硅基流动的默认模型 id 无法凭记忆断言 | 写死就是错误预设 | 未知 | **不写死**：预设 Base URL + 运行时 `/models` 拉取 |
 | KL-DF-09 | `maxOutputTokens` 的**设置页上限被钳在 200K**（原描述写成「`contextLimit` / `maxOutputTokens` 都被钳在 200K」**不准确，此处更正**：`contextLimit` 默认已是 1M 且无上限钳制），而官方最大输出是 384K | 用户想用满会被自己的 UI 挡住 | 代码判定 | **已修**（B1） |
-| KL-DF-10 | 删除作品的路径安全边界：reparse point（junction/符号链接）穿透、Windows 保留设备名、含冒号的 ADS 路径 | 误删可致灾难 | 代码判定 | **本轮修**（B7，四道安全门覆盖） |
+| KL-DF-10 | 删除作品的路径安全边界：reparse point（junction/符号链接）穿透、Windows 保留设备名、含冒号的 ADS 路径 | 误删可致灾难 | 代码判定 | **已修**（B7，四道安全门 + 受限删除命令 `fs_remove_child`）：目标只能由「父目录 + 一个路径段」拼出，Rust `valid_child_name` 逐条拒绝分隔符/`..`/冒号/通配符/控制字符/尾随点/设备名；`fs_stat` 改 `symlink_metadata` 并返回 `isLink`；reparse point 只删链接本身；`fs_remove` 清只读 + 重试 3 次。回归锁：`tests/store/recycle.test.ts`（四道门逐条撞）+ `src-tauri/src/fs.rs` 的 6 个单元测试（含真盘只读目录删除与幂等） |
 
 ---
 
@@ -113,3 +113,11 @@
 2. 实测出结论 → 把等级从 `待实测` 改成 `[已实测]`，并把结论写进本条（含上游版本/日期）。
 3. **不得删除条目**：判定为「非缺陷」的也要留着（例如 KL-ST-06、KL-TL-05），避免后来者反复重新发现。
 4. 新增已知边界 → 追加新 ID，不要复用旧编号。
+
+---
+
+## 7. UI / 视觉（取证时发现，未销项）
+
+| ID | 边界 | 触发条件 | 等级 | 处置 |
+|---|---|---|---|---|
+| KL-UI-01 | 浅色主题下遮罩是 `--scrim: rgba(20,24,30,0.34)`（半透明），主界面空态那张高饱和强调色按钮（「新书启航」）会在对话框左缘透出一条约 4px 的蓝色细边，像是对话框上长了一根毛刺 | 浅色主题 + 作品未打开（空态）+ 任何对话框（改书名、回收站、确认框） | 已实测（B7 像素取证：`shots/b7-recycle-light.png` 对话框左缘 rgb(49,66,148) 竖条，量到 102 个像素点） | **保留**：这是遮罩的固有行为，不是删除流程引入的；试过把浅色 `--scrim` 抬到 0.42，细边仍在（只是变暗），却会改动全局视觉 token —— 为一个观感小瑕疵动全局不值，记在这里等一次真正的视觉复查 |

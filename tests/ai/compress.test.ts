@@ -15,6 +15,8 @@ import {
   SUMMARY_TOO_BIG,
   SUMMARY_CLOSE,
   VERBATIM_OPEN,
+  COMPRESS_CACHE_MAX,
+  dropCompressCache,
   __clearCompressCache,
 } from "../../src/core/ai/compress";
 import type { StreamTransport } from "../../src/core/ai/agent";
@@ -213,5 +215,76 @@ describe("maybeCompress", () => {
     expect(raw).toContain("旧检查点会被丢弃：任何你没有带进新摘要的信息都会丢失。");
     // 特征句确实来自 CHECKPOINT_MERGE_RULES（常量与断言同源，防两处各自漂移）
     expect(CHECKPOINT_MERGE_RULES).toContain("旧检查点会被丢弃");
+  });
+});
+
+/**
+ * 缓存生命周期（KL-AI-11）：早期实现只增不淘汰 ——
+ * 会话删了块还留在内存里，长时间多会话运行会一直涨。
+ */
+describe("压缩缓存的生命周期", () => {
+  /** 造一组必然触发压缩的消息，用指定 sessionId 压一次 */
+  async function compressOnce(sessionId: string, reply = "摘要"): Promise<void> {
+    const big = Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "user", "字".repeat(3000)));
+    await maybeCompress({
+      cfg,
+      transport: fakeTransport(reply),
+      messages: big,
+      contextLimit: 10_000,
+      reservedOutputTokens: 1_000,
+      sessionId,
+    });
+  }
+
+  it("dropCompressCache 让该会话下次重新压缩（缓存真的没了）", async () => {
+    __clearCompressCache();
+    let calls = 0;
+    const counting: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"摘要"}}]}');
+        handlers.onLine("data: [DONE]");
+      },
+    };
+    const big = Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "user", "字".repeat(3000)));
+    const opts = {
+      cfg,
+      transport: counting,
+      messages: big,
+      contextLimit: 10_000,
+      reservedOutputTokens: 1_000,
+      sessionId: "drop-1",
+    };
+    await maybeCompress(opts);
+    expect(calls).toBe(1);
+    dropCompressCache("drop-1");
+    await maybeCompress(opts);
+    expect(calls).toBe(2); // 缓存被丢掉 → 重新摘要
+  });
+
+  it("超过上限时按 LRU 淘汰最久未用的那条（不会无限增长）", async () => {
+    __clearCompressCache();
+    // 塞满上限 **再多一条**：第 33 条写入时队首（lru-0）才被挤出去
+    for (let i = 0; i <= COMPRESS_CACHE_MAX; i++) await compressOnce(`lru-${i}`);
+    // 最早那条被挤出去：再压它必然重新发请求
+    let calls = 0;
+    const counting: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"摘要"}}]}');
+        handlers.onLine("data: [DONE]");
+      },
+    };
+    const big = Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "user", "字".repeat(3000)));
+    await maybeCompress({
+      cfg,
+      transport: counting,
+      messages: big,
+      contextLimit: 10_000,
+      reservedOutputTokens: 1_000,
+      sessionId: "lru-0",
+    });
+    expect(calls).toBe(1);
+    __clearCompressCache();
   });
 });

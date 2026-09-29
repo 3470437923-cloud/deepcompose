@@ -42,6 +42,7 @@ pub fn run() {
             fs::fs_exists,
             fs::fs_mkdir,
             fs::fs_remove,
+            fs::fs_remove_child,
             fs::fs_rename,
             fs::fs_copy,
             fs::fs_stat,
