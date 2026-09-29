@@ -1,13 +1,14 @@
 //! 窗口几何记忆：尺寸 / 位置 / 最大化状态。
 //!
 //! 委托方要求：每次启动都要恢复上次正常关闭时的窗口大小与位置（"每次重启都要
-//! 重新缩放大小"）。所以"记忆窗口几何"是 writerD 新增的一项扩展行为 ——
+//! 重新缩放大小"）。所以"记忆窗口几何"是 KeepCompose 新增的一项扩展行为 ——
 //! 上次改成 1200×760 正常关闭后再启动，仍按 1200×760 恢复，而不是回到
 //! 固定默认的 **1440×900 居中**。
 //!
-//! 落盘位置刻意**不写进** `shared_preferences.json`：本产品配置是 43 键的封闭集合，
+//! 落盘位置刻意**不写进** `shared_preferences.json`：本产品配置是封闭键集合，
 //! 窗口几何属于 UI 运行时状态而非用户配置，另存
-//! `%APPDATA%\com.writerd\writerD\window_state.json`，从而完全不触碰配置键空间。
+//! `%APPDATA%\com.writerd\writerD\window_state.json`（既有配置目录，契约不改名），
+//! 从而完全不触碰配置键空间。
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -60,14 +61,9 @@ pub struct Tracker {
 }
 
 impl Tracker {
+    /// 读取内存基线（关闭落盘时用于"最大化前的还原态几何"）。
     fn get(&self) -> Option<WinState> {
         self.inner.lock().ok().and_then(|g| *g)
-    }
-
-    fn set(&self, st: Option<WinState>) {
-        if let Ok(mut g) = self.inner.lock() {
-            *g = st;
-        }
     }
 }
 

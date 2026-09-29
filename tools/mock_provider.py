@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""本地 mock 供应商：OpenAI 兼容 SSE。
+"""本地 mock 供应商：OpenAI 兼容 SSE（KeepCompose 端到端验收配套）。
 
-用途：在没有真实 API Key 的情况下端到端验证 writerD 的
+用途：在没有真实 API Key 的情况下端到端验证 KeepCompose 的
 「Rust 流式转发 → 协议解析 → 工具调度 → 落盘 → 界面渲染」全链路。
+在 127.0.0.1:8899 上以 SSE 应答聊天补全请求（端口与 tools/e2e_chat.ps1
+写进 prefs 的 flutter.llm_base_url、docs/DEVELOPMENT.md 的口径一致）。
 
-行为：第一次请求 → 回一个 file_read 工具调用；带 tool 结果的第二次请求 → 回文本并收尾。
+行为：第一次请求 → 回一个 file_read 工具调用（参数分片下发，验证拼接）；
+带 tool 结果的第二次请求 → 回正文、stop 分片和 usage 分片收尾。
+
+用法：
+    python tools/mock_provider.py [port]     # 缺省 8899，先起它再跑 e2e_chat.ps1
+
+已知坑：
+    - protocol_version 固定 HTTP/1.0：SSE 发完即断连；若开长连接，
+      部分客户端会一直挂着等更多数据。
+    - mock 固定回 file_read(list 章节内容)；若应用侧工具注册表删掉或改名
+      file_read，第二轮请求永远不会到来，e2e_chat 只会看到生成停滞。
+    - 单线程 HTTPServer：同时只服务一个请求，别拿它做并发压测。
 """
 import json
 import sys

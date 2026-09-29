@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════
-   writerD 材质层 —— 「付印单」实色体系
+   KeepCompose 材质层 —— 「付印单」实色体系
    ────────────────────────────────────────────────────────────────
    本文件只写配方，不出现具体色值 —— 色值全部来自 tokens.css。
    （原 glass.css 的玻璃/渐变配方已整体废弃，见下）
@@ -466,7 +466,6 @@ select.field {
    旋钮位置已经表达了值，右侧还有数字读数，再刷一条彩色进度
    是重复表达（而且那是本体系里最后一处渐变）。
    注意：这里不再需要 --fill 这个内联变量，JSX 侧也已同步移除。 */
-.slider,
 .a-slider {
   -webkit-appearance: none;
   appearance: none;
@@ -475,14 +474,12 @@ select.field {
   background: transparent;
   cursor: pointer;
 }
-.slider::-webkit-slider-runnable-track,
 .a-slider::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: var(--r-full);
   background: var(--well);
   box-shadow: inset 0 0 0 1px var(--well-line);
 }
-.slider::-webkit-slider-thumb,
 .a-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
@@ -496,11 +493,9 @@ select.field {
     0 0 0 1px var(--line-strong);
   transition: transform var(--t-mid) var(--ease-settle);
 }
-.slider::-webkit-slider-thumb:hover,
 .a-slider::-webkit-slider-thumb:hover {
   transform: scale(1.12);
 }
-.slider:active::-webkit-slider-thumb,
 .a-slider:active::-webkit-slider-thumb {
   transform: scale(1.2);
   transition: transform 0.07s var(--ease-out);
@@ -508,9 +503,7 @@ select.field {
 
 /* 分段控件：凹槽 + 实色滑块。滑块是 --raised 那一级，
    靠明度差浮起来，不靠投影也不靠渐变。
-   同样收下设置屏的三个旧类名（.a-seg / .a-form-toggle / .a-toggle-btn）。 */
-.seg,
-.a-seg,
+   .a-form-toggle 用于设置屏的协议格式二选一，.a-toggle-btn 是其按钮。 */
 .a-form-toggle {
   display: inline-flex;
   align-items: center;
@@ -521,15 +514,6 @@ select.field {
   background: var(--well);
   box-shadow: inset 0 0 0 1px var(--well-line);
 }
-.seg.wide,
-.a-seg.wide {
-  display: flex;
-}
-.seg.wide button,
-.a-seg.wide button {
-  flex: 1;
-}
-.seg button,
 .a-toggle-btn {
   height: 26px;
   padding: 0 12px;
@@ -547,23 +531,19 @@ select.field {
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
-.seg button:hover,
 .a-toggle-btn:hover {
   color: var(--tx-1);
 }
-.seg button:active,
 .a-toggle-btn:active {
   transform: scale(0.97);
   transition: transform 0.07s var(--ease-out);
 }
-.seg button.on,
 .a-toggle-btn.on {
   color: var(--tx-1);
   font-weight: 620;
   background: var(--seg-thumb);
   box-shadow: inset 0 0 0 1px var(--line);
 }
-.seg button.on .ic,
 .a-toggle-btn.on .ic {
   color: var(--accent-text);
 }
@@ -700,8 +680,8 @@ select:focus:not(:focus-visible) {
   .icon-btn:active,
   .switch i,
   button.chip:active,
-  .seg button:active,
-  .slider::-webkit-slider-thumb {
+  .a-toggle-btn:active,
+  .a-slider::-webkit-slider-thumb {
     transform: none;
   }
 }

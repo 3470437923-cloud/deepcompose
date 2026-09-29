@@ -5,7 +5,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { createTauriFs, setFs } from "./fsbridge";
-import { resolveDirs, type AppDirs } from "./dirs";
+import { resolveDirs, type AppDirs, type DirsInput } from "./dirs";
 import { parsePrefs, serializePrefs, type Prefs } from "./prefs";
 
 export interface SysDirsReply {
@@ -24,6 +24,9 @@ export interface Boot {
 /** 进程级单例：启动结果 */
 let booted: Boot | null = null;
 
+/** 启动时的目录推导输入：设置里改路径后用它即时重推 dirs，不必等重启 */
+let bootInput: DirsInput | null = null;
+
 export function currentBoot(): Boot | null {
   return booted;
 }
@@ -35,13 +38,14 @@ export async function boot(): Promise<Boot> {
   const raw = await invoke<string>("prefs_load");
   const prefs = parsePrefs(raw);
 
-  const dirs = resolveDirs({
+  bootInput = {
     home: sys.home,
     documents: sys.documents,
     appData: sys.appData,
     booksRoot: prefs.customNovelsDir || null,
     skillsDir: prefs.customSkillsDir || null,
-  });
+  };
+  const dirs = resolveDirs(bootInput);
 
   // 首次运行：确保目录存在（作品根 / 应用数据三个根）
   await invoke("fs_mkdir", { path: dirs.booksRoot });
@@ -53,9 +57,21 @@ export async function boot(): Promise<Boot> {
   return booted;
 }
 
+/** 保存配置并同步进程内单例。
+ *  路径类键（custom_novels_dir / custom_skills_dir）变化时即时重推 dirs，
+ *  使设置屏的展示与返回主界面后的重新装配都拿到新路径（无需重启）。 */
 export async function savePrefs(prefs: Prefs): Promise<void> {
   await invoke("prefs_save", { json: serializePrefs(prefs) });
-  if (booted) booted = { ...booted, prefs };
+  if (booted) {
+    const dirs = bootInput
+      ? resolveDirs({
+          ...bootInput,
+          booksRoot: prefs.customNovelsDir || null,
+          skillsDir: prefs.customSkillsDir || null,
+        })
+      : booted.dirs;
+    booted = { dirs, prefs };
+  }
 }
 
 /** 把配置里的强调色（ARGB int，既有键 custom_accent_color）应用到 CSS 令牌。
@@ -66,7 +82,7 @@ export function applyAccentFromPrefs(prefs: Prefs): void {
   document.documentElement.style.setProperty("--accent", hex);
 }
 
-/** 应用主题（writerD 3.0：dark / light / dsblue 三套液态玻璃；
+/** 应用主题（KeepCompose：dark / light / dsblue 三套实色主题；
  *  theme_mode 扩展键缺省时按既有键 is_dark_mode 派生，见 prefs.parsePrefs） */
 export function applyThemeFromPrefs(prefs: Prefs): void {
   document.documentElement.dataset.theme = prefs.themeMode;

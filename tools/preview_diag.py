@@ -1,14 +1,27 @@
 """Preview diagnostics: capture page exceptions / console output around an action.
 
-Complements tools/preview_shot.py (which asserts geometry + screenshots) by
-answering "why did it break" -- it subscribes to Runtime.exceptionThrown and
-Runtime.consoleAPICalled, performs an optional click, and dumps what the page
-said, plus a DOM snapshot before/after.
+Purpose : complements tools/preview_shot.py (which asserts geometry + takes
+          screenshots) by answering "why did it break" -- it subscribes to
+          Runtime.exceptionThrown / Runtime.consoleAPICalled / Log.entryAdded,
+          performs optional clicks, and dumps what the page said, plus a DOM
+          snapshot before/after.
+
+Prereqs : vite dev server on 5183 serving the preview sandbox (preview.html +
+          src/preview/mockBackend.ts), headless Edge with CDP on 9223 (launch
+          command in docs/DEVELOPMENT.md), pip install websocket-client.
 
 Usage:
   python tools/preview_diag.py                       # load preview, report console
   python tools/preview_diag.py --click ".wbtn"       # open settings via gear
   python tools/preview_diag.py --click ".wbtn" --theme light --html
+
+Pitfalls: - Attaches to the FIRST "page" target on the CDP port; close other
+            debuggable browsers or it may diagnose the wrong page.
+          - Event domains are enabled before Page.navigate, so load-time
+            exceptions are captured -- but anything thrown before this script
+            connects (e.g. in another tab/session) is not.
+          - Port 9223 / base 5183 are docs-level conventions; keep the
+            defaults in sync if they ever change.
 """
 
 import argparse

@@ -1,13 +1,14 @@
 /**
- * 主工作台 —— writerD 3.0「付印单」三栏实色布局。
+ * 主工作台 —— KeepCompose「付印单」三栏实色布局。
  *
- * 布局（委托方 2026-09-28 指令）：
- *   左 = 文件（作品选择 + 目录树）· 中 = 编辑器 · 右 = AI 对话。
- *   旧的「对话列表」独立栏已删除，会话切换改为对话面板顶部的下拉选择框。
- * 数据逻辑（boot/作品/标签页/会话/工具循环/快照纪律）与 2.x 完全一致。
+ * 布局：左 = 文件（作品选择 + 目录树）· 中 = 编辑器 · 右 = AI 对话。
+ * 会话切换在对话面板顶部的下拉选择框里（没有独立的对话列表栏）。
  *
  * 左栏目录树固定保留三类内容：小说资料 / 章节内容 / 待确认
  * （它们同时是磁盘上的三个目录，类别由路径决定，不随 UI 变化）。
+ *
+ * 数据纪律（与存储层同一口径）：写前快照、操作日志、候选未采用不回写、
+ * 用户手改是最高权威（回流只出报告，动文字必须过 question）。
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -17,7 +18,7 @@ import { isNearBottom, springScrollCancel, springScrollToBottom } from "./motion
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
-import { PROJECT_DIRS, dirname, join, projectChaptersDir, projectDocsDir } from "../core/dirs";
+import { PROJECT_DIRS, dirname, join } from "../core/dirs";
 import {
   chapterLabelOf,
   createProject,
@@ -31,7 +32,6 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { parseChapterName, stripMd } from "../core/store/chapter";
-import { appendToDoc, appendToSection, replaceInSection } from "../core/store/markdown";
 import { appendOplog, diffLines, isLightEdit, type DiffResult } from "../core/store/oplog";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
@@ -76,7 +76,7 @@ interface OpenTab {
   editBase: string | null;
 }
 
-/** 字数统计：中文按字、西文按词（与「文章总字数」口径一致：非空白字符计） */
+/** 字数统计：统一按非空白字符计（与「文章总字数」口径一致） */
 export function countWords(text: string): number {
   return text.replace(/\s/g, "").length;
 }
@@ -1060,7 +1060,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           <div className="brand-mark app-mark">
             <img src={logo} alt="" />
           </div>
-          <div className="brand-name">writerD</div>
+          <div className="brand-name">KeepCompose</div>
         </div>
 
         <div className="tb-cluster" role="group" aria-label="面板开关">
@@ -1282,7 +1282,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <div className="ee-logo app-mark">
                 <img src={logo} alt="" />
               </div>
-              <div className="ee-h">writerD</div>
+              <div className="ee-h">KeepCompose</div>
               <div className="ee-p">AI 小说写作工作台</div>
               <div className="ee-actions">
                 <button className="btn btn-accent" onClick={() => void newProject()}>
@@ -1482,7 +1482,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   </div>
                 ) : (
                   <div key={m.id} className="msg ai">
-                    <div className="who">writerD</div>
+                    <div className="who">KeepCompose</div>
                     {m.thinking ? <div className="think">{m.thinking}</div> : null}
                     {(m.toolCalls ?? []).map((t) => {
                       const bad = (t.result ?? "").includes('"error"');
@@ -1522,13 +1522,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               {streamThink ? <div className="think live">{streamThink}</div> : null}
               {streamText ? (
                 <div className="msg ai">
-                  <div className="who">writerD · 生成中</div>
+                  <div className="who">KeepCompose · 生成中</div>
                   <div className="bubble">{streamText}</div>
                 </div>
               ) : null}
               {showTyping ? (
                 <div className="msg ai">
-                  <div className="who">writerD</div>
+                  <div className="who">KeepCompose</div>
                   <div className="bubble typing">
                     <i />
                     <i />
@@ -1544,7 +1544,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <div className="cw-logo app-mark">
                 <img src={logo} alt="" />
               </div>
-              <div className="cw-h">writerD 助手</div>
+              <div className="cw-h">KeepCompose 助手</div>
               <div className="cw-p">读写你的作品文件，陪你把故事写下去</div>
               <div className="cw-tips">
                 {STARTER_TIPS.map((tip) => (
@@ -1811,9 +1811,3 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     </div>
   );
 }
-
-/** 供后续 AI 批次复用的路径工具（保持与 store 层同一口径） */
-export const paths = { join, projectDocsDir, projectChaptersDir };
-
-/** 维护文档回写入口（格式优先；供工具层调用） */
-export const markdownOps = { appendToDoc, appendToSection, replaceInSection };

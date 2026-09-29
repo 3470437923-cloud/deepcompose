@@ -17,7 +17,16 @@
     元素"开后门"降门槛。
 
 用法：
-    python tools/_contrast_audit.py
+    python tools/_contrast_audit.py    # 在仓库根目录下运行（报告写到 ./shots/）
+
+前提：vite dev server（5183）+ 无头 Edge CDP（9223）已启动（口径见
+docs/DEVELOPMENT.md）；mockBackend 预置数据完好——editor/chat 流程依赖
+预置章节与会话才能把编辑器、气泡、思考块渲染出来。
+
+已知坑（除上文两条教训外）：
+    - 报告路径 shots/contrast-report.json 相对**当前工作目录**，不在仓库
+      根目录下运行会把报告写错地方。
+    - 设置屏 B 组只看不点 .a-btn-danger（危险操作），其对比度按静止态测。
 """
 import json
 import os

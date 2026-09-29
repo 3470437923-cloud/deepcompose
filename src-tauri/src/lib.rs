@@ -8,6 +8,8 @@ mod fs;
 mod sys;
 mod winstate;
 
+/// 应用身份信息（名称 + 版本），供设置屏「关于」分节展示。
+/// 版本取自 Cargo.toml（env! 编译期注入），保证界面显示与产物版本永远一致。
 #[derive(Serialize, Clone)]
 pub struct AppInfo {
     pub name: String,
@@ -17,7 +19,7 @@ pub struct AppInfo {
 #[tauri::command]
 fn app_info() -> AppInfo {
     AppInfo {
-        name: "writerD".into(),
+        name: "KeepCompose".into(),
         version: env!("CARGO_PKG_VERSION").into(),
     }
 }
@@ -27,12 +29,12 @@ pub fn run() {
         .manage(ai::AbortMap(Mutex::new(HashMap::new())))
         .manage(winstate::Tracker::default())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             app_info,
             sys::app_dirs,
             sys::prefs_load,
             sys::prefs_save,
+            sys::open_dir,
             fs::fs_read_text,
             fs::fs_write_text,
             fs::fs_append_text,
@@ -87,5 +89,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("writerD 启动失败");
+        .expect("KeepCompose 启动失败");
 }

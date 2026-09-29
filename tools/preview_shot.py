@@ -1,19 +1,30 @@
 """Preview screenshot + geometry probe (CDP, no Playwright required).
 
-Drives the dev-only preview sandbox (preview.html + src/preview/mockBackend.ts)
-through the Chrome DevTools protocol, captures the three liquid-glass themes and
-asserts layout geometry. Works while the screen is locked or the display sleeps,
-because capture goes through Page.captureScreenshot instead of the OS.
+Purpose : drive the dev-only preview sandbox (preview.html +
+          src/preview/mockBackend.ts) through the Chrome DevTools protocol,
+          capture the three themes and assert layout geometry. Works while the
+          screen is locked or the display sleeps, because capture goes through
+          Page.captureScreenshot instead of the OS.
 
 Prerequisites:
   npm run dev            (vite dev server on 5183)
   msedge --headless=new --remote-debugging-port=9223 --remote-allow-origins=* \
-         --user-data-dir=%TEMP%\\writerd-edge --window-size=1600,1000 about:blank
+         --user-data-dir=%TEMP%\\keepcompose-edge --window-size=1600,1000 about:blank
+  (the temp profile dir name is cosmetic; any fresh dedicated dir works - an
+  already-running Edge owns the default profile and the debug port never opens)
 
 Usage:
   python tools/preview_shot.py
   python tools/preview_shot.py --themes dark --sizes 1600x1000
   python tools/preview_shot.py --port 9223 --base http://localhost:5183
+
+Pitfalls: - Attaches to the FIRST "page" target on the CDP port; close other
+            debuggable browsers or it may probe the wrong page.
+          - Geometry/session assertions depend on the mockBackend fixture data
+            (session titles, chapter names); editing fixtures can flip checks
+            without any real layout regression.
+          - Exit code is 1 when any run fails; full detail lands in
+            probe-report.json under --out (default shots/preview/).
 """
 
 import argparse

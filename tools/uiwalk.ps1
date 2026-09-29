@@ -1,8 +1,25 @@
-# UI walkthrough driver: launch writerd.exe, run a click/keys/capture step list.
-# Each step: action=click|x,y  | keys|text  | cap|out.png  | wait|ms
+# KeepCompose UI walkthrough driver: launch the exe, run a click/keys/capture
+# step list, then kill it.
+#
+# Purpose : scripted UI acceptance without a human at the screen. Steps are
+#           semicolon-separated, each "action|arg":
+#             click|x,y   click window-relative coords (window top-left = 0,0)
+#             keys|text   SendKeys text (supports {ENTER}, ^a, ...)
+#             cap|out.png capture the window to a PNG (parent dirs created)
+#             wait|ms     sleep
+# Usage   : .\tools\uiwalk.ps1 -Steps "wait|2000;click|640,400;cap|shots\w1.png"
+#           [-Exe <path>]
+# Pitfalls: - Click coords are relative to the window rect measured at startup;
+#             moving or resizing the window mid-run invalidates them.
+#           - An ALT tap is injected around SetForegroundWindow (see below):
+#             without it Windows silently rejects the foreground switch for a
+#             background process and clicks/keys land somewhere else.
+#           - SendKeys goes through the active keyboard layout; a Chinese IME
+#             swallows raw ASCII keystrokes (e2e_chat.ps1 pastes via clipboard
+#             instead).
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
-    [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
     [string]$Steps = ""
 )
 
@@ -51,7 +68,7 @@ public class UW {
 '@
 if (-not ("UW" -as [type])) { Add-Type -TypeDefinition $sig }
 
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds 9
@@ -62,7 +79,8 @@ $h = [UW]::Pick([uint32]$proc.Id)
 if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL no window"; exit 1 }
 if ([UW]::IsIconic($h)) { [UW]::ShowWindow($h, 9) | Out-Null; Start-Sleep -Milliseconds 700 }
 [UW]::ShowWindow($h, 5) | Out-Null
-# ALT 技巧：解除前台锁，否则后台进程的 SetForegroundWindow 会被系统静默拒绝
+# ALT trick: release the foreground lock, otherwise SetForegroundWindow from a
+# background process is silently rejected by the OS.
 [UW]::keybd_event(0x12, 0, 0, [IntPtr]::Zero)
 [UW]::SetForegroundWindow($h) | Out-Null
 [UW]::keybd_event(0x12, 0, 2, [IntPtr]::Zero)
@@ -123,5 +141,5 @@ foreach ($it in $items) {
     }
 }
 
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "DONE"

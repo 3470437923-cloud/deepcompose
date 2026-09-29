@@ -1,12 +1,21 @@
 """运行时样式审计：找出「匹配不到任何 CSS 规则」的元素。
 
-静态类名校验只能查"某个类有没有被定义过"，查不到作用域选择器的漏写
+用途：静态类名校验只能查"某个类有没有被定义过"，查不到作用域选择器的漏写
 （例如 `.memo-card .d` 缺失时，`d` 这个类名在别处定义过，静态检查就放过了）。
 本审计在真实 DOM 上做：对每个元素用 el.matches() 遍历全部规则，一个都匹配
 不上的元素就是"裸奔元素" —— 它没有任何样式落点，是最容易漏掉的组件部位。
 
+前提：vite dev server（5183）+ 无头 Edge CDP（9223）已启动（口径见
+docs/DEVELOPMENT.md）；复用 _shot_flow.py 的 CDP/FLOWS/run_flow。
+
 用法：
     python tools/_style_audit.py --flows none,chat,memo,theme,params
+
+已知坑：
+    - el.matches() 对每个元素遍历全部规则，复杂度 O(元素 × 规则)，大 DOM
+      下偏慢属正常，别当卡死处理。
+    - AUDIT_JS 剥伪类的正则只覆盖常见状态伪类与 nth-*/not/is/where；冷门
+      函数伪类可能让个别选择器进 try/catch 被忽略，造成极少量漏检。
 """
 import argparse
 import json
