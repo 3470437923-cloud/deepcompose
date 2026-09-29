@@ -177,3 +177,34 @@ describe("当前供应商判定", () => {
     expect(activeProvider(p2)).toBeNull();
   });
 });
+
+describe("往返与容错回归锁（审计补强）", () => {
+  it("tool_round_limit / max_output_tokens 可往返（回归锁：parsePrefs 曾漏读这两键，改后重启丢回默认）", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.tool_round_limit": 20, "flutter.max_output_tokens": 8000 }));
+    expect(p.toolRoundLimit).toBe(20);
+    expect(p.maxOutputTokens).toBe(8000);
+    const p2 = parsePrefs(serializePrefs(p));
+    expect(p2.toolRoundLimit).toBe(20);
+    expect(p2.maxOutputTokens).toBe(8000);
+  });
+
+  it("JSON 键形态不符回落默认值（数组键收到非数组 / 对象键收到数组）", () => {
+    const p = parsePrefs(
+      JSON.stringify({
+        "flutter.skill_list": JSON.stringify({ bogus: 1 }),
+        "flutter.active_skill_ids": JSON.stringify("不是数组"),
+        "flutter.webdav_config": JSON.stringify([1, 2]),
+      }),
+    );
+    expect(p.skillList).toEqual(DEFAULT_PREFS.skillList);
+    expect(p.activeSkillIds).toEqual(DEFAULT_PREFS.activeSkillIds);
+    expect(p.webdavConfig).toEqual(DEFAULT_PREFS.webdavConfig);
+  });
+
+  it("同步三键 UI 已下线但仍往返写出（磁盘契约：is_connected / webdav_config / webdav_sync_meta）", () => {
+    const text = serializePrefs(parsePrefs(REAL_SHAPE));
+    expect(text).toContain('"flutter.is_connected"');
+    expect(text).toContain('"flutter.webdav_config"');
+    expect(text).toContain('"flutter.webdav_sync_meta"');
+  });
+});

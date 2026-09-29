@@ -1,6 +1,7 @@
 /**
  * 工具层：结果 JSON 的字段与形态保持既有格式（1,729 条实测调用结果实证）。
- * 同时锁路径分级授权与写前快照。
+ * 同时锁路径分级授权（含 search 的 directory 参数、盘符根、'..' 穿越）、
+ * 写前快照（含目录 delete 的 previousType）与文本编辑的字面量语义（$ 模式不展开）。
  */
 import { promises as fsp } from "node:fs";
 import * as os from "node:os";
@@ -85,6 +86,18 @@ describe("file_read", () => {
     const dir = r.files.find((x: { name: string }) => x.name === "章节内容");
     expect(dir.type).toBe("directory");
     expect(dir.size).toBeNull();
+  });
+
+  it("list 排序与 Rust fs_list 同口径：目录在前，再按名称大小写不敏感", async () => {
+    // 造两个乱序文件验证排序（nodeFs 替身与 Rust fs_list 同一排序规则）；测完清理
+    await fsp.writeFile(path.join(root, "zzz.md"), "z\n", "utf8");
+    await fsp.writeFile(path.join(root, "AAA.md"), "a\n", "utf8");
+    const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "list", path: "." }));
+    const names: string[] = r.files.map((x: { name: string }) => x.name);
+    // 目录段在前（码点序：小说资料 < 章节内容），文件段在后（小写比较：aaa < zzz）
+    expect(names).toEqual(["小说资料", "章节内容", "AAA.md", "zzz.md"]);
+    await fsp.rm(path.join(root, "zzz.md"));
+    await fsp.rm(path.join(root, "AAA.md"));
   });
 
   it("不存在的路径 → 逐字 Directory not found", async () => {
@@ -184,6 +197,32 @@ describe("file_write", () => {
     expect(last.previousContent).toBe("一\r\n二\r\n三\r\n");
     expect(last.postContentHash).toMatch(/^[0-9a-f]{64}$/);
   });
+
+  it("replace：new_text 里的 $ 模式按字面量写入（回归锁：曾被 String.replace 展开成匹配文本）", async () => {
+    await fsp.writeFile(path.join(root, "小说资料", "价格表.md"), "原价A元\n", "utf8");
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_write", {
+        operation: "replace",
+        path: "小说资料/价格表.md",
+        old_text: "A",
+        new_text: "100$&",
+      }),
+    );
+    expect(r.success).toBe(true);
+    // $& 在 String.replace 语义里是"匹配文本"；修复后必须原样写字面量 "100$&" 而不是 "100A"
+    expect(await fsp.readFile(path.join(root, "小说资料", "价格表.md"), "utf8")).toBe("原价100$&元\n");
+  });
+
+  it("write/append：content 为 JSON null → 按缺参报错，不写出字面量 \"null\"", async () => {
+    expect(
+      await executeTool(ctx(), "file_write", { operation: "write", path: "章节内容/坏null.md", content: null }),
+    ).toBe('{"error":"content is required for write operation"}');
+    expect(await fs.exists(path.join(root, "章节内容", "坏null.md"))).toBe(false);
+    expect(
+      await executeTool(ctx(), "file_write", { operation: "append", path: "章节内容/坏null.md", content: null }),
+    ).toBe('{"error":"content is required for append operation"}');
+    expect(await fs.exists(path.join(root, "章节内容", "坏null.md"))).toBe(false);
+  });
 });
 
 describe("file_manage", () => {
@@ -204,6 +243,57 @@ describe("file_manage", () => {
     expect(await executeTool(ctx(), "file_manage", { operation: "search", path: "." })).toBe(
       '{"error":"search_text is required for search operation"}',
     );
+  });
+
+  it("search：file 字段相对项目根（根目录搜索不带 '.\\' 前缀，'\\' 分隔与实测样本一致）", async () => {
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_manage", { operation: "search", path: ".", search_text: "世界观" }),
+    );
+    const hit = r.results.find((x: { file: string }) => x.file.endsWith("世界观.md"));
+    expect(hit.file).toBe("小说资料\\世界观.md");
+  });
+
+  it("search：directory 同样过分级授权（根外 → 逐字需确认错误，回归锁：曾绕过 guardPath）", async () => {
+    const outside = path.join(os.tmpdir(), "keepcompose-search-secret");
+    await fsp.mkdir(outside, { recursive: true });
+    await fsp.writeFile(path.join(outside, "s.md"), "世界观\n", "utf8");
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_manage", {
+        operation: "search",
+        path: ".",
+        search_text: "世界观",
+        directory: outside,
+      }),
+    );
+    expect(String(r.error).startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
+    await fsp.rm(outside, { recursive: true, force: true });
+  });
+
+  it("search：directory 指向项目内子目录 → 命中路径以该目录为基准", async () => {
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_manage", {
+        operation: "search",
+        path: ".",
+        search_text: "世界观",
+        directory: "小说资料",
+      }),
+    );
+    expect(r.success).toBe(true);
+    expect(r.results[0].file).toBe("小说资料\\世界观.md");
+  });
+
+  it("delete 目录 → type=directory，快照 previousType=directory（目录内容恒 null）", async () => {
+    await fsp.mkdir(path.join(root, "临时目录"), { recursive: true });
+    await fsp.writeFile(path.join(root, "临时目录", "x.md"), "x\n", "utf8");
+    const r = JSON.parse(await executeTool(ctx(), "file_manage", { operation: "delete", path: "临时目录" }));
+    expect(r).toEqual({ success: true, operation: "delete", path: "临时目录", type: "directory" });
+    expect(await fs.exists(path.join(root, "临时目录"))).toBe(false);
+    // 回归锁：目录删除的快照必须记 "directory"（曾被记成 "file"，回滚语义会错）
+    const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
+    const last = s.snapshots[s.snapshots.length - 1];
+    expect(last.operation).toBe("delete");
+    expect(last.previousType).toBe("directory");
+    expect(last.previousContent).toBeNull();
   });
 
   it("delete → {success,operation,path,type}", async () => {
@@ -272,6 +362,18 @@ describe("路径分级授权", () => {
     );
     expect(r.content).toBe("ok");
   });
+
+  it("盘符根（C:\\）→ 一律需确认（范围过大，即使形似授权根祖先也不放行）", async () => {
+    const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "list", path: "C:\\" }));
+    expect(String(r.error).startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
+  });
+
+  it("'..' 穿越到授权根外 → 需确认（归一化判定拦截）", async () => {
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_read", { operation: "read", path: "..\\..\\..\\..\\..\\Windows\\win.ini" }),
+    );
+    expect(String(r.error).startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
+  });
 });
 
 describe("question / skill_lookup / create_project", () => {
@@ -290,6 +392,26 @@ describe("question / skill_lookup / create_project", () => {
     expect(r.answers).toEqual(["继续"]);
     expect(r.output).toContain('User has answered your questions: "是否继续？"="继续"');
     expect(r.output).toContain("You can now continue with the user's answers in mind.");
+  });
+
+  it("question：多选以「、」连接；某题空答 → pair 为空串且不进 answers", async () => {
+    const r = JSON.parse(
+      await executeTool(ctx({ askQuestions: async () => [["甲", "乙"], []] }), "question", {
+        questions: [
+          { question: "选风格？", options: [{ label: "甲" }, { label: "乙" }], multi_select: true },
+          { question: "要跳过吗？", options: [{ label: "跳过" }, { label: "不跳" }] },
+        ],
+      }),
+    );
+    expect(r.answers).toEqual(["甲", "乙"]); // 空答的题不贡献 flat 条目
+    expect(r.output).toContain('"选风格？"="甲、乙"');
+    expect(r.output).toContain('"要跳过吗？"=""');
+  });
+
+  it("参数体是 null/坏 JSON → 按缺参或坏参错误回报，不抛异常", async () => {
+    // 模型可能给出 "null" 这类合法 JSON 但非对象的参数体
+    expect(await executeTool(ctx(), "file_read", "null")).toBe('{"error":"operation is required"}');
+    expect(await executeTool(ctx(), "file_read", "{坏")).toBe('{"error":"工具参数不是合法 JSON"}');
   });
 
   it("skill_lookup 缺 skill_name → 逐字错误；命中 → {skill_name,content} 且带目录说明", async () => {

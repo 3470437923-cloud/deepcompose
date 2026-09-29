@@ -19,6 +19,8 @@ description: 《烂人》作品的写作风格
 正文
 `;
 
+/** 内存替身：dirs 的键是技能目录、值是 SKILL.md 内容。
+ *  实现 FsBridge 全部方法（含 rel 字段），直接以接口类型返回，让 TS 校验形态。 */
 function memFs(dirs: Record<string, string>): FsBridge {
   return {
     async exists(p: string) {
@@ -34,13 +36,21 @@ function memFs(dirs: Record<string, string>): FsBridge {
     async list(root: string) {
       return Object.keys(dirs)
         .filter((d) => d.startsWith(root + "\\"))
-        .map((d) => ({ name: d.slice(root.length + 1), path: d, isDir: true, size: 0, mtimeMs: 0 }));
+        .map((d) => {
+          const name = d.slice(root.length + 1);
+          return { name, rel: name, path: d, isDir: true, size: 0, mtimeMs: 0 };
+        });
     },
     async writeText() {},
+    async appendText() {},
     async mkdir() {},
-    async delete() {},
+    async remove() {},
     async rename() {},
-  } as unknown as FsBridge;
+    async copy() {},
+    async stat() {
+      return null;
+    },
+  };
 }
 
 describe("parseFrontmatter", () => {
@@ -51,6 +61,14 @@ describe("parseFrontmatter", () => {
   });
   it("无 frontmatter → 空值（调用方跳过）", () => {
     expect(parseFrontmatter("# 无头\n正文").name).toBe("");
+  });
+  it("带 BOM 的 frontmatter 仍可解析（记事本存 UTF-8 带 BOM 不该丢技能）", () => {
+    expect(parseFrontmatter("\uFEFF---\nname: novel-writer\n---\n").name).toBe("novel-writer");
+  });
+  it("CRLF 换行的 frontmatter 可解析（\\r 被 trim 剥掉）", () => {
+    const r = parseFrontmatter("---\r\nname: novel-writer\r\ndescription: 描述\r\n---\r\n");
+    expect(r.name).toBe("novel-writer");
+    expect(r.description).toBe("描述");
   });
 });
 
