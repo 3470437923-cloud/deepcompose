@@ -101,7 +101,7 @@ export function applyAccentFromPrefs(prefs: Prefs): void {
   document.documentElement.style.setProperty("--accent", accentHex(prefs.customAccentColor));
 }
 
-/** 应用主题（KeepCompose：dark / light / dsblue 三套实色主题；
+/** 应用主题（DeepCompose：dark / light / dsblue 三套实色主题；
  *  theme_mode 扩展键缺省时按既有键 is_dark_mode 派生，见 prefs.parsePrefs） */
 export function applyThemeFromPrefs(prefs: Prefs): void {
   document.documentElement.dataset.theme = prefs.themeMode;
