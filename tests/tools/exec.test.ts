@@ -30,7 +30,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
 }
 
 beforeAll(async () => {
-  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "writerd-tools-"));
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-tools-"));
   booksRoot = path.join(base, "AI写小说");
   root = path.join(booksRoot, "测试书籍");
   skillsDir = path.join(base, "skills");
@@ -252,7 +252,7 @@ describe("路径分级授权", () => {
   });
 
   it("授权根之外 → 拒绝，并给出逐字提示", async () => {
-    const outside = path.join(os.tmpdir(), "writerd-outside-secret.txt");
+    const outside = path.join(os.tmpdir(), "keepcompose-outside-secret.txt");
     await fsp.writeFile(outside, "secret", "utf8");
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "read", path: outside }));
     expect(r.error.startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
@@ -260,7 +260,7 @@ describe("路径分级授权", () => {
   });
 
   it("会话内授权的额外目录可读", async () => {
-    const dir = path.join(os.tmpdir(), "writerd-allowed");
+    const dir = path.join(os.tmpdir(), "keepcompose-allowed");
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(path.join(dir, "ok.md"), "ok", "utf8");
     const r = JSON.parse(
