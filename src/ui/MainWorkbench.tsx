@@ -235,6 +235,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const [streamThink, setStreamThink] = useState("");
   const [toolLog, setToolLog] = useState<{ name: string; status: "run" | "ok" | "bad" }[]>([]);
   const [chatError, setChatError] = useState<string | null>(null);
+  /** 截断提示（非错误：正文已落盘可用，只是可能少了个尾巴） */
+  const [truncNote, setTruncNote] = useState<string | null>(null);
   const [pending, setPending] = useState<{
     items: QuestionItem[];
     resolve: (a: string[][]) => void;
@@ -756,6 +758,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       busyRef.current = true;
       setBusy(true);
       setChatError(null);
+      setTruncNote(null);
       setStreamText("");
       setStreamThink("");
       setToolLog([]);
@@ -778,6 +781,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         });
         setSession(res.session);
         if (res.error) setChatError(res.error);
+        // 截断必须明说：否则用户会把"写到一半停住"当成模型写完
+        setTruncNote(
+          res.truncated
+            ? "本轮回复撞到最大输出长度（max_tokens）上限，末尾可能被截断。可在「设置 → AI 提供商」里调大最大输出长度，或让它分段继续写。"
+            : null,
+        );
         await refreshSessions();
         if (project) {
           const fs = getFs();
@@ -1571,6 +1580,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 </div>
               ) : null}
               {chatError ? <div className="err-line">{chatError}</div> : null}
+              {truncNote ? <div className="notice-line">{truncNote}</div> : null}
               <div ref={chatBottom} />
             </div>
           ) : (

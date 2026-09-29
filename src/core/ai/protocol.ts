@@ -88,16 +88,44 @@ function applyThinkingOpenAi(body: Record<string, unknown>, cfg: ProviderConfig)
 }
 
 /**
- * Anthropic 格式的思考参数（附录 A §2）：开关与档位同为 `reasoning.effort`
- * （`none` = 关闭，`low|high|max` = 强度）。
+ * OpenAI 格式流末尾的 usage 里，缓存字段有两套（实测同一条响应里两套都在）：
+ *   `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`（DeepSeek 原生）
+ *   `prompt_tokens_details.cached_tokens`（OpenAI 兼容习惯；部分中继只给这个）
+ * 命中数缺失时用后者兜底，未命中数则由「输入总数 − 命中数」推出。
+ */
+function openAiCache(usage: Record<string, unknown>): { hit?: number; miss?: number } {
+  const details = (usage.prompt_tokens_details ?? {}) as Record<string, unknown>;
+  const hit =
+    usage.prompt_cache_hit_tokens !== undefined
+      ? num(usage.prompt_cache_hit_tokens)
+      : details.cached_tokens !== undefined
+        ? num(details.cached_tokens)
+        : undefined;
+  const miss =
+    usage.prompt_cache_miss_tokens !== undefined
+      ? num(usage.prompt_cache_miss_tokens)
+      : hit !== undefined && usage.prompt_tokens !== undefined
+        ? Math.max(0, num(usage.prompt_tokens) - hit)
+        : undefined;
+  return { hit, miss };
+}
+
+/**
+ * Anthropic 格式的思考参数（**实测结论**，B5 真实 Key 实测，见 KNOWN-LIMITS KL-DF-05）：
+ *   开关 = `thinking: {type: "enabled"|"disabled"}` —— 与 OpenAI 格式同名字段。
+ *   档位 = `output_config: {effort: low|high|max}`。
  *
- * ⚠️ 官方文档另列了 `output_config.effort` 一栏，与 `reasoning.effort` 的关系**未实测**：
- * 这里只发文档明确给出取值集合的 `reasoning.effort`，避免多发一个未知字段吃 400。
- * 待 B5 用真实 Key 实测后再决定是否补发 `output_config`（记在 KNOWN-LIMITS KL-DF-05）。
+ * 实测过程（`tools/ds_probe.py --only anthropic/anth2`，deepseek-flash）：
+ *   - `reasoning.effort: "none"` **关不掉思考**（响应里仍有 68 个 thinking_delta）→ 故不采用；
+ *   - `thinking: {type: "disabled"}` → thinking_delta = 0（真正关闭）；
+ *   - 不带任何思考字段 → 默认开启（733 个 thinking_delta），与附录 A §2 一致；
+ *   - `output_config.effort` low vs max → 思考长度 615 vs 900（撞上限），档位有效。
+ * `reasoning` 字段单独发也能通过（服务端容忍），但既然它不承担开关语义就不再发。
  */
 function applyThinkingAnthropic(body: Record<string, unknown>, cfg: ProviderConfig): void {
   if (cfg.thinking === undefined) return;
-  body.reasoning = { effort: cfg.thinking ? (cfg.reasoningEffort ?? "high") : "none" };
+  body.thinking = { type: cfg.thinking ? "enabled" : "disabled" };
+  if (cfg.thinking) body.output_config = { effort: cfg.reasoningEffort ?? "high" };
 }
 /** max_tokens 缺省值（既有默认 32K；测试锁定 32000） */
 export const DEFAULT_MAX_TOKENS = 32000;
@@ -312,12 +340,26 @@ export interface RawSse {
   data?: string;
 }
 
-/** 解析一行 SSE；非 `event:`/`data:` 行返回 null（心跳注释行、空行、retry: 等一律忽略） */
+/** 解析一行 SSE；非 `event:`/`data:` 行返回 null（心跳注释行、空行、retry: 等一律忽略）
+ *
+ * 实测（B5，`tools/ds_probe.py --only keepalive`）：DeepSeek 官方流里本轮**没有**出现
+ * `: keep-alive` 注释行，也没有非 event:/data: 的有效负载行；但附录 A §8 明确说流式请求
+ * 会持续返回注释行，所以这里保持"白名单解析"（只有 event:/data: 才算数据），
+ * 而不是"黑名单过滤"——将来上游任何新增的注释/控制行都会被自动忽略。 */
 export function parseSseLine(line: string): RawSse | null {
   if (!line) return null;
   if (line.startsWith("event:")) return { event: line.slice(6).trim() };
   if (line.startsWith("data:")) return { data: line.slice(5).trim() };
   return null;
+}
+
+/**
+ * 上游的收尾原因是否表示"被 max_tokens 截断"（两种协议的叫法不同）：
+ * OpenAI 格式 `finish_reason: "length"`；Anthropic 格式 `stop_reason: "max_tokens"`
+ * （两者都在 B5 实测中出现过）。截断必须让用户看见，否则会被误当成"模型写完了"。
+ */
+export function isTruncatedReason(reason: string): boolean {
+  return reason === "length" || reason === "max_tokens" || reason === "max_output_tokens";
 }
 
 /** 数值安全提取：非有限数字（缺失/null/NaN）一律按 0 计 */
@@ -351,8 +393,9 @@ export function mapOpenAiChunk(json: unknown): StreamEvent[] {
     const ev: Extract<StreamEvent, { type: "usage" }> = { type: "usage" };
     if (usage.prompt_tokens !== undefined) ev.inputTokens = num(usage.prompt_tokens);
     if (usage.completion_tokens !== undefined) ev.outputTokens = num(usage.completion_tokens);
-    if (usage.prompt_cache_hit_tokens !== undefined) ev.cacheHitTokens = num(usage.prompt_cache_hit_tokens);
-    if (usage.prompt_cache_miss_tokens !== undefined) ev.cacheMissTokens = num(usage.prompt_cache_miss_tokens);
+    const cache = openAiCache(usage);
+    if (cache.hit !== undefined) ev.cacheHitTokens = cache.hit;
+    if (cache.miss !== undefined) ev.cacheMissTokens = cache.miss;
     if (
       ev.inputTokens !== undefined ||
       ev.outputTokens !== undefined ||
@@ -438,11 +481,20 @@ export function mapAnthropicEvent(event: string | undefined, json: unknown): Str
     case "message_start": {
       // 只取输入 token：此处 usage.output_tokens 是占位值（通常为 1），真正的累计输出
       // 在 message_delta 给出。旧实现把两者一起发出并让上层累加，导致输出 token 重复计数（KL-AI-02）。
+      //
+      // 缓存字段实测形态（B5）：`{input_tokens, cache_creation_input_tokens,
+      // cache_read_input_tokens, output_tokens, service_tier}` —— 用 Anthropic 原生的
+      // 「读缓存」语义映射到我们的命中数；未命中数 = 非读缓存的那部分输入
+      // （input_tokens + cache_creation），与 OpenAI 侧「命中 + 未命中 = 输入总数」口径一致。
       const msg = (o.message ?? {}) as Record<string, unknown>;
       const usage = (msg.usage ?? {}) as Record<string, unknown>;
-      if (usage.input_tokens !== undefined) {
-        out.push({ type: "usage", inputTokens: num(usage.input_tokens) });
+      const ev: Extract<StreamEvent, { type: "usage" }> = { type: "usage" };
+      if (usage.input_tokens !== undefined) ev.inputTokens = num(usage.input_tokens);
+      if (usage.cache_read_input_tokens !== undefined) {
+        ev.cacheHitTokens = num(usage.cache_read_input_tokens);
+        ev.cacheMissTokens = num(usage.input_tokens) + num(usage.cache_creation_input_tokens);
       }
+      if (ev.inputTokens !== undefined || ev.cacheHitTokens !== undefined) out.push(ev);
       break;
     }
     case "message_delta": {

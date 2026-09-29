@@ -1002,6 +1002,19 @@ html[data-nav="back"] .win { --push-x: -10px; }
   animation: msg-in 0.3s var(--ease-out) both;
 }
 
+/* 截断提示：与 err-line 同形但走 warn 色（不是错误：正文已经落盘可用，只是可能少个尾巴） */
+.notice-line {
+  color: var(--warn);
+  font-size: var(--fs-foot);
+  line-height: 1.6;
+  letter-spacing: var(--tr-small);
+  background: var(--warn-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 32%, transparent);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  animation: msg-in 0.3s var(--ease-out) both;
+}
+
 /* 三点输入指示：相位错开的**呼吸**，不做上下弹跳。
    原来叫 typing-bounce，三点各跳 3px —— 那是"聊天气泡"的语汇；
    这里是"AI 正在写"，而且对话面板上缘已经有一条行进线在表达同一件事，
@@ -2222,6 +2235,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
   .think,
   .tool-line,
   .err-line,
+  .notice-line,
   .memo-card,
   .a-flash { animation: none; }
   /* 生成中的行进线 → 一条静止的整宽强调色实线。
