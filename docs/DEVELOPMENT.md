@@ -23,6 +23,11 @@ cargo test --lib                            # 期望全绿
 > 在测试目标下会把 rustc 压爆（`STATUS_STACK_BUFFER_OVERRUN (0xc0000409)`，报
 > `could not compile tokio`）。正式产物仍用 `cargo build --release`，那条路径是正常的。
 
+> ⚠️ **项目目录改过名（writerD → KeepCompose → DeepCompose）时必须先删 `src-tauri\target`**：
+> cargo 指纹里存着旧绝对路径，会报 `failed to read plugin permissions … os error 3`（错误信息里指向旧目录）。
+> 删 target 冷编译即可恢复（release 冷编译实测约 3 分 37 秒）。改名本身若报
+> `Access to the path … is denied`，先清掉上一次截屏留下的旧 exe 进程与残留运行器。
+
 ## 2. 打包
 
 ```powershell

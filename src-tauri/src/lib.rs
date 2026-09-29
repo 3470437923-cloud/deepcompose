@@ -19,7 +19,8 @@ pub struct AppInfo {
 #[tauri::command]
 fn app_info() -> AppInfo {
     AppInfo {
-        name: "KeepCompose".into(),
+        // 「关于」面板显示的名字：与 productName / 产物 / crate 名保持同一代际
+        name: "DeepCompose".into(),
         version: env!("CARGO_PKG_VERSION").into(),
     }
 }
@@ -91,5 +92,5 @@ pub fn run() {
             }
         })
         .run(tauri::generate_context!())
-        .expect("KeepCompose 启动失败");
+        .expect("DeepCompose 启动失败");
 }

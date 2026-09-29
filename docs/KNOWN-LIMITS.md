@@ -106,6 +106,7 @@
 | B5 | KL-AI-06、KL-AI-16、KL-DF-01（核实并加锁）、KL-DF-02/03/04/05（实测出结论并修）、KL-DF-07（无 Key，保留安全默认） |
 | B7 | KL-AI-11、KL-ST-02、KL-ST-04、KL-TL-04、KL-DF-10 |
 | B8 | KL-ST-07、KL-ST-09、KL-TL-02、KL-TL-07、KL-TL-10；KL-TL-01 复核后**保持字节不动**（证据不足，只改注释）；**复核后保留**：KL-AI-03/04/05/07/09/10/12/13/14/15、KL-ST-03/05/06/08/08b/08c/09b/10/10b、KL-TL-03/05/06/08/09、KL-DF-06/07/08（逐条理由见上表「处置」列） |
+| B9 | **无销项**：第二代更名（D-004 / D-036）+ 冷编译交付。改名途中实测到两个**环境级**坑，已记进 `AGENTS.md` 第 5 节与 `docs/DEVELOPMENT.md`：① 目录改名后 cargo 指纹指向旧绝对路径 → `failed to read plugin permissions … os error 3`，必须删 `src-tauri\target` 冷编译；② 改名本身会被"上一次截屏留下的旧 exe 进程"挡住（`Access to the path … is denied`，旧 exe 那侧是 `KeepCompose.exe`） |
 
 ## 6. 销项规则
 

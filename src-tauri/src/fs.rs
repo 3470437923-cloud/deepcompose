@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn robust_remove_is_idempotent_and_clears_readonly() {
-        let base = std::env::temp_dir().join(format!("keepcompose-fs-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("deepcompose-fs-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let deep = base.join("书").join("章节内容");
         fs::create_dir_all(&deep).unwrap();
