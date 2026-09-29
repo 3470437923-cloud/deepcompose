@@ -10,8 +10,9 @@
 
 ## 1. 改名历史与冻结名（最重要）
 
-产品 2026 年从 **writerD 3.0.0** 更名 **KeepCompose 1.0.0**。更名只改品牌面
-（界面文案、窗口标题、exe 名 `KeepCompose.exe`、crate 名 `keepcompose`、identifier `com.keepcompose.desktop`），
+产品 2026 年经历**两代更名**：**writerD 3.0.0** → **KeepCompose 1.0.0** → **DeepCompose 1.1.0**
+（第二代在 B9 批次执行）。**两代更名都只改品牌面**（界面文案、窗口标题、exe 名、crate 名、identifier：
+`DeepCompose.exe` / `deepcompose` / `com.deepcompose.desktop`），
 **以下磁盘契约名全部冻结，任何重构都不得改**：
 
 - 作品内：`小说资料\ 章节内容\ 待确认\ 已处理\ 审核\ 个人改稿\`、`.openwrite_manifest.json`、`.openwrite_recycle\`、`recycle_manifest.json`、`writerd_oplog\`
@@ -21,6 +22,9 @@
 - 判定函数：`isSystemEntryName` 的 `writerd_` 前缀、`.` 前缀、`recycle_manifest.json`
 
 看到代码里出现 `writerd_*` / `com.writerd` **不是遗漏，是契约**。
+
+**新增契约（additive，不改旧名）**：`%APPDATA%\com.writerd\writerD\usage_stats.json` —— token 按日分桶、
+余额快照与最近错误，B2 批次起使用，**可随时删除**（丢了只是没统计，不影响作品与配置）。
 
 ## 2. 代码地图
 
@@ -43,6 +47,9 @@ tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · e2e_*.ps1
 ```
 
+> **本轮改造（B0–B9）计划新增**：`src/core/usage/`（token 统计与闲时判定）、`src/core/store/recycle.ts`（回收站）、
+> 标题栏鲸鱼与统计面板（`src/ui/`）、设置页平台预设与具名配置。落地后本节同步更新。
+
 数据流：`MainWorkbench` 只依赖 `core/*` 的纯函数 + `fsbridge`；Rust 只做三件事——
 文件原语、SSE 转发、窗口几何。**业务策略（路径分级、格式优先、快照）全部在 TS 侧且有单测**。
 
@@ -53,6 +60,9 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 .\node_modules\.bin\vitest.cmd run        # 全绿
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
+
+当前基线：vitest **223 例**、cargo **12 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 回归锁（改坏即产品事故）：
 - `tests/store/markdown.test.ts` —— 格式优先（只 append / 节内替换）
@@ -81,6 +91,8 @@ cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会�
 | 提交内存耗尽（FreeVirtualMemory < 500MB） | 关掉吃提交的大户再跑闸门 |
 | 无头环境截 WebView2 白图 | 截屏前 `SetForegroundWindow` 并等 0.5–1s（`tools/capture.ps1` 已处理） |
 | 读运行时配置回显密钥 | 用 `python -c json.load(...)`，别用 PS 裸读 |
+| **项目目录改名**（writerD→KeepCompose→DeepCompose） | cargo 指纹里存着旧绝对路径，报 `failed to read plugin permissions ... os error 3`；**改名前后必须删 `src-tauri\target` 再冷编译**（release 冷编译实测约 3 分 37 秒） |
+| identifier 变更（更名连带） | WebView2 profile 会重置一次；用户作品与配置在自定义路径，**不受影响** |
 
 ## 6. 交付流程
 
@@ -90,3 +102,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1   # 
 ```
 
 快捷方式由 `tools/package.ps1` 维护（会先删旧的 `writerD.lnk`）。改完代码 → 闸门全绿 → 打包 → 截屏核对 → 原子提交。
+
+> **第二代更名（B9）后**：产物为 `release\DeepCompose.exe`、快捷方式 `DeepCompose.lnk`（打包脚本改为删旧
+> `KeepCompose.lnk`），本节命令与文字在 B9 同步更新。改名当批必须先删 `src-tauri\target` 再冷编译。

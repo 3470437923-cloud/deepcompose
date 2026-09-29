@@ -40,7 +40,9 @@ npm.cmd run package             # 打包：vite build → cargo build --release 
 ```
 
 更细的构建、验收与环境坑见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；
-给维护 agent 的契约与代码地图见 [`AGENTS.md`](AGENTS.md)。
+给维护 agent 的契约与代码地图见 [`AGENTS.md`](AGENTS.md)；
+已知边界与缺陷账本见 [`docs/KNOWN-LIMITS.md`](docs/KNOWN-LIMITS.md)；
+改造裁决与 DeepSeek 接口事实基线见 [`docs/DECISIONS.md`](docs/DECISIONS.md)。
 
 ## 目录结构
 
@@ -68,7 +70,7 @@ KeepCompose/
 ## 磁盘格式契约（禁止改名）
 
 下面这些名字是**已经落盘的既有格式**，改名会破坏用户已有作品与配置，属于兼容契约。
-**产品更名（writerD → KeepCompose）不改变其中任何一个名字**：
+**产品两代更名（writerD → KeepCompose → DeepCompose）不改变其中任何一个名字**：
 
 | 位置 | 名称 |
 |---|---|
@@ -79,6 +81,7 @@ KeepCompose/
 | 文档目录 | `writerd_sessions\`、`writerd_snapshots\`、`writerd_memos.json`、`skills\` |
 | 配置 | `%APPDATA%\com.writerd\writerD\shared_preferences.json`（键名保留 `flutter.` 前缀） |
 | 运行时状态 | `%APPDATA%\com.writerd\writerD\window_state.json`（窗口几何，可随时删除） |
+| 运行时统计（新增） | `%APPDATA%\com.writerd\writerD\usage_stats.json`（token 按日分桶、余额快照与最近错误；可随时删除） |
 
 配置模型是**封闭键集合**：商业化键（`vip_*` / `device_id`）读到也忽略、永不写出；
 同步类键（`is_connected` / `webdav_config` / `webdav_sync_meta`）UI 已下线，仅保留往返不丢旧配置数据。

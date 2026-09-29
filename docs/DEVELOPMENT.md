@@ -32,7 +32,10 @@ npm.cmd run package
 `tools/package.ps1` 的动作顺序：杀掉运行中的 `keepcompose` 进程（否则 cargo 无法替换 exe，
 `failed to remove keepcompose.exe`，os error 5）→ `vite build` → `cargo build --release` →
 复制 exe 到 `release\KeepCompose.exe` → 删除旧 `writerD.lnk` → 刷新桌面快捷方式 `KeepCompose.lnk`。
-脚本根目录从自身位置推导（不硬编码盘符路径）。cargo 缓存热时约 2 分钟，冷编译 10–15 分钟。
+脚本根目录从自身位置推导（不硬编码盘符路径）。cargo 缓存热时约 2 分钟；**删掉 `target` 后的 release 冷编译实测 3 分 37 秒**（改动项目目录名之后必须走这条路）。
+
+> 第二代更名（B9）后：产物为 `release\DeepCompose.exe`、快捷方式 `DeepCompose.lnk`，打包脚本同时删除旧
+> `KeepCompose.lnk`。
 
 ## 3. 桌面端验收（真实 exe，会话锁定屏幕时也能做）
 
@@ -95,6 +98,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | React 19 + 新 JSX transform | `JSX.Element` 报 `Cannot find namespace 'JSX'` | 用 `ReactElement`（`import type { ReactElement } from "react"`） |
 | Windows 窗口几何 | `set_size` 是**客户区**口径；窗口创建后第一次 `set_size` 会多一个标题栏高度 | 位置存外框、尺寸存 `inner_size()`；读回不一致就用同一个值重试（最多 3 次）；**反向按差额补偿是错的** |
 | **系统提交内存耗尽** | vitest/vite/cargo 起不来：`VirtualAlloc failed` / `Out of memory`，而物理内存还有空闲 | 看 `Win32_OperatingSystem.FreeVirtualMemory`（提交余量，<500MB 必炸）；关掉吃提交的大户再跑闸门 |
+| **项目目录改名后 cargo 崩** | `failed to read plugin permissions: failed to read file '\\?\S:\<旧目录名>\src-tauri\target\...' (os error 3)` | 指纹里存着旧绝对路径；**删掉 `src-tauri\target` 冷编译**（release 实测 3 分 37 秒） |
 
 ## 7. 数据与配置位置
 
@@ -104,6 +108,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | 会话 / 快照 / 备忘录 / 技能 | `%USERPROFILE%\Documents\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}` |
 | 配置 | `%APPDATA%\com.writerd\writerD\shared_preferences.json` |
 | 窗口几何 | `%APPDATA%\com.writerd\writerD\window_state.json` |
+| 运行时统计（新增） | `%APPDATA%\com.writerd\writerD\usage_stats.json`（token 按日分桶与余额快照，可随时删除） |
 
 以上名字是**磁盘契约**（见 README 契约表），产品更名不改它们。
 
@@ -113,3 +118,5 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 2. 改完跑闸门（`tsc` + `vitest`，必要时 Rust 单测），必须全绿。
 3. 原子提交，提交信息写清**做了什么 + 验证结果**。
 4. 每批只做一件事；跨多文件的重构拆成可独立验收的小批。
+5. 修掉某条已知边界时，同步更新 `docs/KNOWN-LIMITS.md` 的「处置」列并留下回归锁（销项规则见该文件 §6）；
+   改动涉及用户拍板的裁决时，先在 `docs/DECISIONS.md` 追加条目再动代码。
