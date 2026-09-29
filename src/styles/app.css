@@ -1481,6 +1481,44 @@ html[data-nav="back"] .win { --push-x: -10px; }
   text-decoration: underline;
 }
 
+/* ── 思考档位（主界面输入区）：chip + 四档吸附浮层（D-010：底层只有三档真语义，不做连续滑条） ── */
+.think-wrap { position: relative; display: flex; }
+.think-pop {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 272px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.think-stop {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  text-align: left;
+}
+.think-stop:hover { background: var(--ctl-hover); }
+.think-stop.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.ts-label { font-size: var(--fs-foot); font-weight: 600; color: var(--tx-1); }
+.ts-hint { font-size: var(--fs-caption); line-height: 1.5; color: var(--tx-dim); }
+.think-reset {
+  margin-top: 3px;
+  padding: 6px 9px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  font-size: var(--fs-caption);
+  color: var(--accent-text);
+}
+.think-reset:hover { background: var(--ctl-hover); }
+/* 关闭态用中性描边（与 .chip.accent 的浅染底形成"开着 / 关着"的一眼区别） */
+.chip.think { max-width: 168px; }
+
 /* 非阻塞气泡：底部居中、实色、无阴影（「付印单」材质纪律：不发光、不模糊） */
 .a-notice-bubble {
   position: fixed;

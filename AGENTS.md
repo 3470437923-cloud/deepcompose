@@ -49,6 +49,10 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 
 > **本轮改造（B0–B9）计划新增**：`src/core/usage/`（token 统计与闲时判定）、`src/core/store/recycle.ts`（回收站）、
 > 标题栏鲸鱼与统计面板（`src/ui/`）、设置页平台预设与具名配置。落地后本节同步更新。
+>
+> **已落地（逐批更新）**：`src/core/usage/stats|peak|persist.ts`（B2）、`src/core/ai/platforms.ts`（B1）、
+> `src/core/ai/profiles.ts` + `platformNotice.ts`（B3）、`src/core/ai/thinking.ts`（B4，思考档位模型；
+> 档位是**会话级内存值**，见 D-028）、`src/core/ai/balance.ts`（余额查询，面板用）。
 
 数据流：`MainWorkbench` 只依赖 `core/*` 的纯函数 + `fsbridge`；Rust 只做三件事——
 文件原语、SSE 转发、窗口几何。**业务策略（路径分级、格式优先、快照）全部在 TS 侧且有单测**。
@@ -61,7 +65,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **273 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **316 例**、cargo **13 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 回归锁（改坏即产品事故）：

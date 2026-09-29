@@ -11,6 +11,8 @@
  *   可经 ProviderConfig.maxTokens 覆盖；上游拒绝时由 errors.ts 给出 max_tokens 文案）。
  */
 
+import type { ReasoningEffort } from "../prefs";
+
 /** 会话消息角色（既有落盘格式：system 只出现在请求构造里，会话文件仅存 user/assistant） */
 export type Role = "system" | "user" | "assistant";
 
@@ -55,6 +57,13 @@ export interface ProviderConfig {
   /** 单次回复 max_tokens（两种协议都发送）；缺省用 DEFAULT_MAX_TOKENS（32000） */
   maxTokens?: number;
   reservedOutputTokens?: number;
+  /**
+   * 思考模式开关。**undefined = 请求体里完全不出现思考参数**（不支持的平台必须如此）；
+   * true/false 才会写出对应协议的字段（附录 A §2）。
+   */
+  thinking?: boolean;
+  /** 思考强度（仅 thinking === true 时有意义；缺省按官方默认 high） */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /** 传输层中立的请求描述（transport.ts 负责实际发出） */
@@ -66,6 +75,30 @@ export interface HttpRequest {
 
 /** Anthropic 版本头取值（逐字，上游契约） */
 const ANTHROPIC_VERSION = "2023-06-01";
+
+/**
+ * OpenAI 格式的思考参数（附录 A §2）：
+ *   开关 `thinking: {type: enabled|disabled}`；档位 `reasoning_effort: low|high|max`。
+ * 关闭时**不发** reasoning_effort —— 开关关了还送档位是自相矛盾的请求体。
+ */
+function applyThinkingOpenAi(body: Record<string, unknown>, cfg: ProviderConfig): void {
+  if (cfg.thinking === undefined) return;
+  body.thinking = { type: cfg.thinking ? "enabled" : "disabled" };
+  if (cfg.thinking) body.reasoning_effort = cfg.reasoningEffort ?? "high";
+}
+
+/**
+ * Anthropic 格式的思考参数（附录 A §2）：开关与档位同为 `reasoning.effort`
+ * （`none` = 关闭，`low|high|max` = 强度）。
+ *
+ * ⚠️ 官方文档另列了 `output_config.effort` 一栏，与 `reasoning.effort` 的关系**未实测**：
+ * 这里只发文档明确给出取值集合的 `reasoning.effort`，避免多发一个未知字段吃 400。
+ * 待 B5 用真实 Key 实测后再决定是否补发 `output_config`（记在 KNOWN-LIMITS KL-DF-05）。
+ */
+function applyThinkingAnthropic(body: Record<string, unknown>, cfg: ProviderConfig): void {
+  if (cfg.thinking === undefined) return;
+  body.reasoning = { effort: cfg.thinking ? (cfg.reasoningEffort ?? "high") : "none" };
+}
 /** max_tokens 缺省值（既有默认 32K；测试锁定 32000） */
 export const DEFAULT_MAX_TOKENS = 32000;
 
@@ -149,6 +182,7 @@ function buildOpenAi(
     stream_options: { include_usage: true },
     max_tokens: cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
+  applyThinkingOpenAi(body, cfg);
   if (tools.length > 0) {
     body.tools = tools.map((t) => ({
       type: "function",
@@ -216,6 +250,7 @@ function buildAnthropic(
     max_tokens: cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
   if (systemPrompt.trim() !== "") body.system = systemPrompt;
+  applyThinkingAnthropic(body, cfg);
   if (tools.length > 0) {
     body.tools = tools.map((t) => ({
       name: t.name,

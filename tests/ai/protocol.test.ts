@@ -40,6 +40,50 @@ const msgs: ChatMessage[] = [
   { id: "1", role: "user", text: "写第一章", createdAt: "2026-01-01T00:00:00.000000" },
 ];
 
+describe("思考参数（附录 A §2）", () => {
+  it("OpenAI：开启时发 thinking.type=enabled + reasoning_effort", () => {
+    const b = buildRequest({ ...openaiCfg, thinking: true, reasoningEffort: "max" }, msgs, [], "").body as Record<
+      string,
+      unknown
+    >;
+    expect(b.thinking).toEqual({ type: "enabled" });
+    expect(b.reasoning_effort).toBe("max");
+  });
+
+  it("OpenAI：关闭时只发 thinking.type=disabled，不发 reasoning_effort", () => {
+    const b = buildRequest({ ...openaiCfg, thinking: false, reasoningEffort: "max" }, msgs, [], "").body as Record<
+      string,
+      unknown
+    >;
+    expect(b.thinking).toEqual({ type: "disabled" });
+    expect(b.reasoning_effort).toBeUndefined();
+  });
+
+  it("OpenAI：thinking 缺省（不支持的平台）时请求体里完全没有这两个字段", () => {
+    const b = buildRequest({ ...openaiCfg }, msgs, [], "").body as Record<string, unknown>;
+    expect(b.thinking).toBeUndefined();
+    expect(b.reasoning_effort).toBeUndefined();
+  });
+
+  it("OpenAI：开启但未给档位时回落官方默认 high", () => {
+    const b = buildRequest({ ...openaiCfg, thinking: true }, msgs, [], "").body as Record<string, unknown>;
+    expect(b.reasoning_effort).toBe("high");
+  });
+
+  it("Anthropic：开关与档位同为 reasoning.effort（none = 关闭）", () => {
+    const on = buildRequest({ ...anthropicCfg, thinking: true, reasoningEffort: "low" }, msgs, [], "").body as Record<
+      string,
+      unknown
+    >;
+    expect(on.reasoning).toEqual({ effort: "low" });
+    const off = buildRequest({ ...anthropicCfg, thinking: false }, msgs, [], "").body as Record<string, unknown>;
+    expect(off.reasoning).toEqual({ effort: "none" });
+    const absent = buildRequest({ ...anthropicCfg }, msgs, [], "").body as Record<string, unknown>;
+    expect(absent.reasoning).toBeUndefined();
+    expect(absent.output_config).toBeUndefined();
+  });
+});
+
 describe("端点拼接", () => {
   it("OpenAI：<base>/v1/chat/completions；base 已带 /v1 时不重复", () => {
     expect(openAiUrl("https://newapi.example.cn")).toBe("https://newapi.example.cn/v1/chat/completions");
