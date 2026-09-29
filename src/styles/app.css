@@ -133,7 +133,10 @@ html[data-nav="back"] .win { --push-x: -10px; }
   flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* 标题栏内元素间距单一来源：鲸鱼走廊靠负边距抵消它，才能贴准
+     「开关簇右缘 + 24px」到「齿轮左缘 − 24px」这两个边界 */
+  --tb-gap: 10px;
+  gap: var(--tb-gap);
   padding: 0 8px 0 13px;
   position: relative;
   z-index: 20;
@@ -188,6 +191,134 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .tb-div { width: 1px; height: 16px; flex: none; background: var(--line-strong); margin: 0 5px; }
 
 .win-tools { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
+
+/* ── 标题栏鲸鱼：走廊 =（面板开关簇右缘 + 24px）到（设置齿轮左缘 − 24px） ──
+   `.whale-lane` 是 flex 里那个"吃掉剩余宽度"的槽，24px 由 `--whale-gutter` 单一来源定义
+   （JS 在测量时把它读回去，所以改这里不用改 TS）。 */
+.whale-lane {
+  --whale-gutter: 24px;
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: stretch;
+  position: relative;
+  /* 抵消标题栏 gap：走廊两端正好落在"隔壁元素的边缘 ±24px" */
+  margin: 0 calc(-1 * var(--tb-gap));
+  padding: 0 var(--whale-gutter);
+  display: flex;
+  align-items: center;
+}
+.whale-wrap { position: relative; display: flex; align-items: center; flex: none; }
+.whale-btn {
+  position: absolute;
+  left: var(--whale-gutter);
+  top: 50%;
+  margin-top: -11px;
+  width: 46px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--accent-text);
+  /* 游动：横向走完走廊就掉头（scaleX 镜像），两端各停一拍再走。
+     拍子长短靠 --whale-span（JS 实测）换算成百分比是做不到的，所以用两点关键帧 + 缓动。 */
+  animation: whale-swim 34s var(--ease-settle) infinite;
+}
+.whale-btn.paused { animation-play-state: paused; }
+@keyframes whale-swim {
+  0% { transform: translateX(0) scaleX(1); }
+  46% { transform: translateX(var(--whale-span)) scaleX(1); }
+  54% { transform: translateX(var(--whale-span)) scaleX(-1); }
+  100% { transform: translateX(0) scaleX(-1); }
+}
+.whale-bob {
+  display: inline-flex;
+  /* 呼吸式起伏：幅度 1px 上下 + 极小仰角，像浮在水面而不是在"弹跳" */
+  animation: whale-bob 3.6s ease-in-out infinite;
+}
+@keyframes whale-bob {
+  0%, 100% { transform: translateY(-0.6px) rotate(-1.2deg); }
+  50% { transform: translateY(0.8px) rotate(1.2deg); }
+}
+.whale-svg { width: 40px; height: 22px; display: block; transition: transform var(--t-fast) var(--ease-out); }
+.whale-btn:hover .whale-svg { transform: scale(1.07); }
+.whale-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.whale-body { fill: currentColor; }
+.whale-tail, .whale-fin {
+  fill: currentColor;
+  opacity: 0.82;
+  /* 圆角靠描边做：这几片是直线三角形，直角尖太"刀"，round join 一下更像肉鳍 */
+  stroke: currentColor;
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+}
+.whale-eye { fill: var(--bg); }
+.whale-spout {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+/* 鲸鱼底部的水面线：跟着它走的一条短线，给"在游"一个参照物 */
+.whale-btn::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  right: 7px;
+  bottom: -2px;
+  height: 1px;
+  background: var(--line-strong);
+  opacity: 0.45;
+}
+
+/* ── 用量面板（鲸鱼悬停/聚焦展开） ── */
+/* 让位量用 margin 而不是 transform：`.surface-raised` 的 raise-in 动画末帧是
+   `transform: none`（animation-fill-mode: both），动画声明在层叠里压过普通声明，
+   用 transform 平移会被它清成 identity —— 这正是"面板没让位、被窗口右缘切掉"的根因。 */
+.usage-pop {
+  position: absolute;
+  top: calc(100% + 7px);
+  left: var(--panel-left, 0px);
+  margin-left: var(--usage-shift, 0px);
+  width: 344px;
+  padding: 10px 11px 9px;
+  border-radius: var(--r-md);
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.up-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.up-title { font-size: var(--fs-foot); font-weight: 700; color: var(--tx-1); letter-spacing: var(--tr-caption); }
+.up-refresh { height: 24px; padding: 0 9px; font-size: var(--fs-caption); }
+.up-block { display: flex; flex-direction: column; gap: 5px; }
+.up-block + .up-block { border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.up-block-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.up-block-title { font-size: var(--fs-caption); font-weight: 620; color: var(--tx-2); }
+.up-block-note { font-size: var(--fs-caption); color: var(--tx-dim); }
+.up-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.up-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.up-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 7px;
+  border-radius: var(--r-sm);
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+.up-cell-label { font-size: var(--fs-caption); color: var(--tx-dim); }
+.up-cell-value { font-size: var(--fs-foot); font-weight: 620; color: var(--tx-1); font-variant-numeric: tabular-nums; }
+.up-line { font-size: var(--fs-caption); color: var(--tx-2); line-height: 1.55; }
+.up-hint { color: var(--tx-dim); }
+.up-mono { font-variant-numeric: tabular-nums; }
+.up-state { font-size: var(--fs-caption); font-weight: 620; }
+.up-state.busy { color: var(--warn); }
+.up-state.idle { color: var(--ok); }
+.up-balance { font-size: var(--fs-headline); font-weight: 700; color: var(--tx-1); font-variant-numeric: tabular-nums; }
+.up-foot { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.up-foot .a-check-row { margin: 0; font-size: var(--fs-caption); }
 .wbtn {
   width: 40px;
   height: 30px;
@@ -2238,6 +2369,10 @@ html[data-nav="back"] .win { --push-x: -10px; }
   .notice-line,
   .memo-card,
   .a-flash { animation: none; }
+  /* 鲸鱼：无障碍优先——不游也不起伏，静止停在走廊左端（信息与入口都还在） */
+  .whale-btn,
+  .whale-bob { animation: none; }
+  .whale-btn { transform: none; }
   /* 生成中的行进线 → 一条静止的整宽强调色实线。
      动效没了，"面板正在产出"这个信息还在（这正是等价反馈的含义）。 */
   .panel-chat.streaming::before {

@@ -35,6 +35,8 @@ import { parseChapterName, stripMd } from "../core/store/chapter";
 import { appendOplog, diffLines, isLightEdit, type DiffResult } from "../core/store/oplog";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
+import TitlebarWhale from "./TitlebarWhale";
+import { ZERO_USAGE, addTotals, type UsageTotals } from "../core/usage/stats";
 import {
   DEFAULT_THINKING_LEVEL,
   THINKING_STOPS,
@@ -311,6 +313,22 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const thinkSupported = bootPrefs ? thinkingSupportedFor(bootPrefs) : false;
   const thinkEffective = bootPrefs ? effectiveThinking(bootPrefs, thinkLevel) : DEFAULT_THINKING_LEVEL;
   const thinkStop = THINKING_STOPS.find((s) => s.level === thinkEffective) ?? THINKING_STOPS[2];
+
+  /**
+   * 「本次会话累计」（D-019）：按会话 id 存内存，切会话即显示那一份，重启即尽。
+   * 不落盘 —— 会话文件是冻结契约，统计是旁路数据（真要持久化也应进 usage_stats.json）。
+   */
+  const [usageBySession, setUsageBySession] = useState<Record<string, UsageTotals>>({});
+  const sessionUsage = session ? usageBySession[session.id] ?? ZERO_USAGE : ZERO_USAGE;
+
+  /** 鲸鱼「闲置时停下游动」（D-030）：先本地回显，再落盘 */
+  const [idlePauseLocal, setIdlePauseLocal] = useState<boolean | null>(null);
+  const effIdlePause = idlePauseLocal ?? bootPrefs?.whaleIdlePause ?? true;
+  const toggleIdlePause = useCallback((next: boolean) => {
+    setIdlePauseLocal(next);
+    const b = currentBoot();
+    if (b) void savePrefs({ ...b.prefs, whaleIdlePause: next });
+  }, []);
 
   // 生成中收起档位浮层：它悬在输入框上方，跑起来就挡字了
   useEffect(() => {
@@ -780,6 +798,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           thinking: thinkLevel,
         });
         setSession(res.session);
+        // 会话级累计用量（面板第二块）：把本次运行的合计并进该会话
+        const sid = res.session.id;
+        setUsageBySession((m) => ({ ...m, [sid]: addTotals(m[sid] ?? ZERO_USAGE, res.usage) }));
         if (res.error) setChatError(res.error);
         // 截断必须明说：否则用户会把"写到一半停住"当成模型写完
         setTruncNote(
@@ -1136,6 +1157,15 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             </svg>
           </button>
         </div>
+
+        {/* 鲸鱼：走廊夹在「面板开关簇」与「设置齿轮」之间（宽度由 flex 与 24px 内缩决定） */}
+        <TitlebarWhale
+          dirs={dirs}
+          prefs={bootPrefs}
+          sessionUsage={sessionUsage}
+          idlePause={effIdlePause}
+          onToggleIdlePause={toggleIdlePause}
+        />
 
         <div className="win-tools">
           <button className="wbtn" title="设置" onClick={onOpenSettings}>
