@@ -825,15 +825,16 @@ function ParamsSection({
             className="a-form-input a-num"
             type="number"
             min={1}
-            max={200}
+            max={384}
             value={Math.round(form.maxOutputTokens / 1000)}
             onChange={(e) => {
               const v = numGuard(e.target.value);
-              if (v !== null) update("maxOutputTokens", clamp(Math.round(v), 1, 200) * 1000);
+              // 上限 384K = DeepSeek 官方最大输出（DECISIONS D-024），原值 200K 会挡住用户用满
+              if (v !== null) update("maxOutputTokens", clamp(Math.round(v), 1, 384) * 1000);
             }}
             onBlur={(e) => {
               const v = numGuard(e.target.value);
-              update("maxOutputTokens", clamp(v === null ? Math.round(form.maxOutputTokens / 1000) : Math.round(v), 1, 200) * 1000);
+              update("maxOutputTokens", clamp(v === null ? Math.round(form.maxOutputTokens / 1000) : Math.round(v), 1, 384) * 1000);
             }}
           />
         </div>

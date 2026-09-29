@@ -24,13 +24,39 @@ export type ThemeMode = "dark" | "light" | "dsblue";
 /** DS 品牌蓝（0xAARRGGBB）：默认强调色，也是 DS 蓝主题的身份色 */
 export const DS_BLUE_ARGB = 4283263998; // 0xFF4D6BFE
 
-/** AI 供应商条目（`saved_providers` 键 JSON 数组的元素；字段名为既有格式，逐字保留） */
+/** 供应商平台：两个内置预设 + 自定义（DeepCompose 扩展字段，磁盘上以字符串落库） */
+export type ProviderPlatform = "deepseek" | "siliconflow" | "custom";
+
+/** 思考强度：底层只有 low / high / max 三档真语义（别名映射见 docs/DECISIONS.md 附录 A §2） */
+export type ReasoningEffort = "low" | "high" | "max";
+
+/** 思考内容回传策略：auto = 按平台 + 是否带工具自动决定（官方规则见附录 A §5） */
+export type ReasoningReplay = "auto" | "always" | "never";
+
+/**
+ * AI 供应商条目（`saved_providers` 键 JSON 数组的元素；前 5 个字段名为既有格式，逐字保留）。
+ *
+ * 扩展字段**全部可选**：老配置没有这些字段，缺省即回落（`platform` 按 baseUrl 推断、
+ * `id` 按 name + baseUrl 派生并写回），因此升级不改老配置文件也能正确工作。
+ */
 export interface Provider {
   name: string;
   baseUrl: string;
   apiKey: string;
   model: string;
   useAnthropicFormat: boolean;
+  /** 稳定身份（DeepCompose 扩展）：具名配置切换用它，不再依赖「键匹配」 */
+  id?: string;
+  /** 平台（DeepCompose 扩展）：缺省按 baseUrl 推断，推断不出即 custom */
+  platform?: ProviderPlatform;
+  /** 思考模式默认开关（配置级默认；会话级临时开关只存内存，见 D-011） */
+  thinking?: boolean;
+  /** 思考强度档位（D-010：关闭 / 低 / 高 / 最高） */
+  reasoningEffort?: ReasoningEffort;
+  /** 回传策略覆盖（D-012 默认 auto = 按平台与是否带工具自动决定） */
+  reasoningReplay?: ReasoningReplay;
+  /** 自定义端点显式声明「支持 thinking 参数」（内置预设不需要，D-007） */
+  supportsThinking?: boolean;
 }
 
 /** 技能清单条目（`skill_list` 键 JSON 数组的元素；字段名为既有格式，逐字保留） */
@@ -64,6 +90,8 @@ export interface Prefs {
   contextLimit: number;
   useAnthropicFormat: boolean;
   savedProviders: Provider[];
+  /** 当前生效的具名配置 id（DeepCompose 扩展键 `active_api_profile`；空串 = 回退到「键匹配」旧语义） */
+  activeApiProfile: string;
   systemPrompt: string;
   reservedOutputTokens: number;
   autoClearContext: boolean;
@@ -134,6 +162,7 @@ export const DEFAULT_PREFS: Prefs = {
   contextLimit: 1000000,
   useAnthropicFormat: false,
   savedProviders: [],
+  activeApiProfile: "",
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reservedOutputTokens: 16000,
   autoClearContext: true,
@@ -180,6 +209,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   contextLimit: "context_limit",
   useAnthropicFormat: "use_anthropic_format",
   savedProviders: "saved_providers",
+  activeApiProfile: "active_api_profile", // DeepCompose 扩展键（既有格式无此键，见 DECISIONS D-007）
   systemPrompt: "system_prompt",
   reservedOutputTokens: "reserved_output_tokens",
   autoClearContext: "auto_clear_context",
@@ -252,6 +282,76 @@ function asString(v: unknown, def: string): string {
   return typeof v === "string" ? v : def;
 }
 
+/** 枚举键容错：不在白名单内一律返回 undefined（宁可丢掉坏值，也不把垃圾写回磁盘） */
+function oneOf<T extends string>(v: unknown, allowed: readonly T[]): T | undefined {
+  return typeof v === "string" && (allowed as readonly string[]).includes(v) ? (v as T) : undefined;
+}
+
+const PLATFORM_VALUES: readonly ProviderPlatform[] = ["deepseek", "siliconflow", "custom"];
+const EFFORT_VALUES: readonly ReasoningEffort[] = ["low", "high", "max"];
+const REPLAY_VALUES: readonly ReasoningReplay[] = ["auto", "always", "never"];
+
+/**
+ * 供应商条目的稳定身份：FNV-1a 32 位哈希（纯函数、跨进程稳定、不引入依赖）。
+ * 老配置条目没有 id —— 按 name + baseUrl 派生并写回，使「具名配置切换」不依赖键匹配（D-007）。
+ */
+export function deriveProfileId(name: string, baseUrl: string): string {
+  let h = 0x811c9dc5;
+  const s = `${name}\u0000${baseUrl}`;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return "p" + h.toString(16).padStart(8, "0");
+}
+
+/** 按 baseUrl 推断平台：识别不出即自定义（老配置升级时用，避免让 DeepSeek 用户丢思考控件） */
+function inferPlatform(baseUrl: string): ProviderPlatform {
+  const u = baseUrl.toLowerCase();
+  if (u.includes("api.deepseek.com")) return "deepseek";
+  if (u.includes("siliconflow.cn") || u.includes("siliconflow.com")) return "siliconflow";
+  return "custom";
+}
+
+/**
+ * 规范化一条供应商条目：补齐扩展字段、丢弃非法枚举值、保留未知字段。
+ *
+ * - 非对象元素返回 null（坏数据不进运行期，调用方过滤掉）
+ * - 未知字段（第三方写的键）**原样保留**，保证 round-trip 不丢数据
+ * - `id` 缺失才派生；`platform` 缺失才按 baseUrl 推断
+ */
+export function normalizeProvider(entry: unknown): Provider | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const e = entry as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...e };
+  const name = asString(e.name, "");
+  const baseUrl = asString(e.baseUrl, "");
+  out.name = name;
+  out.baseUrl = baseUrl;
+  out.apiKey = asString(e.apiKey, "");
+  out.model = asString(e.model, "");
+  out.useAnthropicFormat = asBool(e.useAnthropicFormat, false);
+  const id = asString(e.id, "");
+  out.id = id !== "" ? id : deriveProfileId(name, baseUrl);
+  out.platform = oneOf(e.platform, PLATFORM_VALUES) ?? inferPlatform(baseUrl);
+
+  const setOptional = (key: string, value: unknown): void => {
+    if (value === undefined) delete out[key];
+    else out[key] = value;
+  };
+  setOptional("thinking", typeof e.thinking === "boolean" ? e.thinking : undefined);
+  setOptional("reasoningEffort", oneOf(e.reasoningEffort, EFFORT_VALUES));
+  setOptional("reasoningReplay", oneOf(e.reasoningReplay, REPLAY_VALUES));
+  setOptional("supportsThinking", typeof e.supportsThinking === "boolean" ? e.supportsThinking : undefined);
+
+  return out as unknown as Provider;
+}
+
+/** 规范化整份清单（非对象元素被丢弃） */
+export function normalizeProviders(list: Provider[]): Provider[] {
+  return list.map(normalizeProvider).filter((x): x is Provider => x !== null);
+}
+
 /**
  * 解析以 JSON 字符串落盘的键（见 JSON_KEYS）。
  * shape 声明期望形态：坏 JSON、null、数组键收到非数组（或反之）都回落默认值——
@@ -294,7 +394,12 @@ export function parsePrefs(text: string): Prefs {
   p.temperature = asNumber(get("temperature"), p.temperature);
   p.contextLimit = asNumber(get("contextLimit"), p.contextLimit);
   p.useAnthropicFormat = asBool(get("useAnthropicFormat"), p.useAnthropicFormat);
-  p.savedProviders = parseJsonField<Provider[]>(get("savedProviders"), p.savedProviders, "array");
+  // saved_providers 元素的前 5 个字段是既有格式（逐字保留）；扩展字段缺失时在此补齐
+  // （老配置平滑升级），未知字段原样保留。
+  p.savedProviders = normalizeProviders(
+    parseJsonField<Provider[]>(get("savedProviders"), p.savedProviders, "array"),
+  );
+  p.activeApiProfile = asString(get("activeApiProfile"), p.activeApiProfile);
   p.systemPrompt = asString(get("systemPrompt"), p.systemPrompt);
   p.reservedOutputTokens = asNumber(get("reservedOutputTokens"), p.reservedOutputTokens);
   p.autoClearContext = asBool(get("autoClearContext"), p.autoClearContext);
@@ -361,12 +466,36 @@ export function serializePrefs(p: Prefs): string {
   return JSON.stringify(out);
 }
 
-/** 当前生效的供应商配置（优先 savedProviders 选中项语义：与全局键一致者视为选中） */
+/** 平台取值（缺省视为自定义） */
+export function platformOf(p: Provider): ProviderPlatform {
+  return p.platform ?? "custom";
+}
+
+/**
+ * 该配置是否可发思考参数：DeepSeek 官方原生支持，自定义端点需显式 `supportsThinking`。
+ * 硅基流动等聚合平台默认不发（会 422，见 KL-DF-07 `[待实测]`）。
+ */
+export function nativeThinkingSupported(p: Provider): boolean {
+  return platformOf(p) === "deepseek" || p.supportsThinking === true;
+}
+
+/**
+ * 当前生效的具名配置：
+ *   ① 优先 `activeApiProfile` 指定的 id；② 找不到就回退到「baseUrl + model 键匹配」旧语义；
+ *   ③ 都没有则返回 null（未选用任何已保存配置）。
+ */
+export function activeProfile(p: Prefs): Provider | null {
+  const id = p.activeApiProfile;
+  if (id !== "") {
+    const byId = p.savedProviders.find((s) => s.id === id);
+    if (byId) return byId;
+  }
+  return p.savedProviders.find((s) => s.baseUrl === p.llmBaseUrl && s.model === p.model) ?? null;
+}
+
+/** 旧名保留（既有键匹配语义的调用方）：等价于 `activeProfile` */
 export function activeProvider(p: Prefs): Provider | null {
-  const hit = p.savedProviders.find(
-    (s) => s.baseUrl === p.llmBaseUrl && s.model === p.model,
-  );
-  return hit ?? null;
+  return activeProfile(p);
 }
 
 /** 0xAARRGGBB → #RRGGBB */
