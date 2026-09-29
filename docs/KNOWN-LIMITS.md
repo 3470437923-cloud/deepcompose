@@ -91,7 +91,7 @@
 | KL-DF-06 | DeepSeek `strict` 模式（Beta，需 `/beta` 端点）要求所有 object 属性 required + `additionalProperties:false`，且不支持 minLength/minItems 等 | 我们现有工具 schema 不满足 → **默认不开** | 文档判定 | 保留（不启用；将来要开需先改造 schema） |
 | KL-DF-07 | 硅基流动是否接受 `thinking` 参数？（不接受而我们发了 → 422） | 决定参数过滤策略 | 待实测 | B5 实测；默认**按平台过滤不发** |
 | KL-DF-08 | 硅基流动的默认模型 id 无法凭记忆断言 | 写死就是错误预设 | 未知 | **不写死**：预设 Base URL + 运行时 `/models` 拉取 |
-| KL-DF-09 | `prefs` 的 `contextLimit` / `maxOutputTokens` 上限过时（钳在 200K），而官方是 1M 上下文 / 384K 输出 | 用户想用满会被自己的 UI 挡住 | 文档判定 | **本轮修**（B1，放宽上限） |
+| KL-DF-09 | `maxOutputTokens` 的**设置页上限被钳在 200K**（原描述写成「`contextLimit` / `maxOutputTokens` 都被钳在 200K」**不准确，此处更正**：`contextLimit` 默认已是 1M 且无上限钳制），而官方最大输出是 384K | 用户想用满会被自己的 UI 挡住 | 代码判定 | **已修**（B1） |
 | KL-DF-10 | 删除作品的路径安全边界：reparse point（junction/符号链接）穿透、Windows 保留设备名、含冒号的 ADS 路径 | 误删可致灾难 | 代码判定 | **本轮修**（B7，四道安全门覆盖） |
 
 ---

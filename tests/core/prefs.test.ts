@@ -8,8 +8,12 @@ import {
   DEFAULT_SYSTEM_PROMPT,
   DS_BLUE_ARGB,
   accentHex,
+  activeProfile,
   activeProvider,
+  deriveProfileId,
+  nativeThinkingSupported,
   parsePrefs,
+  platformOf,
   serializePrefs,
 } from "../../src/core/prefs";
 
@@ -206,5 +210,149 @@ describe("往返与容错回归锁（审计补强）", () => {
     expect(text).toContain('"flutter.is_connected"');
     expect(text).toContain('"flutter.webdav_config"');
     expect(text).toContain('"flutter.webdav_sync_meta"');
+  });
+});
+
+describe("供应商平台与具名配置（DeepCompose 扩展，DECISIONS D-006 / D-007）", () => {
+  const CFG = JSON.stringify({
+    "flutter.active_api_profile": "p-deepseek",
+    "flutter.saved_providers": JSON.stringify([
+      {
+        id: "p-deepseek",
+        name: "DeepSeek 主号",
+        baseUrl: "https://api.deepseek.com",
+        apiKey: "PLACEHOLDER",
+        model: "deepseek-flash",
+        useAnthropicFormat: false,
+        platform: "deepseek",
+        thinking: true,
+        reasoningEffort: "high",
+        reasoningReplay: "auto",
+      },
+      {
+        name: "本地网关",
+        baseUrl: "http://127.0.0.1:8899/v1",
+        apiKey: "PLACEHOLDER",
+        model: "local-model",
+        useAnthropicFormat: false,
+      },
+    ]),
+  });
+
+  it("扩展字段全量往返（platform / thinking / reasoningEffort / reasoningReplay）", () => {
+    const p = parsePrefs(CFG);
+    expect(p.savedProviders[0].platform).toBe("deepseek");
+    expect(p.savedProviders[0].thinking).toBe(true);
+    expect(p.savedProviders[0].reasoningEffort).toBe("high");
+    expect(p.savedProviders[0].reasoningReplay).toBe("auto");
+    expect(p.activeApiProfile).toBe("p-deepseek");
+    const back = parsePrefs(serializePrefs(p));
+    expect(back.savedProviders).toEqual(p.savedProviders);
+    expect(back.activeApiProfile).toBe("p-deepseek");
+    expect(serializePrefs(p)).toContain('"flutter.active_api_profile"');
+  });
+
+  it("老条目缺扩展字段：补派生 id、按 baseUrl 推断平台，未知字段保留", () => {
+    const p = parsePrefs(
+      JSON.stringify({
+        "flutter.saved_providers": JSON.stringify([
+          {
+            name: "公益模型",
+            baseUrl: "https://a.example",
+            apiKey: "k",
+            model: "m1",
+            useAnthropicFormat: false,
+            vendorExtra: 42,
+          },
+          {
+            name: "硅基",
+            baseUrl: "https://api.siliconflow.cn/v1",
+            apiKey: "k",
+            model: "m2",
+            useAnthropicFormat: false,
+          },
+        ]),
+      }),
+    );
+    expect(p.savedProviders[0].id).toBe(deriveProfileId("公益模型", "https://a.example"));
+    expect(p.savedProviders[0].platform).toBe("custom");
+    expect((p.savedProviders[0] as unknown as Record<string, unknown>).vendorExtra).toBe(42);
+    expect(p.savedProviders[1].platform).toBe("siliconflow");
+    // 派生是纯函数：二次往返稳定，不会每次启动都换 id
+    expect(parsePrefs(serializePrefs(p)).savedProviders).toEqual(p.savedProviders);
+  });
+
+  it("非法枚举值被丢弃（不把垃圾写回磁盘）", () => {
+    const p = parsePrefs(
+      JSON.stringify({
+        "flutter.saved_providers": JSON.stringify([
+          {
+            name: "x",
+            baseUrl: "https://x.example",
+            apiKey: "",
+            model: "m",
+            useAnthropicFormat: false,
+            platform: "openai",
+            reasoningEffort: "ultra",
+            reasoningReplay: 5,
+            thinking: "yes",
+          },
+        ]),
+      }),
+    );
+    const e = p.savedProviders[0] as unknown as Record<string, unknown>;
+    expect(e.platform).toBe("custom");
+    expect("reasoningEffort" in e).toBe(false);
+    expect("reasoningReplay" in e).toBe(false);
+    expect("thinking" in e).toBe(false);
+  });
+
+  it("非对象元素被丢弃（坏数据不进运行期）", () => {
+    const p = parsePrefs(
+      JSON.stringify({
+        "flutter.saved_providers": JSON.stringify([
+          "not-an-object",
+          42,
+          { name: "ok", baseUrl: "https://ok.example", apiKey: "", model: "m", useAnthropicFormat: false },
+        ]),
+      }),
+    );
+    expect(p.savedProviders).toHaveLength(1);
+    expect(p.savedProviders[0].name).toBe("ok");
+  });
+
+  it("activeProfile 优先按 id 命中（改全局键不影响选中项）", () => {
+    const p = parsePrefs(CFG);
+    const p2 = { ...p, model: "被改过的模型" };
+    expect(activeProfile(p2)?.name).toBe("DeepSeek 主号");
+    expect(activeProfile(p2)?.id).toBe("p-deepseek");
+  });
+
+  it("active_api_profile 指向不存在的 id 时回退「baseUrl + model」旧语义", () => {
+    const p = parsePrefs(CFG);
+    const p2 = {
+      ...p,
+      activeApiProfile: "p-不存在",
+      llmBaseUrl: "http://127.0.0.1:8899/v1",
+      model: "local-model",
+    };
+    expect(activeProfile(p2)?.name).toBe("本地网关");
+    expect(activeProfile({ ...p2, model: "不再匹配" })).toBeNull();
+  });
+
+  it("platformOf / nativeThinkingSupported：只有官方直连或显式声明才发思考参数", () => {
+    const p = parsePrefs(CFG);
+    expect(platformOf(p.savedProviders[0])).toBe("deepseek");
+    expect(platformOf(p.savedProviders[1])).toBe("custom");
+    expect(nativeThinkingSupported(p.savedProviders[0])).toBe(true);
+    expect(nativeThinkingSupported(p.savedProviders[1])).toBe(false);
+    expect(nativeThinkingSupported({ ...p.savedProviders[1], supportsThinking: true })).toBe(true);
+  });
+
+  it("deriveProfileId 稳定、可区分、形态固定", () => {
+    expect(deriveProfileId("a", "b")).toBe(deriveProfileId("a", "b"));
+    expect(deriveProfileId("a", "b")).not.toBe(deriveProfileId("a", "c"));
+    expect(deriveProfileId("a", "b")).not.toBe(deriveProfileId("b", "a"));
+    expect(deriveProfileId("a", "b")).toMatch(/^p[0-9a-f]{8}$/);
   });
 });
