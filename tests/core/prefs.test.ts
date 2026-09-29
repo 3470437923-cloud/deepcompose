@@ -211,6 +211,16 @@ describe("往返与容错回归锁（审计补强）", () => {
     expect(text).toContain('"flutter.webdav_config"');
     expect(text).toContain('"flutter.webdav_sync_meta"');
   });
+
+  it("platform_notice_dismissed 可往返（D-027 新增键：缺失/类型不符回落 false）", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.platform_notice_dismissed": true }));
+    expect(p.platformNoticeDismissed).toBe(true);
+    expect(parsePrefs(serializePrefs(p)).platformNoticeDismissed).toBe(true);
+    expect(parsePrefs("{}").platformNoticeDismissed).toBe(false);
+    expect(parsePrefs(JSON.stringify({ "flutter.platform_notice_dismissed": "yes" })).platformNoticeDismissed).toBe(
+      false,
+    );
+  });
 });
 
 describe("供应商平台与具名配置（DeepCompose 扩展，DECISIONS D-006 / D-007）", () => {

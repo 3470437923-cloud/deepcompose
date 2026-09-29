@@ -92,6 +92,8 @@ export interface Prefs {
   savedProviders: Provider[];
   /** 当前生效的具名配置 id（DeepCompose 扩展键 `active_api_profile`；空串 = 回退到「键匹配」旧语义） */
   activeApiProfile: string;
+  /** 平台选择提示已关闭（DeepCompose 扩展键 `platform_notice_dismissed`；D-022 的「不再提示」） */
+  platformNoticeDismissed: boolean;
   systemPrompt: string;
   reservedOutputTokens: number;
   autoClearContext: boolean;
@@ -163,6 +165,7 @@ export const DEFAULT_PREFS: Prefs = {
   useAnthropicFormat: false,
   savedProviders: [],
   activeApiProfile: "",
+  platformNoticeDismissed: false,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reservedOutputTokens: 16000,
   autoClearContext: true,
@@ -210,6 +213,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   useAnthropicFormat: "use_anthropic_format",
   savedProviders: "saved_providers",
   activeApiProfile: "active_api_profile", // DeepCompose 扩展键（既有格式无此键，见 DECISIONS D-007）
+  platformNoticeDismissed: "platform_notice_dismissed", // DeepCompose 扩展键（D-027）
   systemPrompt: "system_prompt",
   reservedOutputTokens: "reserved_output_tokens",
   autoClearContext: "auto_clear_context",
@@ -400,6 +404,7 @@ export function parsePrefs(text: string): Prefs {
     parseJsonField<Provider[]>(get("savedProviders"), p.savedProviders, "array"),
   );
   p.activeApiProfile = asString(get("activeApiProfile"), p.activeApiProfile);
+  p.platformNoticeDismissed = asBool(get("platformNoticeDismissed"), p.platformNoticeDismissed);
   p.systemPrompt = asString(get("systemPrompt"), p.systemPrompt);
   p.reservedOutputTokens = asNumber(get("reservedOutputTokens"), p.reservedOutputTokens);
   p.autoClearContext = asBool(get("autoClearContext"), p.autoClearContext);
@@ -469,6 +474,14 @@ export function serializePrefs(p: Prefs): string {
 /** 平台取值（缺省视为自定义） */
 export function platformOf(p: Provider): ProviderPlatform {
   return p.platform ?? "custom";
+}
+
+/**
+ * 由任意 Base URL 推断平台（设置页用它判断「当前填的地址属于哪个平台」）。
+ * 与 `normalizeProvider` 落库时用的推断是同一条规则，避免两处口径漂移。
+ */
+export function platformOfUrl(baseUrl: string): ProviderPlatform {
+  return inferPlatform(baseUrl);
 }
 
 /**

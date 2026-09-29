@@ -194,6 +194,29 @@ const seedPrefs: Record<string, unknown> = {
   "flutter.panel_show_session": true,
   "flutter.chat_font_size": 15,
   "flutter.editor_font_size": 15,
+  // 具名接口配置（B3 起设置页的主体）：两条 —— 一条带 id/platform（新形态），
+  // 一条故意不带扩展字段（验证「老配置自动补 id/platform」的升级路径）
+  "flutter.saved_providers": JSON.stringify([
+    {
+      name: "主力（DeepSeek 官方）",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: "sk-preview-placeholder-0001",
+      model: "deepseek-flash",
+      useAnthropicFormat: false,
+      id: "p1a2b3c4",
+      platform: "deepseek",
+      thinking: true,
+      reasoningEffort: "high",
+    },
+    {
+      name: "硅基流动",
+      baseUrl: "https://api.siliconflow.cn/v1",
+      apiKey: "sk-preview-siliconflow",
+      model: "deepseek-ai/DeepSeek-V3",
+      useAnthropicFormat: false,
+    },
+  ]),
+  "flutter.active_api_profile": "p1a2b3c4",
 };
 let prefsStore = JSON.stringify(seedPrefs);
 
