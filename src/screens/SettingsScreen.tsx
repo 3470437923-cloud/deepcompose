@@ -23,9 +23,28 @@ import logo from "../assets/logo.png";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
 import { fetchModels } from "../core/ai/models";
+import { PLATFORM_PRESETS, platformLabel, platformSupportsBalance, platformSupportsThinking, presetOf } from "../core/ai/platforms";
+import { NOTICE_BUBBLE_MS, platformNoticeFor, type PlatformNotice } from "../core/ai/platformNotice";
+import {
+  isActiveProfile,
+  platformPatch,
+  profileFromPrefs,
+  profilePatch,
+  removeProfile,
+  suggestProfileName,
+  upsertProfile,
+} from "../core/ai/profiles";
 import { getFs } from "../core/fsbridge";
 import { isDriveRoot, isSystemEntryName } from "../core/dirs";
-import { DS_BLUE_ARGB, type Prefs, type ThemeMode } from "../core/prefs";
+import {
+  DS_BLUE_ARGB,
+  platformOf,
+  platformOfUrl,
+  type Prefs,
+  type Provider,
+  type ProviderPlatform,
+  type ThemeMode,
+} from "../core/prefs";
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "data" | "about";
 
@@ -121,6 +140,15 @@ export default function SettingsScreen({ onBack }: Props) {
     setForm((prev) => ({ ...prev, [key]: value }));
     setSaveMsg("");
   };
+
+  /**
+   * 多键一次性更新：平台切换 / 应用具名配置这类"要么全改、要么全不改"的动作走这里。
+   * 与 update 一样是函数式更新，因此同一批里连续调用不会互相覆盖。
+   */
+  const patch = useCallback((p: Partial<Prefs>) => {
+    setForm((prev) => ({ ...prev, ...p }));
+    setSaveMsg("");
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -349,7 +377,15 @@ export default function SettingsScreen({ onBack }: Props) {
           {/* key 换 → 分节重新挂载并播放推入动画；方向由导航顺序决定 */}
           <div key={section} className="a-pane" data-dir={paneDir}>
             {section === "provider" && (
-              <ProviderSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
+              <ProviderSection
+                form={form}
+                update={update}
+                patch={patch}
+                askConfirm={askConfirm}
+                saving={saving}
+                saveMsg={saveMsg}
+                onSave={handleSave}
+              />
             )}
             {section === "skill" && (
               <SkillSection
@@ -386,24 +422,67 @@ export default function SettingsScreen({ onBack }: Props) {
   );
 }
 
-/* ── AI 提供商配置分节（自定义接入；含连接检测 + 模型清单下拉） ── */
+/* ── AI 提供商配置分节（平台预设 + 具名配置 + 连接检测） ── */
+
+/** 密钥遮罩：只露头尾。星号数固定，不按真实长度画（长度本身也是信息） */
+function maskKey(key: string): string {
+  const k = key.trim();
+  if (k === "") return "未填写";
+  if (k.length <= 8) return "sk-****";
+  return `${k.slice(0, 5)}****${k.slice(-4)}`;
+}
+
 function ProviderSection({
   form,
   update,
+  patch,
+  askConfirm,
   saving,
   saveMsg,
   onSave,
 }: {
   form: Prefs;
   update: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
+  patch: (p: Partial<Prefs>) => void;
+  askConfirm: (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) => Promise<boolean>;
   saving: boolean;
   saveMsg: string;
   onSave: () => void;
 }) {
-  const hasEndpoint = Boolean(form.llmBaseUrl?.trim() && form.apiKey?.trim());
+  /**
+   * 「当前平台」的判定：本会话里显式点过的平台优先，否则由地址推断
+   * （与落库 `normalizeProvider` 的推断同一条规则）。手改地址会把显式选择清掉，
+   * 交回推断 —— 否则会出现"地址已是自定义端点、界面却还高亮 DeepSeek"的谎报。
+   */
+  const [chosen, setChosen] = useState<ProviderPlatform | null>(null);
+  const current = chosen ?? platformOfUrl(form.llmBaseUrl);
+  const preset = presetOf(current);
+
   const [conn, setConn] = useState<"idle" | "testing" | "ok" | "error">("idle");
   const [connMsg, setConnMsg] = useState("");
   const [models, setModels] = useState<string[]>([]);
+  const [showKey, setShowKey] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [localMsg, setLocalMsg] = useState("");
+  const [notice, setNotice] = useState<PlatformNotice | null>(null);
+  const [pendingPlatform, setPendingPlatform] = useState<ProviderPlatform | null>(null);
+  const [dontAskAgain, setDontAskAgain] = useState(false);
+
+  // 提示生命周期：气泡 2.5–3s 自动消失（D-022）；确认弹窗等用户选择，Esc 视为"保留当前选择"
+  useEffect(() => {
+    if (!notice) return;
+    if (notice.kind === "bubble") {
+      const t = setTimeout(() => setNotice(null), NOTICE_BUBBLE_MS);
+      return () => clearTimeout(t);
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeNotice();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // closeNotice 是当次渲染的闭包，依赖 notice 即可（每开一次弹窗重挂一次）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notice]);
 
   const detect = async () => {
     if (!form.llmBaseUrl?.trim() || !form.apiKey?.trim()) {
@@ -438,11 +517,135 @@ function ProviderSection({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.llmBaseUrl, form.apiKey, form.useAnthropicFormat]);
 
+  /** 选中平台：内置地址随平台填入（自定义平台保留已填地址，交给用户改），再按 D-022 提示 */
+  const choosePlatform = (next: ProviderPlatform) => {
+    const diff = platformPatch(next, presetOf(next), form);
+    if (Object.keys(diff).length > 0) patch(diff);
+    setChosen(next);
+    setProfileName(suggestProfileName(form.savedProviders, next));
+    setLocalMsg("");
+    const n = platformNoticeFor(next, form.platformNoticeDismissed);
+    if (!n) return;
+    if (n.kind === "bubble") {
+      setNotice(n);
+      return;
+    }
+    setPendingPlatform(next);
+    setNotice(n);
+  };
+
+  /** 关掉提示：只做「不再提示」的落位，不改平台选择（点过平台就算选过了） */
+  const closeNotice = () => {
+    if (dontAskAgain && !form.platformNoticeDismissed) patch({ platformNoticeDismissed: true });
+    setNotice(null);
+    setPendingPlatform(null);
+    setDontAskAgain(false);
+  };
+
+  /** 弹窗里的「换回 DeepSeek」：地址与协议一并拨回官方 */
+  const revertToDeepSeek = () => {
+    const diff = platformPatch("deepseek", presetOf("deepseek"), form);
+    if (Object.keys(diff).length > 0) patch(diff);
+    setChosen("deepseek");
+    setProfileName(suggestProfileName(form.savedProviders, "deepseek"));
+    closeNotice();
+  };
+
+  /** 保存为新档位（档位名即身份：id 由 name + baseUrl 派生，改名 = 另存一条） */
+  const saveAsNew = () => {
+    const name = profileName.trim() === "" ? suggestProfileName(form.savedProviders, current) : profileName.trim();
+    const entry = profileFromPrefs(form, name);
+    const next = upsertProfile(form.savedProviders, entry);
+    if (next === form.savedProviders) {
+      setLocalMsg("请先填写接口地址");
+      return;
+    }
+    patch({ savedProviders: next, activeApiProfile: entry.id ?? "" });
+    setProfileName("");
+    setLocalMsg(`已保存「${name}」`);
+  };
+
+  /** 用当前表单值覆盖某条档位（id 强行沿用旧值，否则改了地址会变成"另存一条"） */
+  const overwriteProfile = (p: Provider) => {
+    const entry: Provider = { ...profileFromPrefs(form, p.name), id: p.id };
+    const next = upsertProfile(form.savedProviders, entry);
+    if (next === form.savedProviders) {
+      setLocalMsg("请先填写接口地址");
+      return;
+    }
+    patch({ savedProviders: next, activeApiProfile: entry.id ?? "" });
+    setLocalMsg(`已用当前值覆盖「${p.name}」`);
+  };
+
+  /** 应用某条档位（写回全局键，并把 activeApiProfile 指向它） */
+  const applyEntry = (p: Provider) => {
+    patch(profilePatch(p));
+    setChosen(null);
+    setLocalMsg(`已切换到「${p.name}」，点「保存」后写盘生效`);
+  };
+
+  /** 删除某条档位（只删本地配置，不碰任何作品文件） */
+  const deleteProfile = async (p: Provider) => {
+    const ok = await askConfirm(`删除配置「${p.name}」？`, "只删除这条本地接口配置，不影响作品文件与会话记录。", {
+      danger: true,
+      confirmLabel: "删除",
+    });
+    if (!ok) return;
+    patch({
+      savedProviders: removeProfile(form.savedProviders, p.id ?? ""),
+      activeApiProfile: form.activeApiProfile === p.id ? "" : form.activeApiProfile,
+    });
+    setLocalMsg(`已删除「${p.name}」`);
+  };
+
+  // 模型输入提示：预设建议 + 实测清单去重（真实清单以「检测连接」为准，D-008）
+  const modelOptions = Array.from(new Set([...preset.suggestedModels, ...models]));
+  // 该平台没有 Anthropic 端点时禁用该协议（留着必然 404，见 KL-DF-04）；自定义平台不拦
+  const anthropicUnavailable = current !== "custom" && preset.anthropicBaseUrl === "";
+  // 官方直连选了 Anthropic 协议但地址还是 OpenAI 端点时给出「改用 Anthropic 端点」的一键纠正
+  const anthropicEndpointMismatch =
+    current === "deepseek" && form.useAnthropicFormat && !form.llmBaseUrl.includes("/anthropic");
+
   return (
     <div className="a-settings-panel">
+      {/* 平台：三个内置入口，地址内置（可改）；点选即填，并按 D-022 给出提示 */}
       <div className="a-card">
         <div className="a-card-head">
-          <span className="a-card-title">自定义接入</span>
+          <span className="a-card-title">平台</span>
+          <span className="a-card-side">{platformLabel(current)}</span>
+        </div>
+        <div className="a-card-desc">
+          内置接口地址随平台自动填入（仍可改）。DeepSeek 官方直连可使用思考模式、余额查询与用量统计。
+        </div>
+        <div className="a-platform-grid" role="radiogroup" aria-label="平台">
+          {PLATFORM_PRESETS.map((p) => {
+            const on = current === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={on}
+                className={`a-platform-tile ${on ? "on" : ""}`}
+                onClick={() => choosePlatform(p.id)}
+              >
+                <span className="a-platform-name">{p.label}</span>
+                <span className="a-platform-hint">{p.hint}</span>
+                <span className="a-platform-url">{p.baseUrl || "自填端点"}</span>
+              </button>
+            );
+          })}
+        </div>
+        <div className="a-cap-row">
+          <span className={`d-badge ${platformSupportsThinking(current) ? "ok" : "off"}`}><i />思考模式</span>
+          <span className={`d-badge ${platformSupportsBalance(current) ? "ok" : "off"}`}><i />余额查询</span>
+          <span className="d-badge ok"><i />用量统计</span>
+        </div>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">接入参数</span>
           {conn === "ok" ? (
             <span className="d-badge ok"><i />已连接</span>
           ) : conn === "testing" ? (
@@ -465,27 +668,43 @@ function ProviderSection({
         </div>
 
         <div className="a-form-row">
-          <label className="a-form-label">接口地址（Base URL）</label>
+          <label className="a-form-label">
+            接口地址（Base URL）
+            {preset.baseUrl && form.llmBaseUrl === preset.baseUrl ? (
+              <span className="a-model-hint">（{platformLabel(current)} 内置地址）</span>
+            ) : null}
+          </label>
           <input
             className="a-form-input"
             type="text"
-            placeholder="https://api.deepseek.com/v1"
+            placeholder="https://api.deepseek.com"
             value={form.llmBaseUrl}
-            onChange={(e) => update("llmBaseUrl", e.target.value)}
+            onChange={(e) => {
+              // 手改地址即放弃「显式平台选择」，交回地址推断，避免界面高亮与地址不符
+              setChosen(null);
+              update("llmBaseUrl", e.target.value);
+            }}
             spellCheck={false}
           />
         </div>
 
         <div className="a-form-row">
           <label className="a-form-label">API Key</label>
-          <input
-            className="a-form-input"
-            type="password"
-            placeholder="sk-..."
-            value={form.apiKey}
-            onChange={(e) => update("apiKey", e.target.value)}
-            spellCheck={false}
-          />
+          <div className="a-key-row">
+            <input
+              className="a-form-input"
+              type={showKey ? "text" : "password"}
+              placeholder="sk-..."
+              value={form.apiKey}
+              onChange={(e) => update("apiKey", e.target.value)}
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <button type="button" className="a-toolbtn" aria-pressed={showKey} onClick={() => setShowKey((v) => !v)}>
+              {showKey ? "隐藏" : "显示"}
+            </button>
+          </div>
+          <div className="a-key-mask">当前：{maskKey(form.apiKey)}</div>
         </div>
 
         <div className="a-form-row">
@@ -498,13 +717,13 @@ function ProviderSection({
           <input
             className="a-form-input"
             list="kc-model-options"
-            placeholder="如 deepseek-chat"
+            placeholder={preset.suggestedModels[0] ?? "如 deepseek-flash"}
             value={form.model}
             onChange={(e) => update("model", e.target.value)}
             spellCheck={false}
           />
           <datalist id="kc-model-options">
-            {models.map((m) => (
+            {modelOptions.map((m) => (
               <option key={m} value={m} />
             ))}
           </datalist>
@@ -531,6 +750,9 @@ function ProviderSection({
                 update("temperature", v === null ? clamp(form.temperature, 0, 2) : clamp(v, 0, 2));
               }}
             />
+            {platformSupportsThinking(current) ? (
+              <div className="a-form-row-note">思考模式下温度不生效（官方规则）。</div>
+            ) : null}
           </div>
           <div className="a-form-col">
             <label className="a-form-label">协议格式</label>
@@ -544,12 +766,87 @@ function ProviderSection({
               <button
                 className={`a-toggle-btn ${form.useAnthropicFormat ? "on" : ""}`}
                 onClick={() => update("useAnthropicFormat", true)}
+                disabled={anthropicUnavailable}
+                title={anthropicUnavailable ? `${platformLabel(current)} 未确认 Anthropic 端点` : undefined}
               >
                 Anthropic
               </button>
             </div>
+            {anthropicUnavailable ? (
+              <div className="a-form-row-note">该平台未确认 Anthropic 端点，需切到「自定义 API」自填。</div>
+            ) : null}
+            {anthropicEndpointMismatch ? (
+              <div className="a-form-row-note">
+                选了 Anthropic 协议，地址却还是 OpenAI 端点。
+                <button type="button" className="a-linkbtn" onClick={() => update("llmBaseUrl", preset.anthropicBaseUrl)}>
+                  改用 {preset.anthropicBaseUrl}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
+      </div>
+
+      {/* 具名配置：保存多条 url + key 并一键切换（D-007） */}
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">具名配置</span>
+          <span className="a-card-side">{form.savedProviders.length} 条</span>
+        </div>
+        <div className="a-card-desc">
+          把当前地址与 Key 存成一条命名配置，之后点「应用」即可切换。档位名即身份：改名会另存为新档位。
+        </div>
+        {form.savedProviders.length === 0 ? (
+          <div className="a-empty-line">还没有已保存的配置。</div>
+        ) : (
+          <div className="a-profile-list">
+            {form.savedProviders.map((p) => {
+              const on = isActiveProfile(form, p);
+              return (
+                <div key={p.id ?? p.name} className={`a-profile-row ${on ? "on" : ""}`}>
+                  <div className="a-profile-main">
+                    <div className="a-profile-name">
+                      {p.name}
+                      {on ? <span className="a-profile-tag">当前</span> : null}
+                    </div>
+                    <div className="a-profile-meta">
+                      {platformLabel(platformOf(p))} · {p.model || "未选模型"} · {maskKey(p.apiKey)} ·{" "}
+                      {p.useAnthropicFormat ? "Anthropic" : "OpenAI"}
+                    </div>
+                  </div>
+                  <div className="a-profile-actions">
+                    <button type="button" className="a-toolbtn" disabled={on} onClick={() => applyEntry(p)}>
+                      应用
+                    </button>
+                    <button type="button" className="a-toolbtn" onClick={() => overwriteProfile(p)}>
+                      用当前值覆盖
+                    </button>
+                    <button type="button" className="a-toolbtn danger" onClick={() => void deleteProfile(p)}>
+                      删除
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <div className="a-form-row a-form-row-inline">
+          <div className="a-form-col grow">
+            <label className="a-form-label">配置名</label>
+            <input
+              className="a-form-input"
+              type="text"
+              value={profileName}
+              placeholder={suggestProfileName(form.savedProviders, current)}
+              onChange={(e) => setProfileName(e.target.value)}
+              spellCheck={false}
+            />
+          </div>
+          <button type="button" className="a-toolbtn" onClick={saveAsNew} disabled={!form.llmBaseUrl.trim()}>
+            保存为新配置
+          </button>
+        </div>
+        <div className="a-form-row-note">具名配置的增删改与切换都只改本地配置，点下方「保存」后写盘生效。</div>
 
         <div className="a-form-actions">
           <button className="a-btn-primary" onClick={onSave} disabled={saving}>
@@ -558,8 +855,41 @@ function ProviderSection({
           {saveMsg && (
             <span className={`a-save-msg ${saveMsg.includes("失败") ? "error" : ""}`}>{saveMsg}</span>
           )}
+          {localMsg && <span className="a-save-msg">{localMsg}</span>}
         </div>
       </div>
+
+      {/* 平台提示（D-022）：DeepSeek = 非阻塞气泡；第三方 = 确认弹窗 + 「不再提示」 */}
+      {notice?.kind === "bubble" ? (
+        <div className="a-notice-bubble" role="status">
+          {notice.text}
+        </div>
+      ) : null}
+      {notice?.kind === "dialog" ? (
+        <div
+          className="qmodal scrim"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeNotice();
+          }}
+        >
+          <div className="qbox surface-raised sheet" role="dialog" aria-modal="true" aria-labelledby="kc-platform-notice">
+            <h3 id="kc-platform-notice">换成第三方 API？</h3>
+            <p className="confirm-body">{notice.text}</p>
+            <label className="a-check-row">
+              <input type="checkbox" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
+              不再提示
+            </label>
+            <div className="a-form-actions">
+              <button type="button" className="btn btn-quiet" onClick={revertToDeepSeek}>
+                换回 DeepSeek
+              </button>
+              <button type="button" className="btn btn-accent" onClick={closeNotice}>
+                仍要使用
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

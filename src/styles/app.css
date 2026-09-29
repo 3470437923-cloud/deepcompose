@@ -1387,6 +1387,116 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .a-save-msg.error { color: var(--bad); }
 .a-model-hint { font-size: var(--fs-foot); color: var(--tx-dim); }
 
+/* ── 平台卡（设置页 AI 提供商）：三块并排；选中一圈强调色环，与主题卡同配方 ── */
+.a-platform-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.a-platform-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 104px;
+  padding: 11px 12px;
+  border-radius: var(--r-md);
+  text-align: left;
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  transition: box-shadow var(--t-mid) var(--ease);
+}
+.a-platform-tile:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+.a-platform-tile.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.a-platform-name { font-size: var(--fs-sub); font-weight: 650; color: var(--tx-1); }
+.a-platform-hint { font-size: var(--fs-caption); line-height: 1.62; color: var(--tx-3); }
+.a-platform-url {
+  margin-top: auto;
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.a-cap-row { display: flex; align-items: center; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+
+/* 密钥行：输入框 + 显示/隐藏；遮罩读数单独一行 */
+.a-key-row { display: flex; align-items: center; gap: 8px; }
+.a-key-row .a-form-input { flex: 1; }
+.a-key-mask {
+  margin-top: 5px;
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* 具名配置列表：当前档位用左侧强调条 + 浅色底标出 */
+.a-profile-list { display: flex; flex-direction: column; margin-bottom: 12px; }
+.a-profile-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px 9px 10px;
+  border-left: 2px solid transparent;
+}
+.a-profile-row + .a-profile-row { border-top: 1px solid var(--line-soft); }
+.a-profile-row.on { border-left-color: var(--accent); background: var(--accent-soft); }
+.a-profile-main { flex: 1; min-width: 0; }
+.a-profile-name {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sub);
+  font-weight: 600;
+  color: var(--tx-1);
+}
+.a-profile-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-caption);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+.a-profile-meta {
+  margin-top: 3px;
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.a-profile-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.a-toolbtn.danger { color: var(--bad); }
+.a-empty-line { padding: 6px 0 12px; font-size: var(--fs-foot); color: var(--tx-dim); }
+.a-form-col.grow { flex: 1; }
+.a-form-row-note { margin-top: 6px; font-size: var(--fs-caption); line-height: 1.65; color: var(--tx-dim); }
+.a-check-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 4px 0 2px;
+  font-size: var(--fs-foot);
+  color: var(--tx-2);
+}
+.a-linkbtn {
+  margin-left: 6px;
+  font-size: var(--fs-caption);
+  color: var(--accent-text);
+  text-decoration: underline;
+}
+
+/* 非阻塞气泡：底部居中、实色、无阴影（「付印单」材质纪律：不发光、不模糊） */
+.a-notice-bubble {
+  position: fixed;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  z-index: 40;
+  padding: 9px 16px;
+  border-radius: 999px;
+  background: var(--accent-fill);
+  color: #fff;
+  font-size: var(--fs-sub);
+  letter-spacing: var(--tr-small);
+  animation: fade-in var(--t-mid) var(--ease-out) both;
+}
+
 /* 主题卡：三张并排，各带一枚真实配色的迷你预览 */
 .a-themecards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 11px; margin-top: 4px; }
 .a-themecard {

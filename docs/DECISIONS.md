@@ -63,6 +63,7 @@
 | D-024 | 上限放宽：`contextLimit` → **1M**、`maxOutputTokens` → **384K** | 对应 KL-DF-09（原钳在 200K） |
 | D-025 | 引擎侧**不传 `user_id`**（少一个变量）；**不内置价格表** | 官方 `user_id` 只做内容安全/KVCache/调度隔离，且要求 `[a-zA-Z0-9\-_]+` |
 | D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线：vitest 273 例、cargo 13 例 |
+| D-027 | **ADR（新增配置键）**：`platform_notice_dismissed`（boolean，DeepCompose 扩展键）——D-022 的「不再提示」需要一个持久位；缺失按 `false`，与既有键同文件，只写不删 | 已同步 `prefs.ts` 的 `Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs` 四处；新增键必须四处同改（本 ADR 即该纪律的实例） |
 
 ---
 
