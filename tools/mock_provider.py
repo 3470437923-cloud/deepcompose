@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""本地 mock 供应商：OpenAI 兼容 SSE（KeepCompose 端到端验收配套）。
+"""本地 mock 供应商：OpenAI 兼容 SSE（DeepCompose 端到端验收配套）。
 
-用途：在没有真实 API Key 的情况下端到端验证 KeepCompose 的
+用途：在没有真实 API Key 的情况下端到端验证 DeepCompose 的
 「Rust 流式转发 → 协议解析 → 工具调度 → 落盘 → 界面渲染」全链路。
 在 127.0.0.1:8899 上以 SSE 应答聊天补全请求（端口与 tools/e2e_chat.ps1
 写进 prefs 的 flutter.llm_base_url、docs/DEVELOPMENT.md 的口径一致）。

@@ -1,9 +1,9 @@
-# KeepCompose end-to-end chat check: drive the real exe with a mock provider.
+# DeepCompose end-to-end chat check: drive the real exe with a mock provider.
 #
 # Purpose : prove the full loop (Rust stream relay -> protocol parse -> tool
 #           dispatch -> persistence -> UI render) without a real API key:
 #             1) point prefs at the local mock provider
-#             2) launch keepcompose.exe, click the composer, paste a prompt,
+#             2) launch deepcompose.exe, click the composer, paste a prompt,
 #                click the send button
 #             3) wait, capture the window, report what is on screen
 # Usage   : start the mock first:   python tools\mock_provider.py 8899
@@ -20,7 +20,7 @@
 #             default layout; odd window sizes can misplace them.
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\deepcompose.exe"),
     [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-chat.png"),
     [string]$Prompt = "List chapters",
     [int]$WaitSec = 8,
@@ -73,7 +73,7 @@ if (-not ("E2E" -as [type])) { Add-Type -TypeDefinition $sig }
 
 # 1) point prefs at the mock provider.
 # NOTE: com.writerd\writerD is the frozen legacy config dir (disk contract):
-# the app still reads/writes it after the KeepCompose rename. Do not rebrand.
+# the app still reads/writes it after the DeepCompose rename. Do not rebrand.
 $prefsDir = Join-Path $env:APPDATA "com.writerd\writerD"
 New-Item -ItemType Directory -Force -Path $prefsDir | Out-Null
 $prefsFile = Join-Path $prefsDir "shared_preferences.json"
@@ -103,7 +103,7 @@ if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $by
 Write-Output "PREFS -> $prefsFile"
 
 # 2) launch
-Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds $WaitSec
@@ -157,5 +157,5 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "CLOSED"

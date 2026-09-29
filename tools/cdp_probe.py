@@ -1,10 +1,10 @@
-"""CDP 验证工具：通过 Chrome DevTools 协议直接驱动 KeepCompose 应用页面。
+"""CDP 验证工具：通过 Chrome DevTools 协议直接驱动 DeepCompose 应用页面。
 
 用途：物理屏幕关闭/会话锁定时，仍可完成 UI 交互验证（点击、eval 读状态、
 截图）——交互与截图都走 CDP，不经过操作系统桌面。
 
 前提：
-    - KeepCompose 的 WebView2 已开远程调试，端口 9223（与 docs/DEVELOPMENT.md
+    - DeepCompose 的 WebView2 已开远程调试，端口 9223（与 docs/DEVELOPMENT.md
       的口径一致）；
     - pip install websocket-client。
 

@@ -55,7 +55,8 @@ web
 
 ## Brand Commitments
 
-- 产品名：**KeepCompose**（前身 writerD；设置页名称与版本取自 Rust `app_info`，与产物永远一致）。
+- 产品名：**DeepCompose**（前身 writerD → KeepCompose；设置页名称与版本取自 Rust `app_info`，与产物永远一致）。
+  与 DeepSeek 官方**无隶属/赞助/背书关系**：内置其 API 预设只说明"兼容哪家接口"。
 - **三套主题是绑定契约**，键名必须保留：`dark` / `light` / `dsblue`。设置页展示名为曜石黑 / 晨雾白 / DS 蓝。
 - **强调色契约**：`core/app.ts` 只把 `--accent` 本体写成 `documentElement` 内联样式；`--accent-2 / -text / -soft / -fill / -line` 等派生色一律由 `color-mix(var(--accent))` 派生，用户换强调色时全站即时联动。
 - **品牌色**：`#4D6BFE`（DS 蓝）为默认强调色。

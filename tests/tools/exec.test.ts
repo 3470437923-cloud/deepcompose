@@ -31,7 +31,7 @@ function ctx(over: Partial<ToolContext> = {}): ToolContext {
 }
 
 beforeAll(async () => {
-  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-tools-"));
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-tools-"));
   booksRoot = path.join(base, "AI写小说");
   root = path.join(booksRoot, "测试书籍");
   skillsDir = path.join(base, "skills");
@@ -254,7 +254,7 @@ describe("file_manage", () => {
   });
 
   it("search：directory 同样过分级授权（根外 → 逐字需确认错误，回归锁：曾绕过 guardPath）", async () => {
-    const outside = path.join(os.tmpdir(), "keepcompose-search-secret");
+    const outside = path.join(os.tmpdir(), "deepcompose-search-secret");
     await fsp.mkdir(outside, { recursive: true });
     await fsp.writeFile(path.join(outside, "s.md"), "世界观\n", "utf8");
     const r = JSON.parse(
@@ -430,7 +430,7 @@ describe("路径分级授权", () => {
   });
 
   it("授权根之外 → 拒绝，并给出逐字提示", async () => {
-    const outside = path.join(os.tmpdir(), "keepcompose-outside-secret.txt");
+    const outside = path.join(os.tmpdir(), "deepcompose-outside-secret.txt");
     await fsp.writeFile(outside, "secret", "utf8");
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "read", path: outside }));
     expect(r.error.startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
@@ -438,7 +438,7 @@ describe("路径分级授权", () => {
   });
 
   it("会话内授权的额外目录可读", async () => {
-    const dir = path.join(os.tmpdir(), "keepcompose-allowed");
+    const dir = path.join(os.tmpdir(), "deepcompose-allowed");
     await fsp.mkdir(dir, { recursive: true });
     await fsp.writeFile(path.join(dir, "ok.md"), "ok", "utf8");
     const r = JSON.parse(

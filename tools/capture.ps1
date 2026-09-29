@@ -1,4 +1,4 @@
-# KeepCompose window capture: launch the exe, restore its window, save a PNG.
+# DeepCompose window capture: launch the exe, restore its window, save a PNG.
 #
 # Purpose : verify UI rendering without a human looking at the screen. Escape
 #           is sent first so the shot always shows the main view, which makes
@@ -14,8 +14,8 @@
 #             in-app state is lost by design.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
-    [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-keepcompose.png"),
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\deepcompose.exe"),
+    [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-deepcompose.png"),
     [int]$WaitSec = 10
 )
 

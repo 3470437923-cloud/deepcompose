@@ -1,4 +1,4 @@
-# AGENTS.md —— KeepCompose 维护手册（给接手 agent）
+# AGENTS.md —— DeepCompose 维护手册（给接手 agent）
 
 本文件是**接手即读**的一页纸：契约、代码地图、闸门、环境坑。细节在
 `README.md`（产品与磁盘契约）、`docs/DEVELOPMENT.md`（构建与验收）、`DESIGN.md`（视觉体系）、`PRODUCT.md`（产品定位）。
@@ -11,7 +11,8 @@
 ## 1. 改名历史与冻结名（最重要）
 
 产品 2026 年经历**两代更名**：**writerD 3.0.0** → **KeepCompose 1.0.0** → **DeepCompose 1.1.0**
-（第二代在 B9 批次执行）。**两代更名都只改品牌面**（界面文案、窗口标题、exe 名、crate 名、identifier：
+（第二代已于 B9 批次执行完毕；仓库目录 `S:\KeepCompose` → `S:\DeepCompose`）。
+**两代更名都只改品牌面**（界面文案、窗口标题、exe 名、crate 名、identifier：
 `DeepCompose.exe` / `deepcompose` / `com.deepcompose.desktop`），
 **以下磁盘契约名全部冻结，任何重构都不得改**：
 
@@ -110,11 +111,12 @@ cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会�
 ## 6. 交付流程
 
 ```powershell
-npm.cmd run package     # vite build → cargo build --release → release\KeepCompose.exe → 桌面快捷方式 KeepCompose.lnk
+npm.cmd run package     # vite build → cargo build --release → release\DeepCompose.exe → 桌面快捷方式 DeepCompose.lnk
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1   # 真机截屏取证到 shots\
 ```
 
-快捷方式由 `tools/package.ps1` 维护（会先删旧的 `writerD.lnk`）。改完代码 → 闸门全绿 → 打包 → 截屏核对 → 原子提交。
+快捷方式由 `tools/package.ps1` 维护（会先删旧的 `writerD.lnk` 与 `KeepCompose.lnk`）。改完代码 → 闸门全绿 → 打包 → 截屏核对 → 原子提交。
 
-> **第二代更名（B9）后**：产物为 `release\DeepCompose.exe`、快捷方式 `DeepCompose.lnk`（打包脚本改为删旧
-> `KeepCompose.lnk`），本节命令与文字在 B9 同步更新。改名当批必须先删 `src-tauri\target` 再冷编译。
+> **第二代更名（B9）已完成**：仓库目录 `S:\DeepCompose`，产物 `release\DeepCompose.exe`、快捷方式
+> `DeepCompose.lnk`，crate `deepcompose` / `deepcompose_lib`，identifier `com.deepcompose.desktop`。
+> 改名当批必须**先删 `src-tauri\target` 再冷编译**（cargo 指纹里存着旧绝对路径），冷编译实测约 3 分 37 秒。

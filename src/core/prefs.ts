@@ -10,11 +10,11 @@
 export const PREFIX = "flutter.";
 
 /**
- * 主题模式（KeepCompose 扩展）：
+ * 主题模式（DeepCompose 扩展）：
  *   dark   = 曜石黑（实色深色）
  *   light  = 晨雾白（实色浅色，冷调）
  *   dsblue = 深海 DS 蓝（DeepSeek 品牌蓝作强调色）
- * 键名 `theme_mode` 为 KeepCompose 自有扩展（既有格式中无此键，如实标注）；
+ * 键名 `theme_mode` 为 DeepCompose 自有扩展（既有格式中无此键，如实标注）；
  * 兼容策略：配置里没有 theme_mode 时按既有键 is_dark_mode 派生。
  * 注意：这三个字符串是**磁盘格式**，已经被写进用户的配置文件里，
  * 改字符串等于让老配置失效 —— 只能改注释，不能改值。
@@ -124,10 +124,10 @@ export interface Prefs {
   webdavConfig: WebdavConfig;
   webdavSyncMeta: Record<string, unknown>;
 
-  // —— 外观主题（既有 2 键 + KeepCompose 扩展 1 键）——
+  // —— 外观主题（既有 2 键 + DeepCompose 扩展 1 键）——
   customAccentColor: number;
   isDarkMode: boolean;
-  /** 主题模式（KeepCompose 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
+  /** 主题模式（DeepCompose 扩展键 theme_mode；缺省按 is_dark_mode 派生） */
   themeMode: ThemeMode;
 
   // —— 路径（2 键）——
@@ -243,7 +243,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
 
   customAccentColor: "custom_accent_color",
   isDarkMode: "is_dark_mode",
-  themeMode: "theme_mode", // KeepCompose 扩展键（既有格式无此键）
+  themeMode: "theme_mode", // DeepCompose 扩展键（既有格式无此键）
 
   customNovelsDir: "custom_novels_dir",
   customSkillsDir: "custom_skills_dir",
@@ -436,7 +436,7 @@ export function parsePrefs(text: string): Prefs {
 
   p.customAccentColor = asNumber(get("customAccentColor"), p.customAccentColor);
   p.isDarkMode = asBool(get("isDarkMode"), p.isDarkMode);
-  // theme_mode 为 KeepCompose 扩展键：合法值直接采用；缺失/非法时按既有键
+  // theme_mode 为 DeepCompose 扩展键：合法值直接采用；缺失/非法时按既有键
   // is_dark_mode 派生（旧配置文件平滑升级，两个键独立往返以保 round-trip）
   const tm = get("themeMode");
   p.themeMode =

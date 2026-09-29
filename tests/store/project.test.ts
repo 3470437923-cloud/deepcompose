@@ -26,8 +26,8 @@ let booksRoot: string;
 const fs = createNodeFs();
 
 beforeAll(async () => {
-  // 临时目录前缀用产品名 keepcompose-（非磁盘契约，随改名规则走）
-  booksRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-books-"));
+  // 临时目录前缀用产品名 deepcompose-（非磁盘契约，随改名规则走）
+  booksRoot = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-books-"));
 });
 
 afterAll(async () => {

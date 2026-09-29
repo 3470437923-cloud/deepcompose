@@ -26,7 +26,7 @@ function localNoon(day: number): Date {
 }
 
 beforeAll(async () => {
-  dir = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-usage-"));
+  dir = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-usage-"));
   file = path.join(dir, "usage_stats.json");
 });
 

@@ -1,13 +1,13 @@
 [package]
-name = "keepcompose"
-version = "1.0.0"
-description = "KeepCompose — 长篇中文小说 AI 写作工作台"
-authors = ["KeepCompose"]
+name = "deepcompose"
+version = "1.1.0"
+description = "DeepCompose — 长篇中文小说 AI 写作工作台"
+authors = ["DeepCompose"]
 edition = "2021"
 rust-version = "1.77"
 
 [lib]
-name = "keepcompose_lib"
+name = "deepcompose_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

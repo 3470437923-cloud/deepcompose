@@ -1,4 +1,4 @@
-# KeepCompose UI walkthrough driver: launch the exe, run a click/keys/capture
+# DeepCompose UI walkthrough driver: launch the exe, run a click/keys/capture
 # step list, then kill it.
 #
 # Purpose : scripted UI acceptance without a human at the screen. Steps are
@@ -19,7 +19,7 @@
 #             instead).
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\deepcompose.exe"),
     [string]$Steps = ""
 )
 
@@ -68,7 +68,7 @@ public class UW {
 '@
 if (-not ("UW" -as [type])) { Add-Type -TypeDefinition $sig }
 
-Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds 9
@@ -141,5 +141,5 @@ foreach ($it in $items) {
     }
 }
 
-Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "DONE"

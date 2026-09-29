@@ -1,5 +1,5 @@
-# Verify window geometry memory on the real KeepCompose exe, end to end.
-# (Renamed from probe_writerd_window.ps1 during the KeepCompose rebrand.)
+# Verify window geometry memory on the real DeepCompose exe, end to end.
+# (Renamed from probe_writerd_window.ps1 during the DeepCompose rebrand.)
 #
 # Purpose : prove the app remembers its window rect across restarts. Each case
 #           prints PASS/FAIL with the measured numbers:
@@ -10,9 +10,9 @@
 #             T4 relaunch             -> starts maximized; unmaximise returns the old size
 #             T5 bogus off-screen     -> falls back to the centred default (no lost window)
 # Usage   : .\tools\probe_window.ps1 [-Exe <path>] [-StateFile <json>] [-WaitSec <n>]
-#           Default -Exe is the packaged build release\KeepCompose.exe.
+#           Default -Exe is the packaged build release\DeepCompose.exe.
 #           The script rewrites and finally deletes nothing outside -StateFile,
-#           but it DOES kill running keepcompose processes between cases.
+#           but it DOES kill running deepcompose processes between cases.
 # Pitfalls: - -StateFile defaults to %APPDATA%\com.writerd\writerD\
 #             window_state.json: that legacy dir is a frozen disk contract (the
 #             app still uses it after the rename). Do not rebrand this path.
@@ -25,7 +25,7 @@
 #           - Needs a real interactive desktop session and ~2 minutes to run.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\release\KeepCompose.exe"),
+    [string]$Exe = (Join-Path $PSScriptRoot "..\release\DeepCompose.exe"),
     [string]$StateFile = "$env:APPDATA\com.writerd\writerD\window_state.json",
     [int]$WaitSec = 12
 )
@@ -120,7 +120,7 @@ Write-Output ""
 
 function Launch([string]$tag) {
     # Kill leftovers first so the fresh instance owns the only app window.
-    Get-Process -Name keepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+    Get-Process -Name deepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
     Start-Sleep -Milliseconds 800
     $proc = Start-Process $Exe -PassThru
     Start-Sleep -Seconds $WaitSec

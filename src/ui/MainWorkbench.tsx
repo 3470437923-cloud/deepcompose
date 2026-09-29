@@ -1,5 +1,5 @@
 /**
- * 主工作台 —— KeepCompose「付印单」三栏实色布局。
+ * 主工作台 —— DeepCompose「付印单」三栏实色布局。
  *
  * 布局：左 = 文件（作品选择 + 目录树）· 中 = 编辑器 · 右 = AI 对话。
  * 会话切换在对话面板顶部的下拉选择框里（没有独立的对话列表栏）。
@@ -1220,7 +1220,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           <div className="brand-mark app-mark">
             <img src={logo} alt="" />
           </div>
-          <div className="brand-name">KeepCompose</div>
+          <div className="brand-name">DeepCompose</div>
         </div>
 
         <div className="tb-cluster" role="group" aria-label="面板开关">
@@ -1482,7 +1482,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <div className="ee-logo app-mark">
                 <img src={logo} alt="" />
               </div>
-              <div className="ee-h">KeepCompose</div>
+              <div className="ee-h">DeepCompose</div>
               <div className="ee-p">AI 小说写作工作台</div>
               <div className="ee-actions">
                 <button className="btn btn-accent" onClick={() => void newProject()}>
@@ -1682,7 +1682,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                   </div>
                 ) : (
                   <div key={m.id} className="msg ai">
-                    <div className="who">KeepCompose</div>
+                    <div className="who">DeepCompose</div>
                     {m.thinking ? <div className="think">{m.thinking}</div> : null}
                     {(m.toolCalls ?? []).map((t) => {
                       const bad = (t.result ?? "").includes('"error"');
@@ -1722,13 +1722,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               {streamThink ? <div className="think live">{streamThink}</div> : null}
               {streamText ? (
                 <div className="msg ai">
-                  <div className="who">KeepCompose · 生成中</div>
+                  <div className="who">DeepCompose · 生成中</div>
                   <div className="bubble">{streamText}</div>
                 </div>
               ) : null}
               {showTyping ? (
                 <div className="msg ai">
-                  <div className="who">KeepCompose</div>
+                  <div className="who">DeepCompose</div>
                   <div className="bubble typing">
                     <i />
                     <i />
@@ -1745,7 +1745,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <div className="cw-logo app-mark">
                 <img src={logo} alt="" />
               </div>
-              <div className="cw-h">KeepCompose 助手</div>
+              <div className="cw-h">DeepCompose 助手</div>
               <div className="cw-p">读写你的作品文件，陪你把故事写下去</div>
               <div className="cw-tips">
                 {STARTER_TIPS.map((tip) => (

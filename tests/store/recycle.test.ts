@@ -35,7 +35,7 @@ const fs = createNodeFs();
 let root: string;
 
 beforeEach(async () => {
-  root = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-recycle-"));
+  root = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-recycle-"));
 });
 
 afterEach(async () => {

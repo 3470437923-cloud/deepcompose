@@ -9,7 +9,7 @@ Purpose : drive the dev-only preview sandbox (preview.html +
 Prerequisites:
   npm run dev            (vite dev server on 5183)
   msedge --headless=new --remote-debugging-port=9223 --remote-allow-origins=* \
-         --user-data-dir=%TEMP%\\keepcompose-edge --window-size=1600,1000 about:blank
+         --user-data-dir=%TEMP%\\deepcompose-edge --window-size=1600,1000 about:blank
   (the temp profile dir name is cosmetic; any fresh dedicated dir works - an
   already-running Edge owns the default profile and the debug port never opens)
 

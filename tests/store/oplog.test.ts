@@ -21,8 +21,8 @@ let root: string;
 const fs = createNodeFs();
 
 beforeAll(async () => {
-  // 临时目录前缀用产品名 keepcompose-（非磁盘契约；作品根内的 writerd_oplog 目录名是契约，测试里保持原样）
-  root = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-oplog-"));
+  // 临时目录前缀用产品名 deepcompose-（非磁盘契约；作品根内的 writerd_oplog 目录名是契约，测试里保持原样）
+  root = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-oplog-"));
 });
 
 afterAll(async () => {
