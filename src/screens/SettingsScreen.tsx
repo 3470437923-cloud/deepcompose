@@ -1,5 +1,5 @@
 /**
- * 设置屏 —— KeepCompose「付印单」实色版。
+ * 设置屏 —— DeepCompose「付印单」实色版。
  *
  * 结构：左侧实色导航（6 项：AI 提供商 / Skill / 参数 / 主题 / 数据 / 关于）
  * + 右侧实色内容区（分组卡片）。
@@ -128,7 +128,7 @@ export default function SettingsScreen({ onBack }: Props) {
         >
           <div className="brand">
             <div className="brand-mark app-mark"><img src={logo} alt="" /></div>
-            <div className="brand-name">KeepCompose</div>
+            <div className="brand-name">DeepCompose</div>
           </div>
         </div>
         <div style={{ padding: 40, color: "var(--tx-3)" }}>配置未加载，请重启应用。</div>
@@ -309,7 +309,7 @@ export default function SettingsScreen({ onBack }: Props) {
       >
         <div className="brand">
           <div className="brand-mark app-mark"><img src={logo} alt="" /></div>
-          <div className="brand-name">KeepCompose</div>
+          <div className="brand-name">DeepCompose</div>
         </div>
         <div className="win-tools">
           <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
@@ -1510,9 +1510,20 @@ function AboutSection() {
     <div className="a-settings-panel">
       <div className="a-about-hero">
         <div className="a-about-logo"><img src={logo} alt="" /></div>
-        <h2>{info?.name || "KeepCompose"}</h2>
-        <span className="a-version">版本 {info?.version || "1.0.0"}</span>
+        <h2>{info?.name || "DeepCompose"}</h2>
+        <span className="a-version">版本 {info?.version || "1.1.0"}</span>
         <p>你的 AI 小说写作助手</p>
+      </div>
+
+      <div className="a-card">
+        <div className="a-card-head">
+          <span className="a-card-title">与 DeepSeek 官方的关系</span>
+        </div>
+        <div className="a-card-desc">
+          DeepCompose 是独立的第三方本地软件，与 DeepSeek（杭州深度求索）没有隶属、赞助或背书关系。
+          内置 DeepSeek 官方接口的接入预设，只是因为它是一个常用的模型服务；你填的 API Key 只存在本机配置里，
+          请求直接从你的电脑发往你选择的接口，我们不中转、不收集。
+        </div>
       </div>
 
       <div className="a-card">

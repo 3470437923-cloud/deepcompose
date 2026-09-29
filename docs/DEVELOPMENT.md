@@ -1,4 +1,4 @@
-# KeepCompose 开发与验收手册
+# DeepCompose 开发与验收手册
 
 本文件是构建、验证、排障的操作手册。改动代码前请先读 `README.md` 的「改代码前必读」与根目录 `AGENTS.md`。
 
@@ -7,7 +7,7 @@
 ## 1. 闸门（每次声称完成前必跑）
 
 ```powershell
-cd S:\KeepCompose
+cd S:\DeepCompose
 .\node_modules\.bin\tsc.cmd --noEmit        # 期望 exit 0
 .\node_modules\.bin\vitest.cmd run          # 期望全部通过
 ```
@@ -15,7 +15,7 @@ cd S:\KeepCompose
 Rust 侧单测：
 
 ```powershell
-cd S:\KeepCompose\src-tauri
+cd S:\DeepCompose\src-tauri
 cargo test --lib                            # 期望全绿
 ```
 
@@ -29,13 +29,12 @@ cargo test --lib                            # 期望全绿
 npm.cmd run package
 ```
 
-`tools/package.ps1` 的动作顺序：杀掉运行中的 `keepcompose` 进程（否则 cargo 无法替换 exe，
-`failed to remove keepcompose.exe`，os error 5）→ `vite build` → `cargo build --release` →
-复制 exe 到 `release\KeepCompose.exe` → 删除旧 `writerD.lnk` → 刷新桌面快捷方式 `KeepCompose.lnk`。
+`tools/package.ps1` 的动作顺序：杀掉运行中的 `deepcompose` 进程（否则 cargo 无法替换 exe，
+`failed to remove deepcompose.exe`，os error 5）→ `vite build` → `cargo build --release` →
+复制 exe 到 `release\DeepCompose.exe` → 删除旧 `writerD.lnk` 与 `KeepCompose.lnk` → 刷新桌面快捷方式 `DeepCompose.lnk`。
 脚本根目录从自身位置推导（不硬编码盘符路径）。cargo 缓存热时约 2 分钟；**删掉 `target` 后的 release 冷编译实测 3 分 37 秒**（改动项目目录名之后必须走这条路）。
 
-> 第二代更名（B9）后：产物为 `release\DeepCompose.exe`、快捷方式 `DeepCompose.lnk`，打包脚本同时删除旧
-> `KeepCompose.lnk`。
+> 目录与产物名以 `S:\DeepCompose` / `DeepCompose.exe` 为准（第二代更名 writerD → KeepCompose → DeepCompose 已完成）。
 
 ## 3. 桌面端验收（真实 exe，会话锁定屏幕时也能做）
 
@@ -43,14 +42,14 @@ npm.cmd run package
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1
 ```
 
-`capture.ps1` 默认截 `src-tauri\target\release\keepcompose.exe`（cargo 直出产物，可用 `-Exe` 覆盖；
-`probe_win_style.ps1` / `probe_window.ps1` 默认截打包产物 `release\KeepCompose.exe`）：按 pid 挑最大的可见窗口
+`capture.ps1` 默认截 `src-tauri\target\release\deepcompose.exe`（cargo 直出产物，可用 `-Exe` 覆盖；
+`probe_win_style.ps1` / `probe_window.ps1` 默认截打包产物 `release\DeepCompose.exe`）：按 pid 挑最大的可见窗口
 （避开 WebView2 辅助窗口）、必要时 `ShowWindow(SW_RESTORE)`、发一次 `ESC` 固定回主界面再截图
 （否则齿轮被误点就会截到设置屏），输出到 `shots\`。
 
 - 启动即最小化（截到 `160×28 @ (-32000,-32000)`）是已知现象，脚本已处理。
 - `PrintWindow` 对未聚焦的 WebView2 会返回白图：截屏前必须 `SetForegroundWindow` 并等 0.5–1 秒。
-- 运行中的 `keepcompose` 会占用 exe，重新打包前先关掉。
+- 运行中的 `deepcompose` 会占用 exe，重新打包前先关掉。
 
 ## 4. 浏览器预览沙箱（三主题取证，免 Playwright）
 
@@ -61,7 +60,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1
 .\node_modules\.bin\vite.cmd --port 5183 --strictPort      # 后台常驻
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" `
   --headless=new --remote-debugging-port=9223 --remote-allow-origins=* `
-  --user-data-dir="$env:TEMP\keepcompose-edge" --window-size=1600,1000 `
+  --user-data-dir="$env:TEMP\deepcompose-edge" --window-size=1600,1000 `
   --enable-unsafe-swiftshader about:blank                  # 后台常驻
 python tools\preview_shot.py                               # 三主题 × 三尺寸截图 + 几何断言
 python tools\preview_shot.py --view settings

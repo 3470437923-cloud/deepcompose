@@ -1,9 +1,9 @@
 {
-  "name": "keepcompose",
+  "name": "deepcompose",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
-  "description": "KeepCompose — 长篇中文小说 AI 写作工作台",
+  "description": "DeepCompose — 长篇中文小说 AI 写作工作台",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

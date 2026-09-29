@@ -1,6 +1,6 @@
-// KeepCompose — 入口
+// DeepCompose — 入口
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    keepcompose_lib::run()
+    deepcompose_lib::run()
 }

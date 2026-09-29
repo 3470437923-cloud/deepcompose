@@ -82,8 +82,8 @@ function baseOpts(transport: StreamTransport, onEvent: (e: AgentEvent) => void):
 }
 
 beforeAll(async () => {
-  // 临时目录前缀属产品命名语境：keepcompose-
-  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-agent-"));
+  // 临时目录前缀属产品命名语境：deepcompose-
+  const base = await fsp.mkdtemp(path.join(os.tmpdir(), "deepcompose-agent-"));
   root = path.join(base, "书");
   snapshotsDir = path.join(base, "snapshots");
   await fsp.mkdir(path.join(root, "章节内容"), { recursive: true });

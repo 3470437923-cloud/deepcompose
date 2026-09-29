@@ -8,14 +8,14 @@
 #      WM_SYSCOMMAND SC_MAXIMIZE)  If the default window already fills the work
 #      area, maximise is visually a no-op.
 # Usage   : .\tools\probe_win_style.ps1 [-Exe <path>] [-WaitSec <seconds>]
-#           Default -Exe is the packaged build release\KeepCompose.exe.
+#           Default -Exe is the packaged build release\DeepCompose.exe.
 # Pitfalls: - Needs a real interactive desktop session; measurements taken in a
 #             locked or headless session are not meaningful.
-#           - Kills any running keepcompose process first and force-kills the
+#           - Kills any running deepcompose process first and force-kills the
 #             probe instance at the end, so unsaved in-app state is lost.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
-    [string]$Exe = (Join-Path $PSScriptRoot "..\release\KeepCompose.exe"),
+    [string]$Exe = (Join-Path $PSScriptRoot "..\release\DeepCompose.exe"),
     [int]$WaitSec = 12
 )
 
@@ -73,7 +73,7 @@ Write-Output "screen    = ${sw}x${sh}"
 Write-Output ("workarea  = {0}x{1} at ({2},{3})" -f ($wa.Right - $wa.Left), ($wa.Bottom - $wa.Top), $wa.Left, $wa.Top)
 Write-Output ""
 
-Get-Process -Name keepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+Get-Process -Name deepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
 Start-Sleep -Seconds 1
 
 $proc = Start-Process $Exe -PassThru
