@@ -324,6 +324,94 @@ describe("file_manage", () => {
     expect(r.new_path).toBe("章节内容/第1章副本.md");
     expect(await fs.exists(path.join(root, "章节内容", "第1章副本.md"))).toBe(true);
   });
+
+  it("copy 覆盖已有目标 → 先给**目标**记写前快照（KL-TL-02）", async () => {
+    await fsp.writeFile(path.join(root, "章节内容", "被覆盖.md"), "旧的正文\n", "utf8");
+    await executeTool(ctx({ currentCallId: "call_cov" }), "file_manage", {
+      operation: "copy",
+      path: "章节内容/第1章.md",
+      new_path: "章节内容/被覆盖.md",
+    });
+    const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
+    // 目标那一条必须记的是**目标的旧内容**，且 previousType=file
+    const entry = [...s.snapshots].reverse().find((e) => e.relativePath === "章节内容/被覆盖.md");
+    expect(entry).toBeDefined();
+    expect(entry!.operation).toBe("copy");
+    expect(entry!.previousContent).toBe("旧的正文\n");
+    expect(entry!.previousExists).toBe(true);
+    expect(entry!.previousType).toBe("file");
+    // 盘上确实已经被覆盖（快照是回滚的唯一依据）
+    expect(await fsp.readFile(path.join(root, "章节内容", "被覆盖.md"), "utf8")).toBe("第一行\n第二行\n第三行\n");
+  });
+
+  it("copy 到全新路径 → 目标侧记一条 previousExists:false（回滚才知道该删掉它）", async () => {
+    await executeTool(ctx({ currentCallId: "call_new" }), "file_manage", {
+      operation: "copy",
+      path: "章节内容/第1章.md",
+      new_path: "章节内容/全新副本.md",
+    });
+    const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
+    const entry = [...s.snapshots].reverse().find((e) => e.relativePath === "章节内容/全新副本.md");
+    expect(entry).toBeDefined();
+    expect(entry!.previousExists).toBe(false);
+    expect(entry!.previousType).toBe("none");
+    expect(entry!.previousContent).toBeNull();
+  });
+
+  it("rename 覆盖已有目标 → 目标与源各一条快照（源带 renameNewPath）", async () => {
+    await fsp.writeFile(path.join(root, "小说资料", "旧名.md"), "旧名内容\n", "utf8");
+    await fsp.writeFile(path.join(root, "小说资料", "占位.md"), "将被改名覆盖\n", "utf8");
+    await executeTool(ctx({ currentCallId: "call_rn" }), "file_manage", {
+      operation: "rename",
+      path: "小说资料/旧名.md",
+      new_path: "小说资料/占位.md",
+    });
+    const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
+    const target = [...s.snapshots].reverse().find((e) => e.relativePath === "小说资料/占位.md");
+    const source = [...s.snapshots].reverse().find((e) => e.relativePath === "小说资料/旧名.md");
+    expect(target?.previousContent).toBe("将被改名覆盖\n");
+    expect(target?.operation).toBe("copy"); // 目标是被"写入"的那一侧
+    expect(source?.operation).toBe("rename");
+    expect(source?.renameNewPath).toBe("小说资料/占位.md");
+    expect(source?.previousContent).toBe("旧名内容\n");
+  });
+
+  it("copy 源不存在 → 逐字报错，不落快照", async () => {
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_manage", {
+        operation: "copy",
+        path: "章节内容/根本没有.md",
+        new_path: "章节内容/也不会存在.md",
+      }),
+    );
+    expect(r.error).toContain("Directory not found");
+    expect(await fs.exists(path.join(root, "章节内容", "也不会存在.md"))).toBe(false);
+  });
+
+  it("写盘失败时快照仍在（顺序锁：先落快照后动盘，KL-TL-07）", async () => {
+    // 造一个"写盘必定失败"的桥：顺序反了的话，这里既没有新内容也没有快照
+    const failing = {
+      ...fs,
+      async writeText(p: string, c: string): Promise<void> {
+        if (p.endsWith("写盘会失败.md")) throw new Error("磁盘满了");
+        return fs.writeText(p, c);
+      },
+    };
+    await fsp.writeFile(path.join(root, "章节内容", "写盘会失败.md"), "原文\n", "utf8");
+    await expect(
+      executeTool(ctx({ fs: failing, currentCallId: "call_fail" }), "file_write", {
+        operation: "write",
+        path: "章节内容/写盘会失败.md",
+        content: "新文\n",
+      }),
+    ).rejects.toThrow(/磁盘满了/);
+    const s = parseSnapshots(await fsp.readFile(path.join(snapshotsDir, "sess-1.json"), "utf8"), "sess-1");
+    const entry = [...s.snapshots].reverse().find((e) => e.callId === "call_fail");
+    expect(entry).toBeDefined();
+    expect(entry!.previousContent).toBe("原文\n");
+    // 盘上内容没变（写失败了），但回滚依据已经在了
+    expect(await fsp.readFile(path.join(root, "章节内容", "写盘会失败.md"), "utf8")).toBe("原文\n");
+  });
 });
 
 describe("路径分级授权", () => {

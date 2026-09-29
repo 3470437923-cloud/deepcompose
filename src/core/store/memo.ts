@@ -92,12 +92,23 @@ export function newMemo(projectId: string, now = new Date()): Memo {
 
 /**
  * 删除分类：默认分类不可删除（实测界面 chips 中「默认」无 ×）。
- * 已知边界：只删分类名，不迁移该分类下的备忘录——条目仍带旧 category 值，
- * 由 UI 按「未归类」兜底展示；是否迁移属产品决策，本层不擅自改数据（见审计报告）。
+ *
+ * 该分类下的备忘录**迁移到默认分类**，不留孤儿。早先只删分类名，声称
+ * 「由 UI 按『未归类』兜底展示」—— 但 UI 根本没有这个兜底：过滤只看当前
+ * chips（`MemoModal` 的 visible 用 `m.category === cat`），分类名一消失，
+ * 那些条目就再也点不到，行内还挂着一个已经不存在的分类名（KL-ST-09）。
+ * 迁移保数据、可回退（重建同名分类再把条目挪回去即可），不删任何内容。
  */
 export function removeCategory(data: MemoFile, name: string): MemoFile {
   if (name === DEFAULT_CATEGORY) return data;
-  return { ...data, categories: data.categories.filter((c) => c !== name) };
+  if (!data.categories.includes(name)) return data;
+  return {
+    ...data,
+    categories: data.categories.filter((c) => c !== name),
+    memos: data.memos.map((m) =>
+      (m.category ?? DEFAULT_CATEGORY) === name ? { ...m, category: DEFAULT_CATEGORY } : m,
+    ),
+  };
 }
 
 /** 新增分类：trim 后为空或重名时原样返回（幂等） */

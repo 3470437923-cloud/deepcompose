@@ -253,7 +253,11 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
               <button key={m.id} className="memo-card" onClick={() => setEditing(m.id)}>
                 <div className="row1">
                   <span className="t">{m.title || "无标题"}</span>
-                  <span className="c">{m.category ?? DEFAULT_CATEGORY}</span>
+                  {/* 分类缺失兜底：老文件里可能留着已被删掉的分类名（B8 之前删分类不迁移，
+                      这类条目在 chips 里没有入口）。显示"未归类"而不是一个点不动的分类名 */}
+                  <span className="c">
+                    {data.categories.includes(m.category ?? DEFAULT_CATEGORY) ? (m.category ?? DEFAULT_CATEGORY) : "未归类"}
+                  </span>
                 </div>
                 <div className="s">{m.content.slice(0, 120) || "（空）"}</div>
                 <div className="d">{m.updated_at.slice(0, 16).replace("T", " ")}</div>

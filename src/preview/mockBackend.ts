@@ -220,10 +220,13 @@ writeFile(`${SESSIONS_DIR}\\index.json`, JSON.stringify({ version: 1, sessions: 
 writeFile(`${SKILLS_DIR}\\novel-writer\\SKILL.md`, "---\nname: novel-writer\ndescription: 写小说时使用的技能：先读设定再动笔，保持人物与世界观一致。\n---\n", now - DAY * 3);
 writeFile(`${SKILLS_DIR}\\worldbuilding\\SKILL.md`, "---\nname: worldbuilding\ndescription: 世界观构建：设计自洽的规则体系与冲突来源。\n---\n", now - DAY * 3);
 
-/* ── 种子：备忘录 ── */
+/* ── 种子：备忘录 ──
+   分类里必须**始终有「默认」**（界面里它没有 ×，即不可删；迁移目标也得存在），
+   且不要用「全部」当分类名 —— 那是筛选栏的固定 chip，两个同名按钮看着像 bug。 */
 writeFile(MEMOS_FILE, JSON.stringify({
-  categories: ["全部", "灵感", "待办"],
+  categories: ["默认", "灵感", "待办"],
   memos: [
+    { id: "n0", title: "书名备选", category: "默认", content: "《拾梦者》《写信的人》《守梦人》—— 先记着，等写完第一卷再定。", project_id: p1, created_at: new Date(now - DAY).toISOString(), updated_at: new Date(now - DAY).toISOString() },
     { id: "n1", title: "深渊的来历", category: "灵感", content: "深渊不是海沟，是所有人集体潜意识的沉积层。每三十年「写信」，其实是在挑选一个新的守梦人。", project_id: p1, created_at: new Date(now - DAY).toISOString(), updated_at: new Date(now - DAY).toISOString() },
     { id: "n2", title: "补老周的过往", category: "待办", content: "第三章提到三十年前，需要在人物库补一句老周当年的经历，填时间线漏洞。", project_id: p1, created_at: new Date(now - 2 * DAY).toISOString(), updated_at: new Date(now - 2 * DAY).toISOString() },
   ],

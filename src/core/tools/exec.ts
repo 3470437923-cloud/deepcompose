@@ -192,7 +192,8 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
 /**
  * file_write：write（覆盖/新建）/ append（追加）/ replace（查找替换）/
  * insert（按 position 插入）/ delete_lines（按 1-based 闭区间删行）。
- * 全部操作先读旧内容 → 计算新内容 → 写盘 → 落快照（快照带写前内容与写后哈希）。
+ * 全部操作先读旧内容 → 计算新内容 → **先落快照** → 写盘（快照带写前内容与写后哈希）。
+ * 顺序与 delete/rename 统一：快照是回滚的唯一依据，不能晚于盘上改动。
  */
 async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   const operation = str(a, "operation");
@@ -293,8 +294,11 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
       return err("Unknown operation: " + operation);
   }
 
-  await ctx.fs.writeText(abs, next);
+  // 顺序纪律（KL-TL-07）：**先落快照再动盘**。
+  // 新内容已在内存里，写后哈希不依赖磁盘，所以快照不必等落盘 ——
+  // 反过来（先写盘后落快照）在两步之间崩掉就会"改了却没有回滚依据"。
   await recordWrite(ctx, operation as SnapshotOperation, reportPath(g.resolved), previous, exists, next);
+  await ctx.fs.writeText(abs, next);
   return ok({ success: true, operation, path: reported, ...extra });
 }
 
@@ -302,8 +306,9 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
 
 /**
  * file_manage：search（全项目/指定目录内搜 md/txt 文本）/ delete / rename / copy。
- * delete 与 rename 先落快照再动盘（快照是回滚的唯一依据）；
- * copy 不落快照（不破坏源；目标被覆盖的风险见审计报告）。
+ * delete / rename / copy 一律**先落快照再动盘**（快照是回滚的唯一依据）。
+ * copy 与 rename 的风险都在**目标**：目标已存在时会被直接覆盖（rename 覆盖文件、
+ * copy 覆盖一切），所以目标那一侧也要各记一条写前快照（KL-TL-02）。
  */
 async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
   const operation = str(a, "operation");
@@ -378,20 +383,39 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       if (!newPathArg) return err(`new_path is required for ${operation} operation`);
       const g2 = guardPath(newPathArg, ctx.roots);
       if (!g2.ok) return err(g2.message!);
+      const srcSt = await ctx.fs.stat(abs);
+      if (srcSt === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
+      const srcText = srcSt.isDir ? null : await ctx.fs.readText(abs);
+      const dstSt = await ctx.fs.stat(g2.resolved.abs);
+
+      // 目标已存在 → 它的旧内容会被覆盖掉，先给目标记一条写前快照（KL-TL-02）。
+      // 不存在也记一条（previousExists:false）—— 这是"回滚时该把目标删掉"的唯一依据。
+      if (dstSt !== null) {
+        await recordWrite(
+          ctx,
+          "copy",
+          reportPath(g2.resolved),
+          dstSt.isDir ? null : await ctx.fs.readText(g2.resolved.abs),
+          true,
+          srcText,
+          null,
+          dstSt.isDir ? "directory" : "file",
+        );
+      } else {
+        await recordWrite(ctx, "copy", reportPath(g2.resolved), null, false, srcText, null, "none");
+      }
+
       if (operation === "rename") {
-        const st = await ctx.fs.stat(abs);
-        if (st === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
-        const previous = st.isDir ? null : await ctx.fs.readText(abs);
         // rename 快照：relativePath 记源路径、renameNewPath 记新路径；内容不变故写后哈希用原内容
         await recordWrite(
           ctx,
           "rename",
           reportPath(g.resolved),
-          previous,
+          srcText,
           true,
-          previous,
+          srcText,
           slashPath(reportPath(g2.resolved)),
-          st.isDir ? "directory" : "file",
+          srcSt.isDir ? "directory" : "file",
         );
         await ctx.fs.rename(abs, g2.resolved.abs);
       } else {
