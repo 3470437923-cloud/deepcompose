@@ -296,3 +296,66 @@ describe("中止传播（「停止生成」语义）", () => {
     expect(events.filter((e) => e.type === "tool_started")).toHaveLength(1);
   });
 });
+
+describe("用量合计（token 统计的数据源）", () => {
+  it("OpenAI：回合内后值覆盖前值，跨回合求和", async () => {
+    const events: AgentEvent[] = [];
+    // 第一轮工具调用（无 usage）+ 第二轮文本收尾（同一回合内上报两次）
+    const { transport } = fakeTransport([
+      toolCallScript("call_1", "file_read", '{"operation":"list","path":"章节内容"}'),
+      [
+        'data: {"choices":[{"delta":{"content":"好了"}}]}',
+        'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":5}}',
+        'data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"prompt_cache_hit_tokens":80,"prompt_cache_miss_tokens":20}}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        "data: [DONE]",
+      ],
+    ]);
+    const res = await runAgent(baseOpts(transport, (e) => events.push(e)));
+    expect(res.error).toBeUndefined();
+    // 是 100/20 而不是 200/25：回合内是「快照覆盖」语义
+    expect(res.usage).toEqual({ inputTokens: 100, outputTokens: 20, cacheHitTokens: 80, cacheMissTokens: 20 });
+    // 界面收到的 usage 事件同样是回合累计快照，不会翻倍
+    const usageEvents = events.filter((e): e is Extract<AgentEvent, { type: "usage" }> => e.type === "usage");
+    expect(usageEvents.map((e) => e.outputTokens)).toEqual([5, 20]);
+  });
+
+  it("Anthropic：message_delta 的累计输出不会被重复累加（KL-AI-02 回归锁）", async () => {
+    const { transport } = fakeTransport([
+      [
+        "event: message_start",
+        'data: {"message":{"usage":{"input_tokens":120,"output_tokens":1}}}',
+        "event: content_block_delta",
+        'data: {"delta":{"type":"text_delta","text":"甲"}}',
+        "event: message_delta",
+        'data: {"usage":{"output_tokens":30},"delta":{"stop_reason":"end_turn"}}',
+        "event: message_delta",
+        'data: {"usage":{"output_tokens":48},"delta":{"stop_reason":"end_turn"}}',
+        "event: message_stop",
+        "data: {}",
+      ],
+    ]);
+    const opts = baseOpts(transport, () => {});
+    opts.cfg = { ...cfg, useAnthropicFormat: true };
+    const res = await runAgent(opts);
+    expect(res.error).toBeUndefined();
+    // 输入 120（不是 0，也不是 240）、输出 48（不是 79、也不是 1+30+48）
+    expect(res.usage).toEqual({ inputTokens: 120, outputTokens: 48, cacheHitTokens: 0, cacheMissTokens: 0 });
+  });
+
+  it("报错的回合也计入已产生的用量（上游照实计费）", async () => {
+    const { transport } = fakeTransport([
+      ['data: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":2}}', "__HTTP_ERROR__429|{\"error\":1}"],
+    ]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBeTruthy();
+    expect(res.usage.inputTokens).toBe(40);
+    expect(res.usage.outputTokens).toBe(2);
+  });
+
+  it("上游没给用量时合计全零（不编造数据）", async () => {
+    const { transport } = fakeTransport([["data: [DONE]"]]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.usage).toEqual({ inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, cacheMissTokens: 0 });
+  });
+});

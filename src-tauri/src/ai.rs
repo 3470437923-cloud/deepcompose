@@ -231,3 +231,118 @@ pub async fn ai_models(request: ModelsRequest) -> Result<Vec<String>, String> {
     ids.sort();
     Ok(ids)
 }
+
+/// 余额查询请求（只有 DeepSeek 官方提供 `GET /user/balance`，见 docs/DECISIONS.md 附录 A §6）
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceRequest {
+    pub base_url: String,
+    pub api_key: String,
+}
+
+/// 单币种余额（金额原样透传为字符串，避免浮点误差）
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceEntry {
+    pub currency: String,
+    pub total_balance: String,
+    pub granted_balance: String,
+    pub topped_up_balance: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BalanceInfo {
+    pub is_available: bool,
+    pub balances: Vec<BalanceEntry>,
+}
+
+/// 把用户填的 Base URL 规整成余额端点：去掉尾部 '/'、剥掉结尾的 `/v1`
+/// （余额端点**不在** `/v1` 下，见官方 API Reference），再拼 `/user/balance`。
+pub fn balance_url(base_url: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let base = base.strip_suffix("/v1").unwrap_or(base);
+    format!("{base}/user/balance")
+}
+
+/// 查余额（DeepSeek 官方独有端点）。失败以 Err 字符串返回，界面直接展示。
+#[tauri::command]
+pub async fn ai_balance(request: BalanceRequest) -> Result<BalanceInfo, String> {
+    let BalanceRequest { base_url, api_key } = request;
+    if base_url.trim().is_empty() || api_key.trim().is_empty() {
+        return Err("请先填写接口地址与 API Key".into());
+    }
+    let url = balance_url(&base_url);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("HTTP 客户端创建失败: {e}"))?;
+
+    let resp = client
+        .get(&url)
+        .header("authorization", format!("Bearer {}", api_key.trim()))
+        .send()
+        .await
+        .map_err(|e| format!("连接失败: {e}"))?;
+
+    let status = resp.status();
+    let text = resp.text().await.unwrap_or_default();
+    if !status.is_success() {
+        let brief: String = text.chars().take(200).collect();
+        return Err(format!("HTTP {}: {}", status.as_u16(), brief));
+    }
+
+    let v: Value = serde_json::from_str(&text).map_err(|_| "响应不是 JSON".to_string())?;
+    let is_available = v.get("is_available").and_then(|b| b.as_bool()).unwrap_or(false);
+    let mut balances: Vec<BalanceEntry> = Vec::new();
+    if let Some(arr) = v.get("balance_infos").and_then(|b| b.as_array()) {
+        for item in arr {
+            let s = |k: &str| item.get(k).and_then(|x| x.as_str()).unwrap_or("").to_string();
+            balances.push(BalanceEntry {
+                currency: s("currency"),
+                total_balance: s("total_balance"),
+                granted_balance: s("granted_balance"),
+                topped_up_balance: s("topped_up_balance"),
+            });
+        }
+    }
+    Ok(BalanceInfo {
+        is_available,
+        balances,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::balance_url;
+
+    #[test]
+    fn balance_url_规整_v1_与尾部斜杠() {
+        assert_eq!(
+            balance_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/user/balance"
+        );
+        assert_eq!(
+            balance_url("https://api.deepseek.com/"),
+            "https://api.deepseek.com/user/balance"
+        );
+        assert_eq!(
+            balance_url("https://api.deepseek.com/v1"),
+            "https://api.deepseek.com/user/balance"
+        );
+        assert_eq!(
+            balance_url("https://api.deepseek.com/v1/"),
+            "https://api.deepseek.com/user/balance"
+        );
+        assert_eq!(
+            balance_url("  https://api.deepseek.com/v1  "),
+            "https://api.deepseek.com/user/balance"
+        );
+        // 以 /v1 开头的其它路径不能被误剥（只剥完整的 /v1 结尾）
+        assert_eq!(
+            balance_url("https://example.com/v1beta"),
+            "https://example.com/v1beta/user/balance"
+        );
+    }
+}

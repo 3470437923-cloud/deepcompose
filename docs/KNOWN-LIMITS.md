@@ -24,7 +24,7 @@
 | ID | 问题 | 触发条件 | 等级 | 处置 |
 |---|---|---|---|---|
 | KL-AI-01 | 连接建立期点「停止」无效：Rust 侧未在连接阶段注册中断句柄，停止只对已开始读取的流生效 | 上游 DNS/TLS 慢或挂起时点停止 | 已实测 | **已修** `c5854d4` |
-| KL-AI-02 | Anthropic 流式 usage 重复累计：`message_delta.output_tokens` 是**累计值**，代码做 `+=` | 读该字段者会拿到膨胀数倍的值 | 代码判定 | **本轮修**（B2，token 统计依赖它） |
+| KL-AI-02 | Anthropic 流式 usage 重复累计：`message_delta.output_tokens` 是**累计值**，代码却做 `+=`（且 `message_start` 里那个占位 output 也被计入） | 读该字段者会拿到膨胀数倍的值 | 代码判定 | **已修**（B2：解析层只发上游真给了的字段，累加层改为「回合内覆盖、跨回合求和」，并补 4 个回归锁） |
 | KL-AI-03 | SSE 多行 `data:` 不支持（规范允许同一事件多条 data 行拼接后再解析） | 上游把长 JSON 拆成多条 data 行 | 代码判定 | 保留（现有测试锁「逐行立即出事件」） |
 | KL-AI-04 | `tool_calls` 分片缺 `index` 时全部归并到 0，多个并发工具调用会拼坏 arguments | 非标上游不发 `index` | 推演 | 保留（标准上游都带 index） |
 | KL-AI-05 | Anthropic 历史回放不带 thinking 块 | 官方 extended thinking + 工具链场景可能 400 | 代码判定 | 保留（B5 按平台策略统一处理后复核） |

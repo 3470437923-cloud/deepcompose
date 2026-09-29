@@ -182,7 +182,7 @@ writeFile(MEMOS_FILE, JSON.stringify({
 const seedPrefs: Record<string, unknown> = {
   "flutter.llm_base_url": "https://api.deepseek.com/v1",
   "flutter.api_key": "sk-preview-placeholder",
-  "flutter.model": "deepseek-chat",
+  "flutter.model": "deepseek-flash",
   "flutter.temperature": 0.8,
   "flutter.context_limit": 1000000,
   "flutter.custom_accent_color": 4283263998, // DS 蓝
@@ -271,9 +271,18 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "open_dir":
       return null;
     // 模型清单（桌面端走 Rust ai_models → OpenAI/Anthropic /models）；
-    // 返回与 DeepSeek 实测一致的 2 个模型，供设置屏「检测连接」走真实渲染路径
+    // 返回 DeepSeek 官方文档当前的模型名，供设置屏「检测连接」走真实渲染路径
     case "ai_models":
-      return ["deepseek-chat", "deepseek-reasoner"];
+      return ["deepseek-flash", "deepseek-v4-pro"];
+    // 余额（DeepSeek 官方 GET /user/balance）：沙箱返回固定值，
+    // 让鲸鱼信息面板能在预览里走真实渲染路径（[待实测] 的是真机联调，不是这里）
+    case "ai_balance":
+      return {
+        isAvailable: true,
+        balances: [
+          { currency: "CNY", totalBalance: "42.18", grantedBalance: "0.00", toppedUpBalance: "42.18" },
+        ],
+      };
     // 窗口命令（@tauri-apps/api/window）：浏览器沙箱里没有真实窗口，但返回值必须
     // **诚实** —— 早先未实现时统一返回 null，会让标题栏「最大化」按钮永远显示
     // 未最大化（按钮图标/提示就是无边框窗口唯一的状态反馈）。

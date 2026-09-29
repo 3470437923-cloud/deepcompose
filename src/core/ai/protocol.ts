@@ -250,14 +250,25 @@ function safeParse(s: string): unknown {
  * 协议中立的流式内部事件（两种协议的 SSE 都归一化成这一组）：
  *  - text_delta / thinking_delta：正文与思考流增量；
  *  - tool_call_delta：工具调用分片（按 index 归并；id/name 首片携带，args 逐片拼接）；
- *  - usage：token 用量统计（OpenAI 在流末尾一次性给出；Anthropic 分 message_start/message_delta 两次）；
+ *  - usage：token 用量统计的**请求级快照**（OpenAI 在流末尾一次性给出；Anthropic 分
+ *    message_start 输入 + message_delta 累计输出两次）——消费方只能覆盖、不能累加（KL-AI-02）；
  *  - stop：收尾信号（reason 为上游 finish_reason / stop_reason / "done"）。
  */
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; text: string }
   | { type: "tool_call_delta"; index: number; id?: string; name?: string; argsDelta?: string }
-  | { type: "usage"; inputTokens: number; outputTokens: number }
+  | {
+      type: "usage";
+      /** 输入（prompt）token；字段缺失 = 本次事件未报告该值（Anthropic 分两次上报） */
+      inputTokens?: number;
+      /** 输出（completion）token；Anthropic 的 message_delta 给的是**累计值** */
+      outputTokens?: number;
+      /** 磁盘缓存命中的输入 token（DeepSeek 独有字段，见附录 A §6） */
+      cacheHitTokens?: number;
+      /** 磁盘缓存未命中的输入 token（同上） */
+      cacheMissTokens?: number;
+    }
   | { type: "stop"; reason: string };
 
 /** 一行 SSE 的解析产物：event: 行给出事件名，data: 行给出负载（二者都只出现一个） */
@@ -300,11 +311,21 @@ export function mapOpenAiChunk(json: unknown): StreamEvent[] {
 
   const usage = o.usage as Record<string, unknown> | undefined;
   if (usage) {
-    out.push({
-      type: "usage",
-      inputTokens: num(usage.prompt_tokens),
-      outputTokens: num(usage.completion_tokens),
-    });
+    // 只填上游真的给了的字段：部分网关会分片上报残缺 usage，缺失字段若按 0 覆盖，
+    // 会把先前已拿到的值抹掉。cache 两字段只有 DeepSeek 系会带。
+    const ev: Extract<StreamEvent, { type: "usage" }> = { type: "usage" };
+    if (usage.prompt_tokens !== undefined) ev.inputTokens = num(usage.prompt_tokens);
+    if (usage.completion_tokens !== undefined) ev.outputTokens = num(usage.completion_tokens);
+    if (usage.prompt_cache_hit_tokens !== undefined) ev.cacheHitTokens = num(usage.prompt_cache_hit_tokens);
+    if (usage.prompt_cache_miss_tokens !== undefined) ev.cacheMissTokens = num(usage.prompt_cache_miss_tokens);
+    if (
+      ev.inputTokens !== undefined ||
+      ev.outputTokens !== undefined ||
+      ev.cacheHitTokens !== undefined ||
+      ev.cacheMissTokens !== undefined
+    ) {
+      out.push(ev);
+    }
   }
 
   const choices = o.choices;
@@ -380,16 +401,21 @@ export function mapAnthropicEvent(event: string | undefined, json: unknown): Str
       break;
     }
     case "message_start": {
+      // 只取输入 token：此处 usage.output_tokens 是占位值（通常为 1），真正的累计输出
+      // 在 message_delta 给出。旧实现把两者一起发出并让上层累加，导致输出 token 重复计数（KL-AI-02）。
       const msg = (o.message ?? {}) as Record<string, unknown>;
       const usage = (msg.usage ?? {}) as Record<string, unknown>;
-      out.push({ type: "usage", inputTokens: num(usage.input_tokens), outputTokens: num(usage.output_tokens) });
+      if (usage.input_tokens !== undefined) {
+        out.push({ type: "usage", inputTokens: num(usage.input_tokens) });
+      }
       break;
     }
     case "message_delta": {
       // message_delta 的 output_tokens 是全消息累计值（非增量）
       const usage = (o.usage ?? {}) as Record<string, unknown>;
       if (usage.output_tokens !== undefined) {
-        out.push({ type: "usage", inputTokens: 0, outputTokens: num(usage.output_tokens) });
+        // 不再附带 inputTokens: 0 —— 那会让上层把已拿到的输入 token 覆盖成 0
+        out.push({ type: "usage", outputTokens: num(usage.output_tokens) });
       }
       const d = (o.delta ?? {}) as Record<string, unknown>;
       if (typeof d.stop_reason === "string" && d.stop_reason !== "") {

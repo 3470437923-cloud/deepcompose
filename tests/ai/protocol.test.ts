@@ -189,6 +189,27 @@ describe("SSE 行解析", () => {
     expect(mapOpenAiChunk({ choices: [], usage: { prompt_tokens: 12, completion_tokens: 7 } })).toEqual([
       { type: "usage", inputTokens: 12, outputTokens: 7 },
     ]);
+    // DeepSeek 的磁盘缓存字段一并上报（附录 A §6）
+    expect(
+      mapOpenAiChunk({
+        choices: [],
+        usage: { prompt_tokens: 30, completion_tokens: 4, prompt_cache_hit_tokens: 20, prompt_cache_miss_tokens: 10 },
+      }),
+    ).toEqual([{ type: "usage", inputTokens: 30, outputTokens: 4, cacheHitTokens: 20, cacheMissTokens: 10 }]);
+    // 残缺 usage 只发上游真给了的字段：按 0 补齐会把先前拿到的值抹掉
+    expect(mapOpenAiChunk({ choices: [], usage: { completion_tokens: 9 } })).toEqual([{ type: "usage", outputTokens: 9 }]);
+    expect(mapOpenAiChunk({ choices: [], usage: {} })).toEqual([]);
+  });
+
+  it("Anthropic：用量分两次上报且不回填 0（回归锁 KL-AI-02）", () => {
+    // message_start 只给输入 token：其中的 output_tokens 是占位值（通常为 1），不能当真实输出
+    expect(
+      mapAnthropicEvent("message_start", { message: { usage: { input_tokens: 120, output_tokens: 1 } } }),
+    ).toEqual([{ type: "usage", inputTokens: 120 }]);
+    // message_delta 的 output_tokens 是全消息累计值；不能再附带 inputTokens: 0
+    expect(
+      mapAnthropicEvent("message_delta", { usage: { output_tokens: 250 }, delta: { stop_reason: "end_turn" } }),
+    ).toEqual([{ type: "usage", outputTokens: 250 }, { type: "stop", reason: "end_turn" }]);
   });
 
   it("Anthropic：content_block_delta 的 text/thinking/input_json", () => {
