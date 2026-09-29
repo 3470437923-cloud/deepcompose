@@ -1,13 +1,14 @@
 /**
- * 设置屏 —— writerD 3.0 液态玻璃版。
+ * 设置屏 —— writerD 3.0「付印单」实色版。
  *
- * 结构：左侧玻璃导航（7 项：AI 提供商 / Skill / 参数 / 主题 / 同步 / 数据 / 关于）
- * + 右侧玻璃内容区（iOS grouped-list 风格分组卡片）。
- * 主题页支持三套液态玻璃主题：曜石黑（dark）/ 晨雾白（light）/ 深海 DS 蓝（dsblue），
+ * 结构：左侧实色导航（7 项：AI 提供商 / Skill / 参数 / 主题 / 同步 / 数据 / 关于）
+ * + 右侧实色内容区（分组卡片）。
+ * 主题页支持三套主题：曜石黑（dark）/ 晨雾白（light）/ DS 蓝（dsblue），
  * 外加强调色色板与字号调节（既有实现键 chat_font_size / editor_font_size）。
+ * 这三个主题键是**磁盘格式契约**（prefs 里的 theme_mode），不可改名。
  *
  * 读取 prefs（boot() 装配），保存即写 shared_preferences.json（savePrefs）。
- * 材质配方在 styles/glass.css，布局与组件样式在 styles/app.css。
+ * 材质配方在 styles/surface.css，布局与组件样式在 styles/app.css。
  */
 
 import { useCallback, useEffect, useState, type ReactElement } from "react";
@@ -87,7 +88,7 @@ export default function SettingsScreen({ onBack }: Props) {
           }}
         >
           <div className="brand">
-            <div className="brand-mark squircle"><img src={logo} alt="" /></div>
+            <div className="brand-mark app-mark"><img src={logo} alt="" /></div>
             <div className="brand-name">writerD</div>
           </div>
         </div>
@@ -265,7 +266,7 @@ export default function SettingsScreen({ onBack }: Props) {
         }}
       >
         <div className="brand">
-          <div className="brand-mark squircle"><img src={logo} alt="" /></div>
+          <div className="brand-mark app-mark"><img src={logo} alt="" /></div>
           <div className="brand-name">writerD</div>
         </div>
         <div className="win-tools">
@@ -297,9 +298,9 @@ export default function SettingsScreen({ onBack }: Props) {
         </div>
       </div>
 
-      {/* ── 主体：玻璃侧栏导航 + 玻璃内容区 ── */}
+      {/* ── 主体：实色侧栏导航 + 实色内容区 ── */}
       <div className="a-main">
-        <div className="a-nav glass">
+        <div className="a-nav surface-rail">
           <div className="a-nav-head">
             <button className="a-back" title="返回主界面" onClick={onBack}>
               <svg viewBox="0 0 20 20" className="ic">
@@ -312,7 +313,7 @@ export default function SettingsScreen({ onBack }: Props) {
             {navItems.map((item) => (
               <button
                 key={item.key}
-                className={`a-nav-item glint ${section === item.key ? "on" : ""}`}
+                className={`a-nav-item ${section === item.key ? "on" : ""}`}
                 onClick={() => {
                   if (item.key !== section) {
                     const from = navItems.findIndex((n) => n.key === section);
@@ -330,7 +331,7 @@ export default function SettingsScreen({ onBack }: Props) {
           </div>
         </div>
 
-        <div className="a-content glass">
+        <div className="a-content surface-sheet">
           {/* key 换 → 分节重新挂载并播放推入动画；方向由导航顺序决定 */}
           <div key={section} className="a-pane" data-dir={paneDir}>
             {section === "provider" && (
@@ -436,7 +437,7 @@ function ProviderSection({
           <span className="a-card-side">{form.model?.trim() || "未选择模型"}</span>
         </div>
         {connMsg ? (
-          <div className={conn === "error" ? "a-flash error" : "a-flash ok"}>{connMsg}</div>
+          <div className={conn === "error" ? "a-flash error" : "a-flash ok"} role="status">{connMsg}</div>
         ) : null}
         <div className="a-card-desc">
           填好地址与 Key 后会自动检测连接并拉取模型清单，也可以手动检测。选用后点下方「保存」生效。
@@ -490,7 +491,7 @@ function ProviderSection({
 
         <div className="a-form-row a-form-row-inline">
           <div className="a-form-col">
-            <label className="a-form-label">Temperature</label>
+            <label className="a-form-label">温度</label>
             <input
               className="a-form-input"
               type="number"
@@ -640,7 +641,7 @@ function SkillSection({
           导出
         </button>
       </div>
-      {flash ? <div className="a-flash">{flash}</div> : null}
+      {flash ? <div className="a-flash" role="status">{flash}</div> : null}
 
       {builtin.length > 0 ? (
         <>
@@ -685,9 +686,11 @@ function ParamsSection({
           <span className="a-card-num">{form.temperature}</span>
         </div>
         <div className="a-card-desc">控制回复的随机性：越低越稳定确定，越高越多样随机。</div>
+        {/* 不再下发 --fill：滑杆改为纯实色轨道、不绘制已填充段
+            （旋钮位置 + 右上角数字读数已经表达了值，再刷一条彩色进度
+            是重复表达）。这里的内联变量已随之移除。 */}
         <input
           className="a-slider"
-          style={{ ["--fill" as string]: `${(form.temperature / 2) * 100}%` }}
           type="range"
           min={0}
           max={2}
@@ -831,10 +834,11 @@ function ThemeSection({
     <div className="a-settings-panel">
       <div className="a-card">
         <div className="a-card-head">
-          <span className="a-card-title">液态玻璃主题</span>
+          <span className="a-card-title">界面主题</span>
         </div>
         <div className="a-card-desc">
-          三套材质随环境光壁纸、玻璃折射环与高光联动，点击即时生效并保存。
+          三套实色配色，各自成套（画布、侧轨、纸面、浮起面、井底与文字层级一次换齐），
+          点击即时生效并保存。面板一律不透明，层级靠明度差而不是靠模糊。
         </div>
         <div className="a-themecards">
           {THEME_MODES.map((t) => (
@@ -856,7 +860,7 @@ function ThemeSection({
             </button>
           ))}
         </div>
-        {flash ? <div className="a-flash">{flash}</div> : null}
+        {flash ? <div className="a-flash" role="status">{flash}</div> : null}
       </div>
 
       <div className="a-card">
@@ -872,7 +876,12 @@ function ThemeSection({
               <button
                 key={s.argb}
                 className={on ? "a-swatch on" : "a-swatch"}
-                style={{ background: `linear-gradient(160deg, ${rgb}, color-mix(in srgb, ${rgb} 70%, #000))` }}
+                /* 色板必须是**实色**。原来这里是
+                   `linear-gradient(160deg, rgb, rgb 70% + 黑)` ——
+                   一块渐变既违反"零渐变"的硬约束，又让这块色板
+                   看起来比它代表的强调色更暗更花：用户是在这里挑
+                   "墨是什么色"，不是挑"渐变好不好看"。 */
+                style={{ background: rgb }}
                 onClick={() => onAccent(s.argb)}
                 title={`${s.label} · ${rgb.toUpperCase()}`}
               >
@@ -926,7 +935,7 @@ function ThemeSection({
           >
             保存字号
           </button>
-          {flash ? <div className="a-flash">{flash}</div> : null}
+          {flash ? <div className="a-flash" role="status">{flash}</div> : null}
         </div>
       </div>
     </div>
@@ -952,7 +961,7 @@ function SyncSection({ flash, onFlash }: { flash: string; onFlash: (s: string) =
             ? "通过 WebDAV 把小说、技能、备忘录、会话与快照同步到云端。（传输层未实现，本分页为配置占位）"
             : "同一局域网内的两台设备通过 8917 端口互传数据。（传输层未实现，本分页为配置占位）"}
         </div>
-        {flash ? <div className="a-flash">{flash}</div> : null}
+        {flash ? <div className="a-flash" role="status">{flash}</div> : null}
         <div className="a-form-actions">
           <button className="a-toolbtn" onClick={() => onFlash("同步功能将在后续批次实现")}>
             同步
@@ -1057,7 +1066,7 @@ function AboutSection({ flash, onFlash }: { flash: string; onFlash: (s: string) 
       <div className="a-about-hero">
         <div className="a-about-logo"><img src={logo} alt="" /></div>
         <h2>writerD</h2>
-        <span className="a-version">版本 2.0.1</span>
+        <span className="a-version">版本 3.0.0</span>
         <p>你的 AI 小说写作助手</p>
       </div>
 
@@ -1074,7 +1083,7 @@ function AboutSection({ flash, onFlash }: { flash: string; onFlash: (s: string) 
           <em>›</em>
         </button>
       </div>
-      {flash ? <div className="a-flash">{flash}</div> : null}
+      {flash ? <div className="a-flash" role="status">{flash}</div> : null}
     </div>
   );
 }

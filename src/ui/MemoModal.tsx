@@ -1,9 +1,15 @@
 /**
  * 备忘录模态（结构依据实测截图；编辑视图为合理外推）。
  * 数据格式：store/memo.ts（逐字对齐既有实现的备忘录文件格式）。
+ *
+ * 本轮补上的无障碍缺口：这个模态原来**一个键盘处理都没有** ——
+ * 没有 Esc、没有 role="dialog"、没有焦点接管，键盘用户打开后
+ * 只能靠鼠标点右上角那个 × 才能出来。现在与 Dialogs.tsx 走同一套
+ * 焦点管理（useDialogFocus），Esc 关闭，读屏能听到它是一个对话。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useDialogFocus } from "./useDialogFocus";
 import {
   addCategory as memoAddCategory,
   DEFAULT_CATEGORY,
@@ -35,6 +41,9 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
   const [scopeAll, setScopeAll] = useState(false);
   const [cat, setCat] = useState<string>("全部");
   const [editing, setEditing] = useState<string | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -45,6 +54,22 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
       .catch((e) => onStatus(`备忘录读取失败：${String(e)}`));
     setEditing(null);
   }, [open, onStatus]);
+
+  // Esc 关闭（挂边态同样生效 —— 它不是"另一个页面"，只是同一块面板的另一种摆法）
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      // 输入法组词中的 Esc 属于取消组词，不该顺手关掉整个面板
+      if (e.isComposing) return;
+      onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  // 焦点默认落在"关闭"上：面板一打开，最需要能立刻脱身
+  useDialogFocus(open, panelRef, closeRef);
 
   const persist = useCallback(
     async (next: MemoFile) => {
@@ -99,13 +124,21 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
 
   return (
     <div className={docked ? "memo-modal scrim dock-wrap" : "memo-modal scrim"}>
-      <div className={docked ? "memo-box glass docked" : "memo-box glass sheet"}>
+      <div
+        className={docked ? "memo-box surface-raised docked" : "memo-box surface-raised sheet"}
+        role="dialog"
+        /* 挂边态不是模态：它把主界面让出来且可继续操作，不该对读屏宣称"其后不可交互" */
+        aria-modal={docked ? undefined : true}
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        ref={panelRef}
+      >
         <div className="memo-head">
           <svg viewBox="0 0 20 20" className="ic">
             <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
             <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
           </svg>
-          <span className="ttl">备忘录</span>
+          <span className="ttl" id={titleId}>备忘录</span>
           <div className="memo-head-tools">
             <button
               className={docked ? "memo-tool on" : "memo-tool"}
@@ -123,7 +156,7 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
               </svg>
               新建
             </button>
-            <button className="memo-tool" title="关闭" onClick={onClose}>
+            <button className="memo-tool" title="关闭" onClick={onClose} ref={closeRef}>
               <svg viewBox="0 0 20 20" className="ic">
                 <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
               </svg>

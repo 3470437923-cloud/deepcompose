@@ -10,11 +10,13 @@ export const PREFIX = "flutter.";
 
 /**
  * 主题模式（writerD 3.0 扩展）：
- *   dark   = 曜石黑液态玻璃
- *   light  = 晨雾白液态玻璃
- *   dsblue = 深海 DS 蓝液态玻璃（DeepSeek 品牌蓝环境光）
+ *   dark   = 曜石黑（实色深色）
+ *   light  = 晨雾白（实色浅色，冷调）
+ *   dsblue = 深海 DS 蓝（DeepSeek 品牌蓝作强调色）
  * 键名 `theme_mode` 为 writerD 自有扩展（既有格式中无此键，如实标注）；
  * 兼容策略：配置里没有 theme_mode 时按既有键 is_dark_mode 派生。
+ * 注意：这三个字符串是**磁盘格式**，已经被写进用户的配置文件里，
+ * 改字符串等于让老配置失效 —— 只能改注释，不能改值。
  */
 export type ThemeMode = "dark" | "light" | "dsblue";
 

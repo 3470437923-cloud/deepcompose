@@ -1,14 +1,18 @@
 /**
- * 主工作台 —— writerD 3.0 液态玻璃三栏布局。
+ * 主工作台 —— writerD 3.0「付印单」三栏实色布局。
  *
  * 布局（委托方 2026-09-28 指令）：
  *   左 = 文件（作品选择 + 目录树）· 中 = 编辑器 · 右 = AI 对话。
  *   旧的「对话列表」独立栏已删除，会话切换改为对话面板顶部的下拉选择框。
  * 数据逻辑（boot/作品/标签页/会话/工具循环/快照纪律）与 2.x 完全一致。
+ *
+ * 左栏目录树固定保留三类内容：小说资料 / 章节内容 / 待确认
+ * （它们同时是磁盘上的三个目录，类别由路径决定，不随 UI 变化）。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMaximized } from "./useMaximized";
+import { useDialogFocus } from "./useDialogFocus";
 import { isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
@@ -933,11 +937,41 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
+  /* ── 两个内联模态的无障碍接管 ──
+     冷读对话框与「需要你的选择」对话框此前都没有 role="dialog"、没有
+     焦点接管。更麻烦的是 App.tsx 的 Esc 处理会在检测到 .qmodal 时主动
+     让路（它假定模态自己会处理 Esc），而这两个模态谁都没处理 ——
+     于是冷读对话框一打开，Esc 就彻底失效，只能靠鼠标点「取消」。
+     冷读：Esc 关闭（等同取消）。下面用 useDialogFocus 接管焦点。 */
+  const coldPanelRef = useRef<HTMLDivElement | null>(null);
+  const coldSubmitRef = useRef<HTMLButtonElement | null>(null);
+  const coldTitleId = useId();
+  useDialogFocus(Boolean(coldReq), coldPanelRef, coldSubmitRef);
+
+  useEffect(() => {
+    if (!coldReq) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.isComposing) return;
+      setColdReq(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [coldReq]);
+
+  /* 「需要你的选择」是 AI 通过 ask 工具提出的必答问题，**没有取消语义** ——
+     所以这里刻意不给 Esc 绑定关闭（关掉它会让那次工具调用永远悬着）。
+     Esc 在这个模态里保持无操作是正确行为，不是遗漏；但它同样要
+     role="dialog" + 焦点接管，否则读屏用户不知道发生了什么。 */
+  const pendPanelRef = useRef<HTMLDivElement | null>(null);
+  const pendFirstRef = useRef<HTMLButtonElement | null>(null);
+  useDialogFocus(Boolean(pending), pendPanelRef, pendFirstRef);
+
   if (error) {
     return (
       <div className="win" id="screenB">
         <div className="boot-error">
-          <div className="err-card glass">
+          <div className="err-card surface-raised">
             <h3>启动失败</h3>
             {error}
           </div>
@@ -990,7 +1024,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       ) : (
         <button
           key={n.rel}
-          className={activeRel === n.rel ? "tnode sub on" : "tnode sub"}
+          className={activeRel === n.rel ? "tnode on" : "tnode"}
           role="treeitem"
           aria-selected={activeRel === n.rel}
           style={{ paddingLeft: 26 + depth * 12 }}
@@ -1023,7 +1057,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         }}
       >
         <div className="brand">
-          <div className="brand-mark squircle">
+          <div className="brand-mark app-mark">
             <img src={logo} alt="" />
           </div>
           <div className="brand-name">writerD</div>
@@ -1031,7 +1065,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
         <div className="tb-cluster" role="group" aria-label="面板开关">
           <button
-            className={showFiles ? "tb-btn glint on" : "tb-btn glint"}
+            className={showFiles ? "tb-btn on" : "tb-btn"}
             title="文件面板"
             aria-pressed={showFiles}
             onClick={toggleFiles}
@@ -1042,7 +1076,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             </svg>
           </button>
           <button
-            className={showChat ? "tb-btn glint on" : "tb-btn glint"}
+            className={showChat ? "tb-btn on" : "tb-btn"}
             title="AI 对话面板"
             aria-pressed={showChat}
             onClick={toggleChat}
@@ -1052,7 +1086,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             </svg>
           </button>
           <span className="tb-div" />
-          <button className="tb-btn glint" title="备忘录" onClick={() => setMemoOpen(true)}>
+          <button className="tb-btn" title="备忘录" onClick={() => setMemoOpen(true)}>
             <svg viewBox="0 0 20 20" className="ic">
               <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
               <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
@@ -1061,20 +1095,20 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         </div>
 
         <div className="win-tools">
-          <button className="wbtn glint" title="设置" onClick={onOpenSettings}>
+          <button className="wbtn" title="设置" onClick={onOpenSettings}>
             <svg viewBox="0 0 20 20" className="ic">
               <circle cx="10" cy="10" r="2.4" />
               <path d="M16.1 11.9a1.25 1.25 0 0 0 .25 1.38l.04.05a1.5 1.5 0 1 1-2.12 2.12l-.05-.04a1.25 1.25 0 0 0-1.38-.25 1.25 1.25 0 0 0-.75 1.14v.15a1.5 1.5 0 1 1-3 0v-.08a1.25 1.25 0 0 0-.82-1.14 1.25 1.25 0 0 0-1.38.25l-.05.04A1.5 1.5 0 1 1 3.9 13.4l.04-.05a1.25 1.25 0 0 0 .25-1.38 1.25 1.25 0 0 0-1.14-.75h-.15a1.5 1.5 0 1 1 0-3h.08a1.25 1.25 0 0 0 1.14-.82 1.25 1.25 0 0 0-.25-1.38L3.9 5.97A1.5 1.5 0 1 1 6.02 3.85l.05.04a1.25 1.25 0 0 0 1.38.25h.06a1.25 1.25 0 0 0 .75-1.14v-.15a1.5 1.5 0 1 1 3 0v.08a1.25 1.25 0 0 0 .75 1.14 1.25 1.25 0 0 0 1.38-.25l.05-.04a1.5 1.5 0 1 1 2.12 2.12l-.04.05a1.25 1.25 0 0 0-.25 1.38v.06a1.25 1.25 0 0 0 1.14.75h.15a1.5 1.5 0 1 1 0 3h-.08a1.25 1.25 0 0 0-1.14.75z" />
             </svg>
           </button>
           <span className="tb-div" />
-          <button className="wbtn glint" title="最小化" onClick={() => void win.minimize()}>
+          <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
             <svg viewBox="0 0 20 20" className="ic">
               <path d="M5 10h10" />
             </svg>
           </button>
           <button
-            className="wbtn glint"
+            className="wbtn"
             title={maxed ? "向下还原" : "最大化"}
             aria-label={maxed ? "向下还原" : "最大化"}
             onClick={() => void win.toggleMaximize()}
@@ -1091,7 +1125,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </svg>
             )}
           </button>
-          <button className="wbtn close glint" title="关闭" onClick={() => void win.close()}>
+          <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
             <svg viewBox="0 0 20 20" className="ic">
               <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
             </svg>
@@ -1101,15 +1135,24 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
       <div className={`b-body${showFiles ? "" : " hide-files"}${showChat ? "" : " hide-chat"}`}>
         {/* ══ 左栏：文件（作品 + 目录树） ══ */}
-        <aside className="panel panel-files glass" aria-label="文件">
+        <aside
+          className="panel panel-files surface-rail"
+          aria-label="文件"
+          /* 收起时从焦点序列与无障碍树里立即移除。
+             CSS 那边的 visibility:hidden 要等 240ms 过渡走完才生效，
+             这 240ms 里 Tab 仍会走进一片已经看不见的面板 ——
+             inert 是立即的，两者互补，缺一不可。 */
+          inert={!showFiles}
+          aria-hidden={!showFiles}
+        >
           <div className="panel-head">
             <div className="ttl">文件</div>
-            <button className="icon-btn accent glint" title="新建作品" onClick={() => void newProject()}>
+            <button className="icon-btn accent" title="新建作品" onClick={() => void newProject()}>
               <svg viewBox="0 0 20 20" className="ic">
                 <path d="M10 4.5v11M4.5 10h11" />
               </svg>
             </button>
-            <button className="icon-btn glint" title="刷新作品列表" onClick={() => void refreshProjects()}>
+            <button className="icon-btn" title="刷新作品列表" onClick={() => void refreshProjects()}>
               <svg viewBox="0 0 20 20" className="ic">
                 <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
                 <path d="M16.6 3.4v3.4h-3.4" />
@@ -1119,7 +1162,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
           <div className="filesel-wrap" ref={fileselRef}>
             <button
-              className={bookMenu ? "filesel glint open" : "filesel glint"}
+              className={bookMenu ? "filesel open" : "filesel"}
               onClick={() => setBookMenu((v) => !v)}
               title="选择作品"
               aria-haspopup="listbox"
@@ -1142,7 +1185,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </svg>
             </button>
             {bookMenu ? (
-              <div className="bookmenu glass-pop" role="listbox" aria-label="作品列表">
+              <div className="bookmenu surface-raised" role="listbox" aria-label="作品列表">
                 {projects.map((p) => (
                   <button
                     key={p.root}
@@ -1193,7 +1236,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         </aside>
 
         {/* ══ 中栏：编辑器 ══ */}
-        <main className="panel panel-editor glass" aria-label="编辑器">
+        <main className="panel panel-editor surface-sheet" aria-label="编辑器">
           {tabs.length > 0 ? (
             <div className="tabstrip" role="tablist">
               {tabs.map((t) => (
@@ -1236,27 +1279,27 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
           {!activeTab ? (
             <div className="editor-empty">
-              <div className="ee-logo squircle">
+              <div className="ee-logo app-mark">
                 <img src={logo} alt="" />
               </div>
               <div className="ee-h">writerD</div>
               <div className="ee-p">AI 小说写作工作台</div>
               <div className="ee-actions">
-                <button className="btn btn-accent glint" onClick={() => void newProject()}>
+                <button className="btn btn-accent" onClick={() => void newProject()}>
                   <svg viewBox="0 0 20 20" className="ic">
                     <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h4.2c.9 0 1.6.7 1.6 1.6v11.2a1.2 1.2 0 0 0-1.2-1.2H3V4.6z" />
                     <path d="M17 4.6A1.6 1.6 0 0 0 15.4 3h-4.2c-.9 0-1.6.7-1.6 1.6v11.2a1.2 1.2 0 0 1 1.2-1.2H17V4.6z" />
                   </svg>
                   新书启航
                 </button>
-                <button className="btn glint" onClick={() => void continueWriting()}>
+                <button className="btn" onClick={() => void continueWriting()}>
                   <svg viewBox="0 0 20 20" className="ic">
                     <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
                     <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
                   </svg>
                   继续写作
                 </button>
-                <button className="btn glint" onClick={() => void refreshProjects()}>
+                <button className="btn" onClick={() => void refreshProjects()}>
                   <svg viewBox="0 0 20 20" className="ic">
                     <path d="M16.4 10a6.4 6.4 0 1 1-1.9-4.6" />
                     <path d="M16.6 3.4v3.4h-3.4" />
@@ -1280,8 +1323,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 <h1>{activeTab.name.replace(/\.md$/i, "")}</h1>
                 <span className="wc-badge">{countWords(activeTab.content)} 字</span>
                 {activeTab.kind === "doc" ? (
+                  /* 徽标只说**模式**，不说状态：原来这里是"资料 · 自动保存"，
+                     而状态条在同一屏右侧又写一遍同一句话。现在徽标管"这是什么
+                     文档"（资料 / 只读 / 编辑中），状态条管"现在存到哪一步了"
+                     （未保存 / 保存中 / 已保存）—— 两者不再重复。
+                     "自动保存"的行为说明留在 title 里。 */
                   <span className="mode-badge" title="资料文档：直接编辑，切换或关闭时自动保存">
-                    资料 · 自动保存
+                    资料
                   </span>
                 ) : (
                   <div className="editor-tools">
@@ -1295,14 +1343,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                       </span>
                     )}
                     <button
-                      className="btn glint"
+                      className="btn"
                       onClick={() => void toggleEditing(activeTab)}
                       title={activeTab.editing ? "结束编辑：自动保存 → 回流（审稿 + 学习记录）" : "进入编辑（正文/候选默认只读）"}
                     >
                       {activeTab.editing ? "完成（保存并回流）" : "修改"}
                     </button>
                     <button
-                      className="btn glint"
+                      className="btn"
                       onClick={() => setColdReq({ tab: activeTab })}
                       title="冷读：让一位看不到设定与前情的陌生读者审读本章"
                     >
@@ -1310,7 +1358,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     </button>
                     {activeTab.kind === "candidate" && !activeTab.rel.includes(PROJECT_DIRS.processed) ? (
                       <button
-                        className="btn btn-accent glint"
+                        className="btn btn-accent"
                         onClick={() => void adoptCandidate(activeTab)}
                         title="采用门：确认此稿为最终稿，AI 执行登记 → 保存正文 → 增量回写 → 归档推进"
                       >
@@ -1334,12 +1382,19 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
         {/* ══ 右栏：AI 对话 ══ */}
         <aside
-          className={busy ? "panel panel-chat glass streaming" : "panel panel-chat glass"}
+          className={busy ? "panel panel-chat surface-rail streaming" : "panel panel-chat surface-rail"}
           aria-label="AI 对话"
+          /* 对话字号必须挂在**面板**这一层：它的消费者有两个 ——
+             .chat-scroll 里的消息气泡，和 .composer-input 输入框 ——
+             而这两者是兄弟关系。旧实现把它写在 .chat-scroll 上，
+             于是输入框永远读不到用户的字号设置，只能吃兜底值。 */
+          style={{ "--chat-fs": `${chatFontSize}px` } as React.CSSProperties}
+          inert={!showChat}
+          aria-hidden={!showChat}
         >
           <div className="chat-head" ref={sessRef}>
             <button
-              className={sessMenu ? "sess-sel glint open" : "sess-sel glint"}
+              className={sessMenu ? "sess-sel open" : "sess-sel"}
               onClick={() => setSessMenu((v) => !v)}
               title="切换会话"
               aria-haspopup="listbox"
@@ -1365,7 +1420,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 <path d="M3 4.6L6 7.6l3-3" />
               </svg>
             </button>
-            <button className="icon-btn accent glint" title="新建对话" onClick={startNewChat}>
+            <button className="icon-btn accent" title="新建对话" onClick={startNewChat}>
               <svg viewBox="0 0 20 20" className="ic">
                 <path d="M10 4.5v11M4.5 10h11" />
               </svg>
@@ -1373,7 +1428,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
             {/* 会话下拉（取代旧的对话列表栏） */}
             {sessMenu ? (
-              <div className="sess-menu glass-pop" role="listbox" aria-label="会话列表">
+              <div className="sess-menu surface-raised" role="listbox" aria-label="会话列表">
                 <button
                   className="sess-new"
                   onClick={startNewChat}
@@ -1419,7 +1474,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               className="chat-scroll"
               ref={chatScroll}
               onScroll={onChatScroll}
-              style={{ "--chat-fs": `${chatFontSize}px` } as React.CSSProperties}
             >
               {session!.messages.map((m) =>
                 m.role === "user" ? (
@@ -1487,7 +1541,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             </div>
           ) : (
             <div className="chat-welcome">
-              <div className="cw-logo squircle">
+              <div className="cw-logo app-mark">
                 <img src={logo} alt="" />
               </div>
               <div className="cw-h">writerD 助手</div>
@@ -1496,7 +1550,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 {STARTER_TIPS.map((tip) => (
                   <button
                     key={tip.label}
-                    className="cw-tip glint"
+                    className="cw-tip"
                     onClick={() => {
                       setComposer(tip.text);
                       composerRef.current?.focus();
@@ -1513,7 +1567,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           )}
 
           <div className="chat-quick">
-            <button className="chip glint" onClick={() => setMemoOpen(true)}>
+            <button className="chip" onClick={() => setMemoOpen(true)}>
               <svg viewBox="0 0 20 20" className="ic">
                 <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
                 <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
@@ -1522,7 +1576,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             </button>
             {project ? (
               <button
-                className="chip glint"
+                className="chip"
                 title="一键指令：按主线写下一章候选（完整初稿 → 逐段修改 → 全文复读）"
                 disabled={busy}
                 onClick={() => void sendUserMessage(WRITE_NEXT_MESSAGE)}
@@ -1536,7 +1590,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             ) : null}
             {activeTab && activeTab.kind !== "doc" ? (
               <button
-                className="chip glint"
+                className="chip"
                 title="冷读：让看不到设定与前情的陌生读者审读本章"
                 disabled={busy}
                 onClick={() => setColdReq({ tab: activeTab })}
@@ -1550,7 +1604,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             ) : null}
           </div>
 
-          <div className="composer glass-inset">
+          <div className="composer surface-well">
             <textarea
               ref={composerRef}
               className="composer-input"
@@ -1568,7 +1622,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               }}
             />
             <div className="comp-row">
-              <button className="chip model glint" title="在设置中配置模型" onClick={onOpenSettings}>
+              <button className="chip model" title="在设置中配置模型" onClick={onOpenSettings}>
                 <svg viewBox="0 0 16 16" className="ic">
                   <path
                     d="M8 1.6c2.6 3.3 3.9 5.6 3.9 7.1A3.9 3.9 0 0 1 8 12.6a3.9 3.9 0 0 1-3.9-3.9c0-1.5 1.3-3.8 3.9-7.1z"
@@ -1581,7 +1635,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </button>
               {busy ? (
                 <button
-                  className="chip stop glint"
+                  className="chip stop"
                   title="停止生成（立即中断当前流）"
                   onClick={() => {
                     abortRef.current.aborted = true;
@@ -1597,7 +1651,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               ) : null}
               {!hasKey ? <span className="chip warn">未配置 API Key</span> : null}
               <button
-                className="send glint"
+                className="send"
                 title="发送（Enter）"
                 aria-label="发送"
                 onClick={() => void doSend()}
@@ -1614,23 +1668,28 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       </div>
 
       {/* ── 全局状态条 ── */}
-      <div className="statusbar glass-bar">
-        <span className="st-left">{status}</span>
+      <div className="statusbar">
+        <span className="st-left" role="status">{status}</span>
         <span className="st-right">
           {activeTab ? (
             <>
-              <span className={activeTab.dirty ? "st-dot dirty" : "st-dot"} title={activeTab.dirty ? "有未保存的修改" : "已保存"} />
+              {/* 保存态用线表达：实线=已落盘，虚线=有未落盘改动。
+                  key 随保存态变化 —— React 会重建这个 span，于是那条线
+                  会自左向右重新"划"出来一次（落盘那一刻的过签动作）。
+                  它右侧永远跟着文字，状态从不只靠颜色或线形单独承担。 */}
+              <span
+                key={activeTab.dirty || saving ? "unsaved" : "saved"}
+                className={activeTab.dirty || saving ? "st-save unsaved" : "st-save"}
+              />
               {activeTab.kind === "doc"
                 ? saving
                   ? "保存中…"
                   : activeTab.dirty
                     ? "未保存 · Ctrl+S 保存"
-                    : "资料 · 自动保存"
+                    : "已保存"
                 : activeTab.editing
                   ? "编辑中 · 点「完成」保存并回流"
                   : "只读 · 点「修改」后可编辑"}
-              <span>·</span>
-              {countWords(activeTab.content)} 字
             </>
           ) : null}
         </span>
@@ -1643,8 +1702,15 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
       {coldReq ? (
         <div className="qmodal scrim">
-          <div className="qbox glass sheet">
-            <h3>冷读 · {coldReq.tab.name.replace(/\.md$/i, "")}</h3>
+          <div
+            className="qbox surface-raised sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={coldTitleId}
+            tabIndex={-1}
+            ref={coldPanelRef}
+          >
+            <h3 id={coldTitleId}>冷读 · {coldReq.tab.name.replace(/\.md$/i, "")}</h3>
             <p className="qhint">
               冷读在独立会话中运行：审读者看不到大纲、设定、人物资料与任何作者解释，也没有文件工具，
               就像一位第一次读到这份稿子的新读者。结束后报告自动存入 小说资料\审核\。
@@ -1681,6 +1747,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <button
                 className="qsubmit btn btn-accent"
                 disabled={busy}
+                ref={coldSubmitRef}
                 onClick={() => void runColdRead(coldReq.tab, coldPrior, coldGoal)}
               >
                 开始冷读
@@ -1695,7 +1762,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
       {pending ? (
         <div className="qmodal scrim">
-          <div className="qbox glass sheet wide">
+          <div
+            className="qbox surface-raised sheet wide"
+            role="dialog"
+            aria-modal="true"
+            aria-label="需要你的选择"
+            tabIndex={-1}
+            ref={pendPanelRef}
+          >
             {pending.items.map((q, qi) => (
               <div key={qi} style={{ marginBottom: 16 }}>
                 <h3>
@@ -1708,6 +1782,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     <button
                       key={o.label}
                       className={on ? "qopt on" : "qopt"}
+                      ref={qi === 0 && o === q.options[0] ? pendFirstRef : undefined}
                       onClick={() =>
                         setQSel((s) => {
                           const cur = s[qi] ?? [];
