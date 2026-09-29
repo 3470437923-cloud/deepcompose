@@ -86,6 +86,14 @@ export function createNodeFs(): FsBridge {
       }
       await fsp.rm(path, { recursive, force: true });
     },
+    async removeChild(parent, name, recursive) {
+      // 对齐 Rust fs_remove_child：父目录 + 单个路径段；非法名字在 Rust 侧会被拒。
+      // 测试替身同样做基本校验，免得"只在生产才炸"的用例溜过闸门。
+      if (name === "" || name === "." || name === ".." || /[\\/:*?"<>|]/.test(name)) {
+        throw new Error(`非法名称：${JSON.stringify(name)}`);
+      }
+      await this.remove(nodePath.join(parent, name), recursive);
+    },
     async rename(from, to) {
       // 对齐 Rust fs_rename：先建目标父目录再改名（目标已存在则覆盖，两侧一致）
       await fsp.mkdir(nodePath.dirname(to), { recursive: true });
@@ -98,9 +106,14 @@ export function createNodeFs(): FsBridge {
     },
     async stat(path): Promise<StatInfo | null> {
       try {
-        const st = await fsp.stat(path);
-        // 目录 size 恒 0（Rust fs_stat 同口径）
-        return { isDir: st.isDirectory(), size: st.isDirectory() ? 0 : st.size, mtimeMs: st.mtimeMs };
+        // lstat：链接本身的信息（Rust fs_stat 用 symlink_metadata 同口径）
+        const st = await fsp.lstat(path);
+        return {
+          isDir: st.isDirectory(),
+          size: st.isDirectory() ? 0 : st.size,
+          mtimeMs: st.mtimeMs,
+          isLink: st.isSymbolicLink(),
+        };
       } catch {
         return null; // 对齐 Rust fs_stat：不存在返回 None
       }

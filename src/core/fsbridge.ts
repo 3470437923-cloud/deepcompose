@@ -26,6 +26,8 @@ export interface StatInfo {
   isDir: boolean;
   size: number;
   mtimeMs: number;
+  /** 是否链接 / junction（reparse point）；删除流程据此拒绝穿透（KL-DF-10） */
+  isLink: boolean;
 }
 
 /**
@@ -33,6 +35,8 @@ export interface StatInfo {
  *  - writeText / appendText：自动创建目标父目录（递归），目标不存在时创建；
  *  - list：目录不存在返回 []（不抛）；条目排序为目录在前、再按名称大小写不敏感；
  *  - remove：目标不存在静默成功；recursive=false 时删单文件或**空目录**（非空目录报错）；
+ *  - removeChild：只删 `<parent>\<name>`，`name` 必须是单个路径段（Rust 侧会校验：
+ *    拒绝分隔符 / `..` / 冒号(ADS) / 通配符 / 控制字符 / 保留设备名）；
  *  - rename / copy：自动创建目标父目录；copy 对目录递归复制；
  *  - stat：路径不存在返回 null（不抛）；
  *  - readText：非 UTF-8 内容抛错（Rust read_to_string 口径），BOM 原样保留。
@@ -48,6 +52,8 @@ export interface FsBridge {
   mkdir(path: string): Promise<void>;
   /** recursive=false 时删空目录或单文件 */
   remove(path: string, recursive: boolean): Promise<void>;
+  /** 受限删除：只删 `<parent>\<name>`（name 为单个路径段，Rust 侧校验） */
+  removeChild(parent: string, name: string, recursive: boolean): Promise<void>;
   rename(from: string, to: string): Promise<void>;
   copy(from: string, to: string): Promise<void>;
   stat(path: string): Promise<StatInfo | null>;
@@ -66,6 +72,7 @@ export function createTauriFs(invoke: InvokeFn): FsBridge {
     exists: (path) => invoke<boolean>("fs_exists", { path }),
     mkdir: (path) => invoke<void>("fs_mkdir", { path }),
     remove: (path, recursive) => invoke<void>("fs_remove", { path, recursive }),
+    removeChild: (parent, name, recursive) => invoke<void>("fs_remove_child", { parent, name, recursive }),
     rename: (from, to) => invoke<void>("fs_rename", { from, to }),
     copy: (from, to) => invoke<void>("fs_copy", { from, to }),
     stat: (path) => invoke<StatInfo | null>("fs_stat", { path }),

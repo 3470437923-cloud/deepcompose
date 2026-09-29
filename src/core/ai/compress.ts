@@ -145,12 +145,43 @@ export function splitMessages(
  * 会话级检查点缓存：sessionId → { upToId: 压缩段最后一条消息 id, block: 摘要块 }。
  * 仅内存（重启即失效，重算即可）；依赖「会话消息只追加不改写」的成立——
  * 命中时 upToId 之前的前缀与建缓存时一致，块可以直接复用。
+ *
+ * **容量有上限**（KL-AI-11）：早期实现只增不淘汰，长时间多会话运行会把
+ * 每个会话的摘要块永久留在内存里（会话删了也还在）。现在按 LRU 封顶：
+ * 命中/写入都把条目移到队尾，超限丢队首（最久没用过的那条）。
+ * 知道会话已经消失的调用方（删作品/删会话）可以直接 `dropCompressCache`。
  */
 const cache = new Map<string, { upToId: string; block: string }>();
+/** 上限取 32：正常使用下同时在用的会话远少于这个数，超出的都是已经翻过去的历史 */
+export const COMPRESS_CACHE_MAX = 32;
 
 /** 清空压缩缓存（仅供测试隔离用例） */
 export function __clearCompressCache(): void {
   cache.clear();
+}
+
+/** 丢掉某个会话的缓存（会话/作品被删除时调用；不存在是 no-op） */
+export function dropCompressCache(sessionId: string): void {
+  cache.delete(sessionId);
+}
+
+/** 把条目挪到队尾（Map 的迭代顺序 = 插入顺序，队首即最久未用） */
+function touchCache(sessionId: string): void {
+  const v = cache.get(sessionId);
+  if (!v) return;
+  cache.delete(sessionId);
+  cache.set(sessionId, v);
+}
+
+/** 写入并维持容量上限 */
+function putCache(sessionId: string, value: { upToId: string; block: string }): void {
+  cache.delete(sessionId);
+  cache.set(sessionId, value);
+  while (cache.size > COMPRESS_CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest === undefined) break;
+    cache.delete(oldest);
+  }
 }
 
 /** maybeCompress 的输入 */
@@ -218,6 +249,7 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
   // 请求序列 = [检查点块] + upToId 之后的全部消息（最新消息必然保留）
   const cached = cache.get(opts.sessionId);
   if (cached && opts.messages.some((m) => m.id === cached.upToId)) {
+    touchCache(opts.sessionId); // 命中即"最近用过"，别被 LRU 先淘汰
     const idx = opts.messages.findIndex((m) => m.id === cached.upToId);
     const checkpoint: ChatMessage = {
       id: CHECKPOINT_PREFIX + opts.sessionId,
@@ -254,7 +286,7 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
   const verbatim = split.compress.filter((m) => m.role === "user").map((m) => m.text ?? "");
   const block = assembleBlock(summary, verbatim);
   const upTo = split.compress[split.compress.length - 1];
-  cache.set(opts.sessionId, { upToId: upTo.id, block });
+  putCache(opts.sessionId, { upToId: upTo.id, block });
 
   // 检查点以 user 角色进请求序列头部（两种协议都要求首条为 user/system，user 最稳）
   const checkpoint: ChatMessage = {

@@ -225,6 +225,46 @@ export interface SessionListEntry extends SessionIndexEntry {
 }
 
 /**
+ * 路径比较口径（Windows：大小写不敏感、分隔符统一）——只用于**比较**，不用于拼路径。
+ */
+function samePath(a: string, b: string): boolean {
+  const n = (p: string) => p.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  return n(a) === n(b);
+}
+
+/**
+ * 删除某作品的**全部**会话（文件 + 索引条目），返回删除条数与 id 列表。
+ *
+ * 用于「移入回收站」：会话与作品绑死，作品搬走后会话列表里留下的是一堆孤儿
+ * （点开只会报作品不存在）。原版行为就是把它们一起删掉并提示
+ * 「已移至回收站，并删除 N 个会话」—— 本函数就是那句话里的 N。
+ *
+ * 注意：**不可还原**。作品能从回收站还原，这些会话不能（确认弹窗里要写明）。
+ */
+export async function deleteSessionsForProject(
+  fs: FsBridge,
+  sessionsDir: string,
+  projectPath: string,
+): Promise<{ count: number; ids: string[] }> {
+  return serialized(async () => {
+    const index = await loadIndex(fs, sessionsDir);
+    const ids = Object.entries(index.sessions)
+      .filter(([, e]) => samePath(e.projectPath, projectPath))
+      .map(([id]) => id);
+    if (ids.length === 0) return { count: 0, ids: [] };
+    for (const id of ids) {
+      // fs.remove 对缺失文件是 no-op（两侧契约一致），索引条目照样清掉
+      await fs.remove(sessionFile(sessionsDir, id), false);
+      delete index.sessions[id];
+    }
+    await saveIndex(fs, sessionsDir, index);
+    // 一并交回 id 列表：调用方要拿它去清 AI 侧的会话级内存缓存（KL-AI-11），
+    // 只回一个数字会让上层无从下手，于是又得重读一遍索引。
+    return { count: ids.length, ids };
+  });
+}
+
+/**
  * 会话列表（按 updatedAt 字符串倒序，保持既有行为）。
  * updatedAt 为定长微秒 ISO 串，字典序即时间序；相等时返回 0，
  * 由 sort 的稳定性保持索引原有顺序（旧实现的二值比较器在并列时违反比较器契约）。

@@ -27,6 +27,7 @@ import {
 import { parseManifest, serializeManifest, type ProjectManifest } from "./manifest";
 import { compareChapterFiles, stripMd } from "./chapter";
 import { DOC_TEMPLATES, renderTemplate } from "./templates";
+import { childNameProblem } from "./names";
 
 export interface ProjectRef {
   /** 作品根绝对路径 */
@@ -59,13 +60,14 @@ export function kindForRel(rel: string): FileKind {
   return "doc";
 }
 
-/** 列出作品根下的全部作品（跳过回收站与隐藏目录） */
+/** 列出作品根下的全部作品（跳过系统条目：隐藏目录、`writerd_*` 与回收站清单） */
 export async function scanBooksRoot(fs: FsBridge, booksRoot: string): Promise<ProjectRef[]> {
   const entries = await fs.list(booksRoot);
   const out: ProjectRef[] = [];
   for (const e of entries) {
     if (!e.isDir) continue;
-    if (e.name.startsWith(".")) continue; // .openwrite_recycle 等
+    // 只跳 `.` 前缀是不够的：作品根下出现 writerd_* 目录时会被当成作品列出来
+    if (isSystemEntryName(e.name)) continue;
     out.push({ root: e.path, name: e.name, mtimeMs: e.mtimeMs });
   }
   out.sort((a, b) => b.mtimeMs - a.mtimeMs);
@@ -282,13 +284,15 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
  * 新建作品：14 件套模板 + 三个基础目录（小说资料/章节内容/待确认）+ 空清单。
  * 模板经 renderTemplate 替换 {书名} 占位并统一 CRLF 落盘（既有磁盘格式）。
  * 「审核」「个人改稿」「待确认\已处理」按首次使用创建，不预建。
- * 已知边界：未校验 Windows 保留设备名（CON/NUL 等），此类书名建目录会失败并抛错；
+ * 名字走 names.childNameProblem（与删除路径同一份规则）：保留设备名、冒号(ADS)、
+ * 尾随空格/点、控制字符都在建目录之前挡掉，错误信息是人话而不是系统报错。
  * exists→mkdir 非原子，双开应用同时建同名作品属未定义行为（单机单实例场景可接受）。
  */
 export async function createProject(fs: FsBridge, booksRoot: string, name: string): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
-  if (/[\\/:*?"<>|]/.test(trimmed)) throw new Error(`书名不能包含 \\ / : * ? " < > |`);
+  const problem = childNameProblem(trimmed);
+  if (problem) throw new Error(`书名不合法：${problem}`);
 
   const root = join(booksRoot, trimmed);
   if (await fs.exists(root)) throw new Error(`作品已存在：${trimmed}`);

@@ -103,6 +103,15 @@ export function guardPath(input: string, roots: GuardRoots): GuardDecision {
   const resolved = resolveToolPath(input, roots);
   const abs = resolved.abs;
 
+  // NTFS 备用数据流（ADS）：`第1章.md:payload` 会写进文件的隐藏流里 ——
+  // 授权根判定看的是主路径，这种"根内路径 + 冒号尾巴"能绕过一切目录检查，
+  // 而写入必然失败（或更糟：静默写进 ADS）。盘符后的那个冒号（`C:\`）是合法的，
+  // 所以只在去掉盘符前缀之后再找冒号。
+  const afterDrive = /^[A-Za-z]:/.test(abs) ? abs.slice(2) : abs;
+  if (afterDrive.includes(":")) {
+    return { ok: false, message: `路径里的冒号不合法（NTFS 备用数据流）：${input}`, resolved };
+  }
+
   // 盘符根（C:\ 等）范围过大，即使恰好是某授权根的祖先也一律要求确认
   if (isDriveRoot(abs)) {
     return { ok: false, message: NEEDS_CONFIRMATION_PREFIX + abs, resolved };
