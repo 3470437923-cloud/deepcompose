@@ -11,9 +11,11 @@ import {
   orderFor,
   parentRel,
   parseManifest,
+  removeItem,
   renameItem,
   serializeManifest,
   upsertItem,
+  type ProjectManifest,
 } from "../../src/core/store/manifest";
 import { __setSubMsSource } from "../../src/core/ids";
 
@@ -70,6 +72,38 @@ describe("manifest 条目操作", () => {
     expect(b.item.id).toBe(a.item.id);
     expect(Object.keys(b.manifest.items)).toHaveLength(1);
     expect(orderFor(b.manifest, "章节内容")).toEqual([a.item.id]);
+  });
+
+  it("再次 upsert 已有条目不挪动 order 位置（显示顺序回归锁）", () => {
+    // 修复前：每次 upsert 都把条目挤到 order 末尾，用户手动排序会被保存动作打乱
+    const a = upsertItem(emptyManifest(), { physicalPath: "章节内容/第1章.md" });
+    const b = upsertItem(a.manifest, { physicalPath: "章节内容/第2章.md" });
+    const c = upsertItem(b.manifest, { physicalPath: "章节内容/第3章.md" });
+    const d = upsertItem(c.manifest, { physicalPath: "章节内容/第1章.md" }); // 重新保存第1章
+    expect(orderFor(d.manifest, "章节内容")).toEqual([a.item.id, b.item.id, c.item.id]);
+  });
+
+  it("legacy 引用原位替换为条目 id，不挪位置", () => {
+    const m: ProjectManifest = {
+      ...emptyManifest(),
+      orders: { "章节内容": ["legacy:章节内容/第1章.md", "legacy:章节内容/第2章.md"] },
+    };
+    const { manifest, item } = upsertItem(m, { physicalPath: "章节内容/第1章.md" });
+    expect(orderFor(manifest, "章节内容")).toEqual([item.id, "legacy:章节内容/第2章.md"]);
+  });
+
+  it("removeItem 同步清掉条目 id 与同路径 legacy 引用（幽灵引用回归锁）", () => {
+    const { manifest, item } = upsertItem(emptyManifest(), { physicalPath: "章节内容/第1章.md" });
+    expect(removeItem(manifest, item.id).items[item.id]).toBeUndefined();
+    expect(orderFor(removeItem(manifest, item.id), "章节内容")).toEqual([]);
+    // order 里同时残留 legacy 引用与条目 id 时，两个都被清掉
+    const withLegacy: ProjectManifest = {
+      ...manifest,
+      orders: { "章节内容": ["legacy:章节内容/第1章.md", item.id] },
+    };
+    expect(orderFor(removeItem(withLegacy, item.id), "章节内容")).toEqual([]);
+    // 不存在的 id：幂等原样返回
+    expect(removeItem(manifest, "item_不存在")).toBe(manifest);
   });
 
   it("rename 只改 displayName，物理路径不动（格式优先的前提）", () => {

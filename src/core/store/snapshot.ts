@@ -50,10 +50,16 @@ export interface SessionSnapshots {
   snapshots: SnapshotEntry[];
 }
 
+/** 空快照容器（每会话一个，snapshots 按记录顺序追加） */
 export function emptySnapshots(sessionId: string): SessionSnapshots {
   return { sessionId, snapshots: [] };
 }
 
+/**
+ * 解析会话快照文件：空/损坏 JSON → 空容器（不抛错、不阻断写作）。
+ * 文件内 sessionId 优先于入参（文件是事实源）；snapshots 非数组时按空处理。
+ * 已知边界：数组内条目不逐条校验字段，畸形条目原样保留（回滚时由调用方判空）。
+ */
 export function parseSnapshots(text: string, sessionId: string): SessionSnapshots {
   if (!text || !text.trim()) return emptySnapshots(sessionId);
   try {
@@ -71,10 +77,12 @@ export function parseSnapshots(text: string, sessionId: string): SessionSnapshot
   return emptySnapshots(sessionId);
 }
 
+/** 序列化为单行 JSON（实测样本即单行——磁盘契约） */
 export function serializeSnapshots(s: SessionSnapshots): string {
   return JSON.stringify(s);
 }
 
+/** 快照文件路径：<snapshotsDir>\<sessionId>.json（sessionId 为 uuid，天然唯一，一会话一文件） */
 export function snapshotFile(snapshotsDir: string, sessionId: string): string {
   return join(snapshotsDir, `${sessionId}.json`);
 }
@@ -88,6 +96,7 @@ export async function contentHash(text: string): Promise<string> {
     .join("");
 }
 
+/** 生成快照条目 uuid：优先 crypto.randomUUID，缺失环境（老 webview）退化为 Math.random 版 v4 形态 */
 function uuid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -97,11 +106,13 @@ function uuid(): string {
   });
 }
 
+/** recordSnapshot 的输入；previousType/renameNewPath 等缺省时按下方规则推导 */
 export interface RecordInput {
   sessionId: string;
   callId: string;
   operation: SnapshotOperation;
   relativePath: string;
+  /** 写前原文；目标原本不存在时为 null（配合 previousExists=false） */
   previousContent: string | null;
   previousExists: boolean;
   previousType?: PreviousType;
@@ -111,7 +122,13 @@ export interface RecordInput {
   directoryEntries?: unknown[] | null;
 }
 
-/** 追加一条快照并落盘 */
+/**
+ * 追加一条快照并落盘（读旧文件 → 追加条目 → 整体写回）。
+ * 目录创建依赖 fs.writeText 的契约（生产 Rust 侧与测试 nodeFs 都会自动建父目录）。
+ * previousType 缺省时按 previousExists 推导（true→"file"，false→"none"）。
+ * 已知边界：读-改-写非原子，同一会话并发记录可能丢条目——现有调用方
+ * （工具执行/手动保存）在单会话内是串行的，暂不加锁，见审计报告。
+ */
 export async function recordSnapshot(
   fs: FsBridge,
   snapshotsDir: string,
@@ -145,6 +162,7 @@ export async function recordSnapshot(
   return next;
 }
 
+/** 读取某会话的全部快照（文件缺失 → 空容器；损坏 → parseSnapshots 兜底为空） */
 export async function loadSnapshots(
   fs: FsBridge,
   snapshotsDir: string,
@@ -155,7 +173,10 @@ export async function loadSnapshots(
   return parseSnapshots(await fs.readText(file), sessionId);
 }
 
-/** 最近一条针对某路径的快照（回滚用） */
+/**
+ * 最近一条针对某路径的快照（回滚用）：倒序查找，命中即返回。
+ * relativePath 需与记录时一致（'/' 分隔的相对作品根路径）。
+ */
 export function lastForPath(s: SessionSnapshots, relativePath: string): SnapshotEntry | null {
   for (let i = s.snapshots.length - 1; i >= 0; i--) {
     if (s.snapshots[i].relativePath === relativePath) return s.snapshots[i];

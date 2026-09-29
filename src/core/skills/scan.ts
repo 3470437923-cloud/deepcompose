@@ -16,13 +16,20 @@ import type { SkillMeta } from "../prefs";
 /** 内置分组的实测依据（2026-09-28） */
 export const BUILTIN_SKILL_NAMES = new Set(["novel-writer", "skill-creator"]);
 
-/** 解析 SKILL.md 头部 frontmatter 的 name/description（单行值） */
+/**
+ * 解析 SKILL.md 头部 frontmatter 的 name/description（单行值）。
+ * 容错口径：BOM 先剥（记事本等编辑器存 UTF-8 带 BOM 时，startsWith("---") 会失效）；
+ * 无 frontmatter / 围栏未闭合 / 行不是 `key: value` 形态 → 一律返回空值，
+ * 由调用方（scanSkills）跳过该目录，绝不抛异常。
+ */
 export function parseFrontmatter(text: string): { name: string; description: string } {
   let name = "";
   let description = "";
-  if (text.startsWith("---")) {
-    const end = text.indexOf("\n---", 3);
-    const head = end >= 0 ? text.slice(3, end) : "";
+  const t = text.replace(/^\uFEFF/, "");
+  if (t.startsWith("---")) {
+    // 闭合围栏按 "\n---" 找：CRLF 文件的 "\r\n---" 同样命中（\r 随后被 trim 剥掉）
+    const end = t.indexOf("\n---", 3);
+    const head = end >= 0 ? t.slice(3, end) : "";
     for (const line of head.split("\n")) {
       const m = /^(\w+)\s*:\s*(.*)$/.exec(line.trim());
       if (!m) continue;
@@ -33,27 +40,28 @@ export function parseFrontmatter(text: string): { name: string; description: str
   return { name, description };
 }
 
-/** 扫描技能根目录；目录缺 SKILL.md 或 name 为空时跳过（不报错） */
+/** 扫描技能根目录；目录缺 SKILL.md 或 name 为空时跳过（不报错）。
+ *  id 取目录名（稳定、可复现，不随 frontmatter name 改名而漂移）。 */
 export async function scanSkills(fs: FsBridge, skillsDir: string): Promise<SkillMeta[]> {
   const out: SkillMeta[] = [];
   let entries;
   try {
     entries = await fs.list(skillsDir);
   } catch {
-    return out;
+    return out; // 技能根不可读（未释放/被占用）时按"无技能"处理，不阻断启动
   }
   for (const e of entries) {
-    if (!e.isDir) continue;
+    if (!e.isDir) continue; // 只有目录才是技能
     const skillFile = `${e.path}\\SKILL.md`;
     if (!(await fs.exists(skillFile))) continue;
     let text = "";
     try {
       text = await fs.readText(skillFile);
     } catch {
-      continue;
+      continue; // 读失败视为坏技能目录，跳过
     }
     const { name, description } = parseFrontmatter(text);
-    if (name === "") continue;
+    if (name === "") continue; // 无 name 无法被 skill_lookup 精确引用，跳过
     out.push({
       id: e.name,
       name,
@@ -67,8 +75,16 @@ export async function scanSkills(fs: FsBridge, skillsDir: string): Promise<Skill
   return out;
 }
 
-/** 合并扫描结果与既有清单：扫描为准；首次（旧清单为空）只默认开启内置白名单，
- *  其余技能入库但不勾选（用户按需开启）；非首次保留用户当前的开关状态 */
+/**
+ * 合并扫描结果与既有清单：skillList 以扫描（目录现实）为准，整体替换 ——
+ *  - 目录里删掉的技能随之从清单消失；activeSkillIds 里残留的失效 id 无害
+ *    （availableSkillsBlock 按现存 id 过滤，自动忽略），且刻意不清除：目录暂时
+ *    不可见（如外接盘未挂载）时不丢用户勾选，目录回来即恢复；
+ *  - 新增技能入库但默认不勾选（非首次不由系统替用户做决定）；
+ *  - id 取目录名，旧清单整体被替换，不存在新旧 id 冲突的合并问题。
+ * 开关状态：首次（旧清单为空）只默认开启内置白名单（novel-writer / skill-creator），
+ * 非首次原样保留用户当前的 activeSkillIds。
+ */
 export function mergeSkillList(
   previous: SkillMeta[],
   scanned: SkillMeta[],

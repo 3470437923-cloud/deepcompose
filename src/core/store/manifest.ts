@@ -36,8 +36,10 @@ export interface ProjectManifest {
   manualOrderParents: string[];
 }
 
+/** 清单版本号（磁盘契约：实测样本 version=1，不随产品演进改动） */
 export const MANIFEST_VERSION = 1;
 
+/** 构造空清单（version=1，items/orders 为空对象，时间戳取 now 的微秒 ISO） */
 export function emptyManifest(now: Date = new Date()): ProjectManifest {
   return {
     version: MANIFEST_VERSION,
@@ -48,7 +50,12 @@ export function emptyManifest(now: Date = new Date()): ProjectManifest {
   };
 }
 
-/** 解析；空/损坏内容按空清单处理（既有行为：缺失文件视为空清单） */
+/**
+ * 解析清单文本：空串/纯空白 → 空清单（缺失文件视为空清单的既有行为）。
+ * 注意：**损坏 JSON 会抛错**（不静默吞掉），由调用方兜底——
+ * loadProject 已 try/catch 回退空清单；直接调用本函数时需自行处理异常。
+ * 字段级容错：version/updatedAt 类型不对时取默认值，items/orders/manualOrderParents 缺失时取空。
+ */
 export function parseManifest(text: string, now: Date = new Date()): ProjectManifest {
   if (!text || !text.trim()) return emptyManifest(now);
   const raw: unknown = JSON.parse(text);
@@ -63,10 +70,12 @@ export function parseManifest(text: string, now: Date = new Date()): ProjectMani
   };
 }
 
+/** 序列化为单行 JSON（实测样本即单行，无缩进——磁盘契约） */
 export function serializeManifest(m: ProjectManifest): string {
   return JSON.stringify(m);
 }
 
+/** 旧系统遗留的条目引用格式：`legacy:<物理路径>`（磁盘契约，逐字保持） */
 export function legacyRef(physicalPath: string): string {
   return `legacy:${physicalPath}`;
 }
@@ -79,7 +88,13 @@ export function findByPhysicalPath(m: ProjectManifest, physicalPath: string): Ma
   return null;
 }
 
-/** 新增或更新条目（按物理路径去重），并同步父目录 order */
+/**
+ * 新增或更新条目（按物理路径去重），并同步父目录 order。
+ * order 维护规则（保持用户排定的显示顺序）：
+ *  - 条目 id 已在 order 中 → 位置不动，只清理同路径的 legacy 引用与重复项；
+ *  - 只有 legacy:<物理路径> 引用 → 原位替换为条目 id（不挪位置）；
+ *  - 都不在 → 新文件，追加到父目录 order 末尾。
+ */
 export function upsertItem(
   m: ProjectManifest,
   input: { physicalPath: string; displayName?: string; kind?: ManifestKind },
@@ -107,27 +122,44 @@ export function upsertItem(
 
   const items = { ...m.items, [item.id]: item };
   const orders = { ...m.orders };
-  const list = [...(orders[parent] ?? [])];
-  const ref = legacyRef(input.physicalPath);
-  const withoutDup = list.filter((r) => r !== ref && r !== item.id);
-  withoutDup.push(item.id);
-  orders[parent] = withoutDup;
+  const legacy = legacyRef(input.physicalPath);
+  // 单次遍历完成：保留首个 id/legacy 出现的位置、去掉重复、legacy 原位换成 id
+  const nextOrder: string[] = [];
+  let placed = false;
+  for (const r of orders[parent] ?? []) {
+    if (r === item.id || r === legacy) {
+      if (!placed) {
+        nextOrder.push(item.id);
+        placed = true;
+      }
+    } else {
+      nextOrder.push(r);
+    }
+  }
+  if (!placed) nextOrder.push(item.id);
+  orders[parent] = nextOrder;
 
   return { manifest: { ...m, items, orders, updatedAt: stamp }, item };
 }
 
+/**
+ * 删除条目：从 items 移除，并同步清掉父目录 order 里的条目 id
+ * 与同物理路径的 legacy 引用（避免留下指向已删文件的幽灵引用）。
+ * id 不存在时原样返回（幂等）。
+ */
 export function removeItem(m: ProjectManifest, id: string, now: Date = new Date()): ProjectManifest {
   const item = m.items[id];
   if (!item) return m;
   const items = { ...m.items };
   delete items[id];
   const parent = parentRel(item.physicalPath);
+  const legacy = legacyRef(item.physicalPath);
   const orders = { ...m.orders };
-  orders[parent] = (orders[parent] ?? []).filter((r) => r !== id);
+  orders[parent] = (orders[parent] ?? []).filter((r) => r !== id && r !== legacy);
   return { ...m, items, orders, updatedAt: isoMicros(now) };
 }
 
-/** 重命名（只改显示名，物理路径不动） */
+/** 重命名（只改显示名 displayName，物理路径不动——「格式优先」的前提；id 不存在时原样返回） */
 export function renameItem(
   m: ProjectManifest,
   id: string,
@@ -143,16 +175,19 @@ export function renameItem(
   };
 }
 
+/** 取父目录的显示顺序列表（无记录时返回空数组；返回值是内部数组引用，调用方不得原地修改） */
 export function orderFor(m: ProjectManifest, parentRelPath: string): string[] {
   return m.orders[parentRelPath] ?? [];
 }
 
+/** 物理路径 → 父目录相对路径（'/' 与 '\' 都接受；根级文件返回 ''） */
 export function parentRel(physicalPath: string): string {
   const p = physicalPath.replace(/\\/g, "/").replace(/\/+$/, "");
   const i = p.lastIndexOf("/");
   return i < 0 ? "" : p.slice(0, i);
 }
 
+/** 物理路径 → 末段名（文件名或目录名；'/' 与 '\' 都接受） */
 export function basenameRel(physicalPath: string): string {
   const p = physicalPath.replace(/\\/g, "/").replace(/\/+$/, "");
   const i = p.lastIndexOf("/");

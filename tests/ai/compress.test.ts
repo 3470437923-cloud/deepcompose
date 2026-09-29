@@ -53,6 +53,7 @@ describe("estimateTokens", () => {
   });
 
   it("estimateMessageTokens 计入工具调用与结果", () => {
+    // 口径契约：thinking 与 toolCalls（name+arguments+result）都算进预算
     const m = msg("a", "assistant", "");
     m.toolCalls = [{ callId: "1", name: "file_read", arguments: '{"path":"x"}', result: '{"content":"1234"}' }];
     expect(estimateMessageTokens([m])).toBeGreaterThan(0);
@@ -61,6 +62,7 @@ describe("estimateTokens", () => {
 
 describe("assembleBlock", () => {
   it("块含全部 §6.1 标记且顺序正确", () => {
+    // 顺序契约：<compacted-summary> → 标题 → 摘要 → <verbatim-user-messages> → </compacted-summary>
     const block = assembleBlock("摘要内容", ["原话一", "原话二"]);
     const iOpen = block.indexOf(SUMMARY_OPEN);
     const iTitle = block.indexOf(SUMMARY_TITLE);
@@ -79,6 +81,7 @@ describe("assembleBlock", () => {
 describe("splitMessages", () => {
   const msgs = Array.from({ length: 10 }, (_, i) => msg(`m${i}`, "user", "字".repeat(200)));
   it("把旧消息切进压缩段、新消息留在保留段", () => {
+    // 不变量：compress + keep 恰好覆盖全部消息（不丢不重）
     const r = splitMessages(msgs, 1000);
     expect(r).not.toBeNull();
     expect(r!.compress.length).toBeGreaterThan(0);
@@ -103,6 +106,7 @@ describe("maybeCompress", () => {
       sessionId: "s1",
     });
     expect(r).toBeNull();
+    // 阈值未触发时传输层必须完全没被碰过
     expect(cap.req).toBeUndefined();
   });
 
@@ -121,22 +125,20 @@ describe("maybeCompress", () => {
     });
     expect(r).not.toBeNull();
     expect(cap.req).toBeDefined();
-    const bodyText = JSON.stringify((cap.req!.body as unknown) ?? "");
-    void bodyText;
-    expect(COMPRESS_PROMPT_1.length).toBeGreaterThan(0);
-    expect(COMPRESS_PROMPT_2.length).toBeGreaterThan(0);
+    // §6.5 两段压缩提示词真的随摘要请求发出（OpenAI 形态在 messages[*].content 里）
+    const bodyText = JSON.stringify(cap.req!.body);
+    expect(bodyText).toContain(COMPRESS_PROMPT_1);
+    expect(bodyText).toContain(COMPRESS_PROMPT_2);
     // 请求头 = 检查点消息（块文本）
     expect(r!.requestMessages[0].id.startsWith(CHECKPOINT_PREFIX)).toBe(true);
     expect(r!.requestMessages[0].text).toContain(SUMMARY_OPEN);
     expect(r!.requestMessages[0].text).toContain(SUMMARY_TITLE);
     expect(r!.requestMessages[0].text).toContain(summary);
-    // 保留段消息原样跟在检查点后，最后一条就是最新消息
+    // 保留段消息原样跟在检查点后，最后一条就是最新消息（压缩永不丢最新消息）
     expect(r!.requestMessages.length).toBeGreaterThanOrEqual(2);
     expect(r!.requestMessages[r!.requestMessages.length - 1].text).toBe(big[big.length - 1].text);
     // 用户原话逐字保留段
     expect(r!.requestMessages[0].text).toContain(big[0].text);
-    void SUMMARY_CLOSE;
-    void CHECKPOINT_MERGE_RULES;
   });
 
   it("摘要不比原文短 → 拒绝（§6.2 逐字错误）并回退不压缩", async () => {
@@ -145,6 +147,7 @@ describe("maybeCompress", () => {
     const notices: string[] = [];
     const r = await maybeCompress({
       cfg,
+      // 回一段与原文等长的"摘要"：必然触发 SUMMARY_TOO_BIG 校验
       transport: fakeTransport("太".repeat(3000 * 8)),
       messages: big,
       contextLimit: 10_000,
@@ -178,6 +181,7 @@ describe("maybeCompress", () => {
     const first = await maybeCompress(opts);
     expect(first).not.toBeNull();
     expect(calls).toBe(1);
+    // 第二次：命中会话级缓存（upToId 仍在序列里），传输层零调用、块逐字复用
     const second = await maybeCompress(opts);
     expect(second).not.toBeNull();
     expect(calls).toBe(1);
@@ -187,6 +191,7 @@ describe("maybeCompress", () => {
   it("旧检查点存在 → 摘要请求附 §6.3 合并规则", async () => {
     __clearCompressCache();
     const cap: { req?: HttpRequest } = {};
+    // 序列头部放一条"旧检查点"（id 带 CHECKPOINT_PREFIX），模拟二次压缩场景
     const head = {
       ...msg("cp0", "user", SUMMARY_OPEN + "\n旧检查点\n" + SUMMARY_CLOSE),
       id: CHECKPOINT_PREFIX + "old",
@@ -200,8 +205,13 @@ describe("maybeCompress", () => {
       reservedOutputTokens: 1_000,
       sessionId: "s5",
     });
-    // 合并规则随提示词进入请求体（OpenAI 形态 messages[*].content）
+    // 合并规则随提示词进入请求体（OpenAI 形态 messages[*].content）。
+    // 注意不能只断言"旧检查点"——转写里也含该词，证明不了合并规则被附上；
+    // 这里用规则正文的特征句锁定
     const raw = JSON.stringify(cap.req);
     expect(raw).toContain("旧检查点");
+    expect(raw).toContain("旧检查点会被丢弃：任何你没有带进新摘要的信息都会丢失。");
+    // 特征句确实来自 CHECKPOINT_MERGE_RULES（常量与断言同源，防两处各自漂移）
+    expect(CHECKPOINT_MERGE_RULES).toContain("旧检查点会被丢弃");
   });
 });

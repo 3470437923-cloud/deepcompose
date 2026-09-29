@@ -1,5 +1,5 @@
 /**
- * 作品目录协议（writerD 3.0 · 单主线工作流）。
+ * 作品目录协议（KeepCompose 单主线工作流）。
  *
  *   <booksRoot>\<书名>\小说资料\*.md        ← 维护文档（14 件套 + 用户自建 + 审核\ + 个人改稿\）
  *   <booksRoot>\<书名>\章节内容\第N章.md    ← 正式正文（唯一事实源）
@@ -153,6 +153,7 @@ export async function listProjectRootFiles(fs: FsBridge, projectRoot: string): P
 
 // ────────────────────────────── 通用内容树 ──────────────────────────────
 
+/** 内容树节点：目录或文件的统一形态（children 仅目录非空） */
 export interface ContentNode {
   name: string;
   /** 相对作品根路径，'\' 分隔；根为 '' */
@@ -187,8 +188,10 @@ function compareNodes(a: ContentNode, b: ContentNode, parentRel: string): number
 
 /**
  * 递归构建作品内容树（左栏数据源）。
- * 排除系统条目（.openwrite_* / writerd_* / recycle_manifest.json）；
- * 深度上限 4 层，防御异常嵌套。
+ * 排除系统条目（.openwrite_* / writerd_* / recycle_manifest.json，见 isSystemEntryName）；
+ * 深度上限 maxDepth 层（作品根直接子级为第 1 层）——同时防御异常嵌套与
+ * 符号链接成环：即使目录互相链接，递归也会在深度上限处截断，不会无限展开。
+ * fs.list 对不存在/不可读的目录返回 []，残缺作品不会抛错。
  */
 export async function buildContentTree(
   fs: FsBridge,
@@ -244,7 +247,12 @@ export interface ProjectData {
   manifest: ProjectManifest;
 }
 
-/** 读一个作品的全部索引信息 */
+/**
+ * 读一个作品的全部索引信息。
+ * 容错约定：清单缺失/损坏按空清单处理（不抛错）；各子目录缺失时对应列表为空
+ * （fs.list 契约：目录不存在返回 []）；stat 失败时 mtimeMs 记 0。
+ * 只读不判——不补模板、不迁移旧布局，读到什么展示什么。
+ */
 export async function loadProject(fs: FsBridge, projectRoot: string, name?: string): Promise<ProjectData> {
   const st = await fs.stat(projectRoot);
   const manifestPath = projectManifestFile(projectRoot);
@@ -270,7 +278,13 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
   };
 }
 
-/** 新建作品：14 件套模板 + 三个基础目录 + manifest（CRLF，占位符替换书名） */
+/**
+ * 新建作品：14 件套模板 + 三个基础目录（小说资料/章节内容/待确认）+ 空清单。
+ * 模板经 renderTemplate 替换 {书名} 占位并统一 CRLF 落盘（既有磁盘格式）。
+ * 「审核」「个人改稿」「待确认\已处理」按首次使用创建，不预建。
+ * 已知边界：未校验 Windows 保留设备名（CON/NUL 等），此类书名建目录会失败并抛错；
+ * exists→mkdir 非原子，双开应用同时建同名作品属未定义行为（单机单实例场景可接受）。
+ */
 export async function createProject(fs: FsBridge, booksRoot: string, name: string): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
@@ -300,6 +314,7 @@ export async function writeProjectFile(fs: FsBridge, path: string, content: stri
   await fs.writeText(path, content);
 }
 
+/** 是否为受管作品：以作品清单 .openwrite_manifest.json 的存在为准（仅目录存在不算） */
 export async function projectExists(fs: FsBridge, root: string): Promise<boolean> {
   return fs.exists(projectManifestFile(root));
 }
@@ -309,8 +324,12 @@ export function booksRecycleRoot(booksRoot: string): string {
   return recycleRoot(booksRoot);
 }
 
-/** 从候选/章节文件名提取章号标签（如 `第3章-v2-候选.md` → `第3章`）；失败返回 null */
+/**
+ * 从候选/章节文件名提取章号标签（如 `第3章-v2-候选.md` → `第3章`）；无法识别返回 null。
+ * 数字字符类与 chapter.ts 的 CHAPTER_RE 保持一致（含中文数字与繁体大写 壹贰叁…），
+ * 标签按文件名原文截取（全角数字不做半角化），仅去除内部空白。
+ */
 export function chapterLabelOf(fileName: string): string | null {
-  const m = /^第\s*[0-9０-９零〇一二两三四五六七八九十百千万]+\s*[章节卷回部集]/.exec(stripMd(fileName));
+  const m = /^第\s*[0-9０-９零〇一二两三四五六七八九十百千万壹贰叁肆伍陆柒捌玖拾佰仟萬]+\s*[章节卷回部集]/.exec(stripMd(fileName));
   return m ? m[0].replace(/\s+/g, "") : null;
 }

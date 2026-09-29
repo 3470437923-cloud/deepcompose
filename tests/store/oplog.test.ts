@@ -21,7 +21,8 @@ let root: string;
 const fs = createNodeFs();
 
 beforeAll(async () => {
-  root = await fsp.mkdtemp(path.join(os.tmpdir(), "writerd-oplog-"));
+  // 临时目录前缀用产品名 keepcompose-（非磁盘契约；作品根内的 writerd_oplog 目录名是契约，测试里保持原样）
+  root = await fsp.mkdtemp(path.join(os.tmpdir(), "keepcompose-oplog-"));
 });
 
 afterAll(async () => {
@@ -108,7 +109,7 @@ describe("oplog jsonl 读写", () => {
       digitsChanged: true,
       reflowTriggered: true,
     });
-    // 人为注入损坏行
+    // 人为注入损坏行：readOplog 必须跳过而不是整体失败
     await fsp.appendFile(oplogFile(root), "{broken json\n", "utf8");
     await appendOplog(fs, root, "adopt", "待确认/第2章-v2-候选.md", "sess-2");
 
@@ -118,7 +119,7 @@ describe("oplog jsonl 读写", () => {
     expect(entries[0].relPath).toBe("章节内容/第1章.md"); // 统一 '/' 分隔
     expect(entries[1].detail).toEqual({ changedChars: 42, digitsChanged: true, reflowTriggered: true });
     expect(entries[2].action).toBe("adopt");
-    // 每行一条 JSON
+    // 每行一条 JSON：3 条有效 + 1 条损坏 = 4 行（append-only，损坏行不被清理）
     const raw = await fsp.readFile(oplogFile(root), "utf8");
     expect(raw.trim().split("\n").length).toBe(4);
   });

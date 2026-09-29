@@ -42,6 +42,7 @@ export function availableSkillsBlock(skills: SkillMeta[], activeIds?: string[]):
   return out;
 }
 
+/** skill_lookup 的命中结果（content = SKILL.md 正文 + 逐字目录说明 + 文件清单） */
 export interface SkillLookupHit {
   skill_name: string;
   content: string;
@@ -53,7 +54,11 @@ export function findSkill(skills: SkillMeta[], nameOrId: string): SkillMeta | nu
   return skills.find((s) => s.name === q) ?? skills.find((s) => s.id === q) ?? null;
 }
 
-/** 读取技能正文；命中后按逐字格式追加目录说明与文件清单（最多 10 个） */
+/**
+ * 读取技能正文；命中后按逐字格式追加目录说明与文件清单（最多 10 个，排除 SKILL.md）。
+ * 文件清单最多下探 3 层目录（depth 0..2），约定目录 scripts/references/assets 都在此深度内。
+ * SKILL.md 缺失（技能目录被删/未释放）视为未命中，返回 null 由工具层报 "Skill not found"。
+ */
 export async function lookupSkill(
   fs: FsBridge,
   skills: SkillMeta[],
@@ -66,9 +71,8 @@ export async function lookupSkill(
   if (!(await fs.exists(skillFile))) return null;
   const body = await fs.readText(skillFile);
 
-  // 目录说明 + 最多 10 个可用文件（排除 SKILL.md）
+  // 目录说明 + 最多 10 个可用文件（排除 SKILL.md；'/' 分隔的相对路径）
   let note = SKILL_DIR_NOTE;
-  const entries = await fs.list(meta.directoryPath);
   const files: string[] = [];
   const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
     if (depth > 2 || files.length >= 10) return;

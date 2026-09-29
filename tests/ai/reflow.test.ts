@@ -1,11 +1,15 @@
 /**
  * 回流任务装配：候选/正文两路语义（候选禁止回写事实；正文增量回写），
  * 审稿报告制（question 门），学习记录路径。
+ *
+ * 提示词里的 小说资料/个人改稿、06-写作规则.md、00-项目状态.md、待确认/、
+ * 章节内容/ 均为磁盘契约名，断言即回归锁。
  */
 import { describe, expect, it } from "vitest";
 import { buildReflowPrompt, reflowSessionTitle } from "../../src/core/ai/reflow";
 import { diffLines } from "../../src/core/store/oplog";
 
+// 100→90：数字变化的典型样例（金额类事实，回流必须点名核对）
 const diff = diffLines("他有100元。", "他有90元，转身走了。");
 
 describe("buildReflowPrompt：候选稿路径", () => {
@@ -41,6 +45,7 @@ describe("buildReflowPrompt：候选稿路径", () => {
     expect(diff.digitsChanged).toBe(true);
     expect(p).toContain("数字变化");
     expect(p).toContain("变更摘要");
+    // diffSummaryText 的行前缀格式：- 删除行 / + 新增行
     expect(p).toContain("- 他有100元。");
     expect(p).toContain("+ 他有90元，转身走了。");
   });
@@ -70,6 +75,7 @@ describe("buildReflowPrompt：正式正文路径", () => {
   });
 
   it("章号未识别时如实标注", () => {
+    // 不猜测章号：标签缺失时明说「章号未识别」，学习记录文件名同样如实
     const q = buildReflowPrompt({ relPath: "章节内容/终章.md", kind: "chapter", chapterLabel: null, diff });
     expect(q).toContain("章号未识别");
   });

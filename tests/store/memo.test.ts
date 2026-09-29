@@ -1,4 +1,7 @@
-/** 备忘录 store 回归锁：格式保持既有 openwrite_memos.json 实测结构 */
+/**
+ * 备忘录 store 回归锁：格式保持既有 writerd_memos.json 实测结构
+ * （文件名是磁盘契约，测试中的 X:\writerd_memos.json 等路径保持原样）。
+ */
 import { describe, expect, it } from "vitest";
 import {
   addCategory,

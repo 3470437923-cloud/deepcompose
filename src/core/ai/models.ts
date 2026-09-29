@@ -5,6 +5,13 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+/**
+ * 拉取模型 id 清单（升序）。
+ * 参数与 Rust 侧 ModelsRequest（serde camelCase）逐一对应：
+ * baseUrl / apiKey / useAnthropicFormat——Anthropic 格式用 x-api-key +
+ * anthropic-version 头，OpenAI 格式用 Bearer 鉴权；15 秒超时与非空校验在 Rust 侧。
+ * 失败（未填地址/Key、连接失败、非 JSON 响应）以 Err 字符串 reject，界面直接展示。
+ */
 export async function fetchModels(
   baseUrl: string,
   apiKey: string,
