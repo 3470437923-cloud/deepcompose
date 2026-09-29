@@ -1,9 +1,20 @@
-"""对比度审计：按 WCAG 2.1 计算每套主题里文字与它实际落在的面之间的对比度。
+"""对比度审计：按 WCAG 2.1 实测真实元素上文字与它实际所处底色的对比度。
 
-难点在于面板是半透明玻璃 —— 文字并不是落在"某个色值"上，而是落在
-「玻璃 tint 叠加壁纸」的合成色上。本脚本在真实浏览器里读取令牌，
-按 alpha 合成算出面板的有效底色，再和文字色求对比度，因此给的是
-屏幕上真实成立的数字，而不是猜的。
+为什么重写：旧版是为"半透明玻璃"写的 —— 它读取 --bg-base / --glass-tint-a /
+--inset-bg 等令牌，再合成出面板的有效底色。实色体系上线后那些令牌被删除，
+而未定义的自定义属性会让 `color: var(--x)` 整条声明失效、回退到**继承值**，
+于是旧脚本把文字色和它自己比，输出了一整屏 "tx-1 / 面板 1.01:1" 这种
+荒谬结论 —— 工具在骗人，而且看不出来。教训：审计脚本必须实测 DOM，
+不能靠"假设某个令牌还在"。
+
+现在的做法（新体系是实色，反而更好测）：
+  · 选定一组真实元素选择器（从真实页面里取，不是造一个 div 猜）；
+  · 读它自己的 color；
+  · 沿祖先链收集每一层 backgroundColor，从最外层不透明底开始逐层 alpha
+    合成，得到文字真正落在的那个颜色；
+  · 阈值按 WCAG 自动判定：字号 >=24px，或 >=18.66px 且字重 >=700 算大字
+    （门槛 3:1），其余算正文（门槛 4.5:1）。这样就不需要我人工给某个
+    元素"开后门"降门槛。
 
 用法：
     python tools/_contrast_audit.py
@@ -11,36 +22,86 @@
 import json
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from _shot_flow import CDP  # noqa: E402
+from _shot_flow import CDP, FLOWS, run_flow  # noqa: E402
+
+# (ASCII 标签, 选择器) —— 标签用 ASCII，避免终端把中文标签显示成乱码
+# 而让人看错是哪一对不达标。
+TARGETS = [
+    ("tree-item/rail", ".tnode"),
+    ("tree-selected/accent-fill", ".tnode.on"),
+    ("panel-title/rail", ".panel-head .ttl"),
+    ("panel-foot/rail", ".panel-foot"),
+    ("chip/rail", ".chip"),
+    ("chip-model/rail", ".chip.model"),
+    ("tab-idle/sheet", ".tab"),
+    ("btn-outline/rail", ".btn"),
+    ("btn-accent/on-accent", ".btn-accent"),
+    ("btn-quiet/rail", ".btn-quiet"),
+    ("ee-hint/sheet", ".ee-hint"),
+    ("ee-p/sheet", ".ee-p"),
+    ("ee-t1/sheet", ".ee-t1"),
+    ("cw-tip-text/ctl-fill", ".cw-tip"),
+    ("cw-p/sheet", ".cw-p"),
+    ("composer-input/well", ".composer-input"),
+    ("composer-ph/well", ".composer-input"),
+    ("bubble-ai/rail", ".msg.ai .bubble"),
+    ("bubble-user/accent-fill", ".msg.user .bubble"),
+    ("think/well", ".think"),
+    ("statusbar/bg-2", ".statusbar"),
+    ("send-icon/accent-fill", ".send"),
+    ("sess-ava-icon/accent-fill", ".sess-ava"),
+    ("session-title/ctl-fill", ".sess-title"),
+    ("editor-h1/sheet", ".editor-title h1"),
+    ("wc-badge/sheet", ".wc-badge"),
+    ("mode-badge/sheet", ".mode-badge"),
+    ("danger-btn/on-bad", ".btn-danger"),
+]
+
+# 设置屏单独跑两趟：这里的文字色令牌（--accent-text 落在 --accent-soft 上、
+# 成功绿、危险红）在主视图里不出现，不测就等于没验。
+# A = 提供商分节（点保存会让 .a-flash 真的渲染出来再测它）；
+# B = 数据分节（.a-btn-danger 只在这里，只看不点 —— 那是危险操作）。
+SETTINGS_TARGETS = [
+    ("a-nav-idle/rail", ".a-nav-item"),
+    ("a-nav-selected/soft", ".a-nav-item.on"),
+    ("a-card-title/sheet", ".a-card-title"),
+    ("a-card-desc/sheet", ".a-card-desc"),
+    ("a-form-label/sheet", ".a-form-label"),
+    ("a-input/well", ".a-form-input"),
+    ("a-flash-ok/sheet", ".a-flash"),
+    ("a-btn-primary/on-accent", ".a-btn-primary"),
+]
+
+SETTINGS_TARGETS_B = [
+    ("a-btn-danger/on-bad", ".a-btn-danger"),
+]
 
 CONTRAST_JS = r"""
-(() => {
-  const root = document.documentElement;
-
+((targets) => {
   const parse = (c) => {
-    const m = String(c).match(/rgba?\(([^)]+)\)/);
+    const s = String(c);
+    // Chrome 把 color-mix(in srgb, ...) 的计算值序列化成 `color(srgb r g b)`
+    // —— 分量是 0..1 而不是 0..255。只认 rgb() 的话，所有用 color-mix 派生的
+    // 令牌（--accent-fill / --accent-text / --accent-soft …）都会被判成
+    // "解析失败 → 透明"，于是脚本会拿祖先的背景色去算，得出完全错误的结论。
+    // 这是工具骗人的第二个坑，必须两种写法都认。
+    const m2 = s.match(/color\(srgb\s+([^)]+)\)/);
+    if (m2) {
+      const q = m2[1].split(/[\s/]+/).filter(Boolean).map(Number);
+      return { r: q[0] * 255, g: q[1] * 255, b: q[2] * 255, a: q.length > 3 ? q[3] : 1 };
+    }
+    const m = s.match(/rgba?\(([^)]+)\)/);
     if (!m) return null;
     const p = m[1].split(/[,\s/]+/).filter(Boolean).map(Number);
     return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
   };
-
-  // 关键：自定义属性读出来是「原始令牌文本」（可能是 #hex 或 color-mix(...)），
-  // 不是解析后的颜色。把它写进一个真实属性，再读回计算值，才能拿到真色。
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:absolute;left:-9999px;width:1px;height:1px';
-  document.body.appendChild(probe);
-  const tok = (name) => {
-    probe.style.color = '';
-    probe.style.color = 'var(' + name + ')';
-    return parse(getComputedStyle(probe).color);
-  };
-
-  const over = (src, dst) => ({
-    r: src.r * src.a + dst.r * (1 - src.a),
-    g: src.g * src.a + dst.g * (1 - src.a),
-    b: src.b * src.a + dst.b * (1 - src.a),
+  const over = (s, d) => ({
+    r: s.r * s.a + d.r * (1 - s.a),
+    g: s.g * s.a + d.g * (1 - s.a),
+    b: s.b * s.a + d.b * (1 - s.a),
     a: 1,
   });
   const chan = (x) => {
@@ -53,77 +114,126 @@ CONTRAST_JS = r"""
     return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
   };
 
-  // 壁纸取渐变两端的中值；面板 = glass-tint-a 叠在壁纸上；控件面/输入井再叠一层
-  const bgA = tok('--bg-base'), bgB = tok('--bg-base-2');
-  const wall = { r: (bgA.r + bgB.r) / 2, g: (bgA.g + bgB.g) / 2, b: (bgA.b + bgB.b) / 2, a: 1 };
-  const panel = over(tok('--glass-tint-a'), wall);
-  const ctl = over(tok('--ctl-fill'), panel);
-  const inset = over(tok('--inset-bg'), panel);
-  const surface = tok('--surface-a');
-  const accentSolid = tok('--accent');
+  // 沿祖先链把每一层背景从最外层不透明底往上合成
+  const bgOf = (el) => {
+    const chain = [];
+    let n = el;
+    while (n && n.nodeType === 1) {
+      const c = parse(getComputedStyle(n).backgroundColor);
+      if (c && c.a > 0) chain.push(c);
+      if (c && c.a >= 0.999) break;
+      n = n.parentElement;
+    }
+    if (!chain.length) return { r: 255, g: 255, b: 255, a: 1 };
+    let acc = chain[chain.length - 1];
+    for (let i = chain.length - 2; i >= 0; i--) acc = over(chain[i], acc);
+    return acc;
+  };
 
-  const pairs = [
-    ['tx-1 / 面板', tok('--tx-1'), panel],
-    ['tx-2 / 面板', tok('--tx-2'), panel],
-    ['tx-3 / 面板', tok('--tx-3'), panel],
-    ['tx-dim / 面板', tok('--tx-dim'), panel],
-    ['tx-1 / 模态面', tok('--tx-1'), surface],
-    ['tx-3 / 模态面', tok('--tx-3'), surface],
-    ['tx-dim / 模态面', tok('--tx-dim'), surface],
-    ['tx-1 / 控件面', tok('--tx-1'), ctl],
-    ['tx-3 / 控件面', tok('--tx-3'), ctl],
-    ['tx-1 / 输入井', tok('--tx-1'), inset],
-    ['tx-dim / 输入井', tok('--tx-dim'), inset],
-    ['ok / 面板', tok('--ok'), panel],
-    ['bad / 面板', tok('--bad'), panel],
-    ['warn / 面板', tok('--warn'), panel],
-    ['白字 / 强调色', { r: 255, g: 255, b: 255, a: 1 }, accentSolid],
-  ];
-
-  const out = pairs.map(([name, fg, bg]) => {
-    if (!fg || !bg) return { name: name, ratio: null };
-    const f = fg.a < 1 ? over(fg, bg) : fg;
-    return { name: name, ratio: Math.round(ratio(f, bg) * 100) / 100 };
-  });
-  probe.remove();
-  out.push({ name: '__panel', rgb: [Math.round(panel.r), Math.round(panel.g), Math.round(panel.b)] });
-  out.push({ name: '__wall', rgb: [Math.round(wall.r), Math.round(wall.g), Math.round(wall.b)] });
-  return JSON.stringify(out);
-})()
+  return JSON.stringify(targets.map(([label, sel, pseudo]) => {
+    const el = document.querySelector(sel);
+    if (!el) return { label: label, missing: true };
+    const cs = getComputedStyle(el, pseudo || undefined);
+    const fg = parse(cs.color);
+    const bg = bgOf(el);
+    const size = parseFloat(cs.fontSize) || 16;
+    const weight = parseInt(cs.fontWeight, 10) || 400;
+    const large = size >= 24 || (size >= 18.66 && weight >= 700);
+    return {
+      label: label,
+      fg: [Math.round(fg.r), Math.round(fg.g), Math.round(fg.b), fg.a],
+      bg: [Math.round(bg.r), Math.round(bg.g), Math.round(bg.b)],
+      size: Math.round(size * 100) / 100,
+      weight: weight,
+      large: large,
+      need: large ? 3.0 : 4.5,
+      ratio: Math.round(ratio(fg.a < 1 ? over(fg, bg) : fg, bg) * 100) / 100,
+    };
+  }));
+})(%s)
 """
 
 
-def grade(r):
-    """WCAG 2.1：正文 4.5:1，大字/次要 3:1"""
-    if r is None:
-        return "??"
-    if r >= 7:
-        return "AAA"
-    if r >= 4.5:
-        return "AA "
-    if r >= 3:
-        return "AA大字"
-    return "不足"
+def run_pass(c, theme, targets, label, prep):
+    c.cmd("Page.navigate", url="http://localhost:5183/preview.html?theme=%s" % theme)
+    if not c.wait_ready(min_text=60):
+        print("FAIL %s 页面未就绪" % theme)
+        return None, 1
+    prep(c)
+    rows = json.loads(c.eval(CONTRAST_JS % json.dumps(targets)))
+    bad = 0
+    print("\n===== %s / %s =====" % (theme, label))
+    for r in rows:
+        if r.get("missing"):
+            print("  SKIP %-28s 页面上没有这个元素" % r["label"])
+            continue
+        ok = r["ratio"] >= r["need"] - 0.005
+        if not ok:
+            bad += 1
+        print("  %-4s %-28s %6.2f:1  需 %.1f  (%spx/%s%s)  fg=rgba(%s) bg=rgb(%s)"
+              % ("PASS" if ok else "FAIL", r["label"], r["ratio"], r["need"],
+                 r["size"], r["weight"], " 大字" if r["large"] else "",
+                 ",".join(str(x) for x in r["fg"]), ",".join(str(x) for x in r["bg"])))
+    return rows, bad
 
 
 def main():
     c = CDP(9223)
     c.cmd("Emulation.setDeviceMetricsOverride", width=1600, height=1000, deviceScaleFactor=1, mobile=False)
+
+    # 占位符走伪元素，单列一次（Chrome 支持 getComputedStyle(el,'::placeholder')）
+    targets = [(lbl, sel, "::placeholder" if lbl == "composer-ph/well" else None)
+               for lbl, sel in TARGETS]
+    settings_targets = [(lbl, sel, None) for lbl, sel in SETTINGS_TARGETS]
+    settings_targets_b = [(lbl, sel, None) for lbl, sel in SETTINGS_TARGETS_B]
+
+    def prep_main(cc):
+        # 先开一章、再造出会话，才能覆盖到编辑器/气泡/思考块这些元素
+        run_flow(cc, FLOWS["editor"], verbose=False)
+        run_flow(cc, FLOWS["chat"], verbose=False)
+
+    def prep_settings(cc):
+        # 进设置（默认落在提供商分节）→ 点保存，让 .a-flash 真的渲染出来
+        cc.eval("(() => { const b = document.querySelector('.wbtn');"
+                " if (b) { b.click(); return 1; } return 0; })()")
+        time.sleep(0.8)
+        cc.eval("(() => { const b = document.querySelector('.a-btn-primary');"
+                " if (b) { b.click(); return 1; } return 0; })()")
+        time.sleep(0.7)
+
+    def prep_settings_b(cc):
+        # 进设置 → 数据分节。只看不点：那是危险操作。
+        cc.eval("(() => { const b = document.querySelector('.wbtn');"
+                " if (b) { b.click(); return 1; } return 0; })()")
+        time.sleep(0.8)
+        cc.eval("(() => { const n = document.querySelector('.a-nav-item:nth-of-type(6)');"
+                " if (n) { n.click(); return 1; } return 0; })()")
+        time.sleep(0.8)
+
+    report = {}
+    bad = 0
     for theme in ("dsblue", "light", "dark"):
-        c.cmd("Page.navigate", url="http://localhost:5183/preview.html?theme=%s" % theme)
-        if not c.wait_ready(min_text=60):
-            print("FAIL %s" % theme)
-            continue
-        rows = json.loads(c.eval(CONTRAST_JS))
-        meta = {r["name"]: r.get("rgb") for r in rows if r["name"].startswith("__")}
-        print("\n===== %s =====" % theme)
-        print("  壁纸≈rgb(%d,%d,%d)  面板≈rgb(%d,%d,%d)"
-              % (*meta["__wall"], *meta["__panel"]))
-        for r in rows:
-            if r["name"].startswith("__"):
-                continue
-            print("  %-22s %6.2f:1   %s" % (r["name"], r["ratio"], grade(r["ratio"])))
+        rows, n = run_pass(c, theme, targets, "主工作台", prep_main)
+        if rows is not None:
+            report["%s/main" % theme] = rows
+        bad += n
+        rows, n = run_pass(c, theme, settings_targets, "设置·提供商", prep_settings)
+        if rows is not None:
+            report["%s/settings-a" % theme] = rows
+        bad += n
+        rows, n = run_pass(c, theme, settings_targets_b, "设置·数据", prep_settings_b)
+        if rows is not None:
+            report["%s/settings-b" % theme] = rows
+        bad += n
+
+    out = os.path.join("shots", "contrast-report.json")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump(report, fh, ensure_ascii=False, indent=2)
+    print("\nREPORT %s" % out)
+    print("\n%s" % ("全部达标" if bad == 0 else "有 %d 项未达标" % bad))
+    return 0 if bad == 0 else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

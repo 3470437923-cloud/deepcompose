@@ -43,7 +43,12 @@ for base, _dirs, files in os.walk(os.path.join(ROOT, "src")):
         for m in re.finditer(r'className="([^"]*)"', src):
             tsx |= set(m.group(1).split())
         for m in re.finditer(r"className=\{([^}]*)\}", src):
-            for q in re.finditer(r'"([^"]*)"', m.group(1)):
+            expr = m.group(1)
+            # 先剔除比较操作数：`className={tab === "cloud" ? "a" : "b"}` 里
+            # 的 "cloud" 是被比较的**状态值**，不是类名。不剔掉的话会报出
+            # .cloud / .lan / .全部 / .失败 这类假裸奔（曾经确实误报过）。
+            expr = re.sub(r'[=!]==?\s*"[^"]*"', "", expr)
+            for q in re.finditer(r'"([^"]*)"', expr):
                 tsx |= set(q.group(1).split())
 
 IGNORE = {"org", "w3"}  # data-URI 里 http://www.w3.org 的误报

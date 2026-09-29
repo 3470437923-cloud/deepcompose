@@ -1,18 +1,21 @@
 /* ════════════════════════════════════════════════════════════════
    writerD 界面结构与组件
    ────────────────────────────────────────────────────────────────
-   主界面三栏：文件（左）· 编辑器（中）· AI 对话（右），全部是悬浮
-   材质面板，漂浮在环境光壁纸之上。
-   材质配方在 glass.css，主题令牌在 tokens.css，本文件只管结构、布局
-   与组件的"手感"。
+   主界面三栏：文件（左）· 编辑器（中）· AI 对话（右）。三栏是**实色
+   表面**，坐在同一片冷调画布上；层级由明度色阶表达（画布 → 侧轨 →
+   纸面 → 抬升 → 井），区域之间由 1px 发丝线登记定位。
+   材质配方在 surface.css，主题令牌在 tokens.css，本文件只管结构、
+   布局与组件的"手感"。
 
-   三条贯穿全篇的纪律：
-     · 层级靠「留白 + 明度差」，不靠边框。边框只在真正需要分隔时出现，
-       且一律用 --line-soft 这种发丝级。
-     · 进入用 --ease-out / --spring-soft，离开用 --ease-in，位移+淡出
+   四条贯穿全篇的纪律：
+     · 层级靠「明度差 + 发丝线」，不靠投影。投影只给真正浮起的层
+       （弹层 / 模态）用 —— 面板之间打投影，界面立刻就"糊"了。
+     · 进入用 --ease-out，悬停/按下的 transform 落位用 --ease-settle，
+       离开用 --ease-in，位移+淡出
        同向（进来从哪边来，出去就往哪边去）。
-     · 按压反馈在 :active 当场给（see glass.css 的按钮注释），
-       悬浮态只做颜色与阴影的轻变化。
+     · 按压反馈在 :active 当场给（见 surface.css 的按钮注释），
+       悬浮态只做颜色与描边的轻变化。
+     · 动效预算 150–250ms。用户是在任务流里，不是在看编排。
    ════════════════════════════════════════════════════════════════ */
 
 *,
@@ -31,7 +34,9 @@ body,
 }
 
 body {
-  background: linear-gradient(168deg, var(--bg-base-2) 0%, var(--bg-base) 58%);
+  /* 画布是一片实色，不是渐变。整屏只有一档底色，所有层级由面板自己在
+     色阶上站队 —— 底色一旦有渐变，面板的明度差就失去了参照。 */
+  background: var(--bg);
   color: var(--tx-1);
   font-family: var(--font-ui);
   font-size: var(--fs-body);
@@ -42,9 +47,9 @@ body {
   font-synthesis-weight: none;
   user-select: none;
 }
-/* 主题切换不做突变：底色与文字在 260ms 内过渡（避免亮度阶跃刺眼） */
+/* 主题切换不做突变：底色与文字在 240ms 内过渡（避免亮度阶跃刺眼） */
 html[data-theme] body {
-  transition: background 0.26s var(--ease), color 0.26s var(--ease);
+  transition: background var(--t-slow) var(--ease), color var(--t-slow) var(--ease);
 }
 
 input,
@@ -73,7 +78,7 @@ button {
 button:disabled { cursor: default; }
 
 svg { display: block; }
-::selection { background: var(--accent-soft); }
+/* ::selection 的取色在 surface.css（浏览器表面统一由材质层负责），此处不再重复定义。 */
 
 /* ── 图标基线 ── */
 .ic {
@@ -87,8 +92,6 @@ svg { display: block; }
   stroke-linejoin: round;
 }
 .ic-14 { width: 14px; height: 14px; stroke-width: 1.8 !important; }
-.ic-18 { width: 18px; height: 18px; stroke-width: 1.6 !important; }
-.ic-20 { width: 20px; height: 20px; stroke-width: 1.55 !important; }
 .ic-fill { fill: currentColor; stroke: none; }
 
 /* ════════════════ 应用外壳与窗口 ════════════════ */
@@ -98,6 +101,7 @@ svg { display: block; }
   height: 100%;
   overflow: hidden;
   display: flex;
+  background: var(--bg);
 }
 
 .win {
@@ -111,15 +115,19 @@ svg { display: block; }
 }
 /* 进入动画：两屏切换时，进来的那一屏从位移+淡入到位（推入感）。
    退出不做动画（React 直接卸载），但方向一致所以读起来是"推"。
-   方向由 App 写在 <html data-nav>：前进从右来、返回从左来。 */
-.win { animation: win-push 0.34s var(--spring-soft) both; }
-html[data-nav="back"] .win { --push-x: -14px; }
+   方向由 App 写在 <html data-nav>：前进从右来、返回从左来。
+   位移收到 10px：整窗平移是最容易"演过头"的动效，幅度一大就廉价。 */
+.win { animation: win-push var(--t-slow) var(--ease-out) both; }
+html[data-nav="back"] .win { --push-x: -10px; }
 @keyframes win-push {
-  from { opacity: 0; transform: translateX(var(--push-x, 14px)); }
+  from { opacity: 0; transform: translateX(var(--push-x, 10px)); }
   to { opacity: 1; transform: none; }
 }
 
 /* ════════════════ 标题栏 ════════════════ */
+/* 表单抬头：一条压在上面的纸边。实色 + 一条 1px 底发丝线。
+   旧版这里是"玻璃条 + 顶缘镜面高光 + 渐隐阴影" —— 那套配方成立的
+   前提是下面有壁纸可透，现在没有壁纸了，剩下的只有成本。 */
 .titlebar {
   height: var(--tb-h);
   flex: none;
@@ -129,23 +137,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
   padding: 0 8px 0 13px;
   position: relative;
   z-index: 20;
-  background:
-    linear-gradient(180deg, var(--sheen-a) 0%, transparent 62%),
-    linear-gradient(180deg, var(--glass-tint-a) 0%, var(--glass-tint-b) 100%);
-  backdrop-filter: blur(20px) saturate(var(--glass-sat)) brightness(var(--glass-bright));
-  -webkit-backdrop-filter: blur(20px) saturate(var(--glass-sat)) brightness(var(--glass-bright));
-  box-shadow: inset 0 1px 0 var(--rim-top);
-}
-/* 底部不用 1px 线，用一条渐隐的阴影：内容从下面穿过时不会被硬边切断 */
-.titlebar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--line-soft) 12%, var(--line-soft) 88%, transparent);
-  pointer-events: none;
+  background: var(--rail);
+  border-bottom: 1px solid var(--line);
 }
 
 .brand { display: flex; align-items: center; gap: 9px; flex: none; }
@@ -154,13 +147,13 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-size: var(--fs-headline);
   font-weight: 700;
   letter-spacing: -0.012em;
-  background: linear-gradient(118deg, var(--tx-1) 26%, var(--tx-3));
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
+  /* 曾经是"渐变文字"（tx-1 → tx-3 的 background-clip:text）。
+     强调靠字重与字号，不靠给文字上渐变 —— 渐变文字是最典型的一处
+     "AI 味"，而且会把可读性交给一个不可控的插值。 */
+  color: var(--tx-1);
 }
 
-/* 面板开关簇：玻璃凹槽里的成组按钮（iOS 工具组） */
+/* 面板开关簇：凹槽里的成组按钮 */
 .tb-cluster {
   display: flex;
   align-items: center;
@@ -168,21 +161,19 @@ html[data-nav="back"] .win { --push-x: -14px; }
   margin-left: 14px;
   padding: 3px;
   border-radius: var(--r-md);
-  background: var(--inset-bg);
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 55%, transparent),
-    inset 0 0 0 1px var(--inset-line);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
 }
 .tb-btn {
   width: 34px;
   height: 26px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--tx-3);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
@@ -191,10 +182,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .tb-btn:active { transform: scale(0.9); transition: transform 0.07s var(--ease-out); }
 .tb-btn.on {
   color: var(--accent-text);
-  background:
-    linear-gradient(180deg, var(--sheen-a) 0%, transparent 58%),
-    var(--seg-thumb);
-  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 0 0 1px var(--line), 0 1px 4px var(--sh-2);
+  background: var(--seg-thumb);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 .tb-div { width: 1px; height: 16px; flex: none; background: var(--line-strong); margin: 0 5px; }
 
@@ -208,13 +197,13 @@ html[data-nav="back"] .win { --push-x: -14px; }
   justify-content: center;
   color: var(--tx-2);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
 .wbtn:hover { background: var(--ctl-hover); color: var(--tx-1); }
 .wbtn:active { transform: scale(0.92); transition: transform 0.07s var(--ease-out); }
-.wbtn.close:hover { background: var(--close-hover); color: #fff; }
+.wbtn.close:hover { background: var(--close-hover); color: var(--on-accent); }
 
 /* ════════════════ 主界面三栏 ════════════════ */
 .b-body {
@@ -238,20 +227,35 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .panel-editor { flex: 1 1 auto; }
 .panel-chat { width: var(--chat-w); flex: none; }
 
-/* 面板收起：宽度与透明度一起收，收完再 display:none —— 直接 display:none
-   会是"啪"地消失，没有"窗关上了"的感觉。 */
+/* 面板收起：宽度、透明度、外边距一起收。 */
 .panel-files,
 .panel-chat {
   transition:
-    width 0.34s var(--spring-soft),
-    opacity 0.2s var(--ease),
-    margin-right 0.34s var(--spring-soft);
+    width var(--t-slow) var(--ease-out),
+    opacity var(--t-fast) var(--ease),
+    margin-right var(--t-slow) var(--ease-out);
 }
+/* 面板收起。旧实现只把宽度压到 0 并置透明，DOM 与可聚焦性都还在 ——
+   Tab 键会走进一片完全看不见的面板里，而且注释里"收完再 display:none"
+   的承诺从来没有兑现（整个文件里没有一条 display:none 规则）。
+   这里用两条互补的手段，缺一不可：
+     · visibility 延迟到动画结束才切换 —— 不打断"窗关上了"的过程，
+       收完之后这块也真的不参与命中测试与绘制了；
+     · JSX 侧同时挂 inert + aria-hidden —— 焦点序列与无障碍树立即移除，
+       不必等动画走完。
+   注意延迟只写在"隐藏态"这一侧：反过来展开时走上面那条基础 transition，
+   visibility 立刻切回可见，否则面板会在展开的头 240ms 里是隐形的。 */
 .b-body.hide-files .panel-files {
   width: 0;
   opacity: 0;
   margin-right: calc(var(--gap) * -1);
   pointer-events: none;
+  visibility: hidden;
+  transition:
+    width var(--t-slow) var(--ease-out),
+    opacity var(--t-fast) var(--ease),
+    margin-right var(--t-slow) var(--ease-out),
+    visibility 0s linear var(--t-slow);
 }
 .b-body.hide-chat .panel-chat {
   width: 0;
@@ -259,6 +263,20 @@ html[data-nav="back"] .win { --push-x: -14px; }
   margin-right: calc(var(--gap) * -1);
   pointer-events: none;
   overflow: hidden;
+  visibility: hidden;
+  transition:
+    width var(--t-slow) var(--ease-out),
+    opacity var(--t-fast) var(--ease),
+    margin-right var(--t-slow) var(--ease-out),
+    visibility 0s linear var(--t-slow);
+}
+/* 收起态的定时器兜底：reduced-motion 下过渡时长被压到 0.01ms，
+   延迟也必须一起归零，否则 visibility 会滞后一个 240ms。 */
+@media (prefers-reduced-motion: reduce) {
+  .b-body.hide-files .panel-files,
+  .b-body.hide-chat .panel-chat {
+    transition-delay: 0s;
+  }
 }
 
 .panel-head {
@@ -312,15 +330,13 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-weight: 600;
   letter-spacing: -0.004em;
   color: var(--tx-1);
-  background:
-    linear-gradient(180deg, var(--sheen-a) 0%, transparent 56%),
-    var(--ctl-fill);
-  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 0 0 1px var(--line);
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease);
 }
-.filesel:hover { background: linear-gradient(180deg, var(--sheen-a) 0%, transparent 56%), var(--ctl-hover); }
+.filesel:hover { background: var(--ctl-hover); }
 .filesel:active { transform: scale(0.985); transition: transform 0.07s var(--ease-out); }
 .filesel .bkc { width: 16px; height: 16px; color: var(--accent-text); flex: none; }
 .filesel .bk {
@@ -336,7 +352,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   height: 12px;
   color: var(--tx-dim);
   flex: none;
-  transition: transform 0.28s var(--spring-soft);
+  transition: transform 0.28s var(--ease-settle);
 }
 .filesel.open .uc { transform: rotate(180deg); }
 
@@ -414,7 +430,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   color: var(--tx-2);
   text-align: left;
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -428,25 +444,29 @@ html[data-nav="back"] .win { --push-x: -14px; }
   text-overflow: ellipsis;
 }
 .tnode.grp { font-weight: 640; color: var(--tx-1); letter-spacing: 0.004em; }
-.tnode.sub { padding-left: 28px; }
+/* .tnode.sub 的固定缩进已删除：层级缩进由 JSX 按 depth 内联计算
+   （见 MainWorkbench 的 paddingLeft），这里的 28px 从来没生效过，
+   而它恰好又是"缩进写死在 CSS 里"这种会在深层目录下错位的老做法。 */
 .tnode .caret {
   width: 12px;
   height: 12px;
   color: var(--tx-dim);
-  transition: transform 0.28s var(--spring-soft);
+  transition: transform 0.22s var(--ease-settle);
 }
 .tnode .caret.open { transform: rotate(90deg); }
 .tnode .ic { width: 15px; height: 15px; }
 .tnode .folder { color: var(--accent-text); }
 .tnode .doc { color: var(--tx-3); }
-/* 选中：强调色实底（左栏是导航，选中必须一眼可辨） */
+/* 选中：强调色实底（左栏是导航，选中必须一眼可辨）。
+   去掉两样东西：一是强调色→强调色暗部的对角渐变（填充本来就该是
+   一个色），二是那圈 0 偏移的彩色光晕（零偏移彩色光晕是装饰，不是深度）。 */
 .tnode.on {
-  background: linear-gradient(168deg, var(--accent) 0%, var(--accent-2) 100%);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--on-accent);
   font-weight: 620;
-  box-shadow: 0 2px 10px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, #000);
 }
-.tnode.on .doc { color: rgba(255, 255, 255, 0.86); }
+.tnode.on .doc { color: color-mix(in srgb, var(--on-accent) 86%, transparent); }
 .tree-empty {
   padding: 16px 12px;
   font-size: var(--fs-foot);
@@ -489,13 +509,25 @@ html[data-nav="back"] .win { --push-x: -14px; }
     box-shadow var(--t-fast) var(--ease);
 }
 .tab:hover { background: var(--ctl-hover); color: var(--tx-1); }
+/* 当前页签：底部一条 2px 强调墨实线标记，**不用整块填充色**。
+   一屏里"实心色块"的名额很少，要留给真正的主操作（发送 / 采用为正文）；
+   页签是"我在哪一页"，属于定位信息，一条规则线比一块色更准也更安静。 */
 .tab.on {
+  position: relative;
   color: var(--tx-1);
   font-weight: 620;
-  background:
-    linear-gradient(180deg, var(--sheen-a) 0%, transparent 58%),
-    var(--seg-thumb);
-  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 0 0 1px var(--line), 0 2px 8px var(--sh-2);
+  background: var(--seg-thumb);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.tab.on::after {
+  content: "";
+  position: absolute;
+  left: 9px;
+  right: 9px;
+  bottom: 0;
+  height: 2px;
+  border-radius: var(--r-full);
+  background: var(--accent);
 }
 .tab .nm {
   flex: 1;
@@ -511,7 +543,6 @@ html[data-nav="back"] .win { --push-x: -14px; }
   flex: none;
   border-radius: 50%;
   background: var(--warn);
-  box-shadow: 0 0 5px var(--warn);
 }
 .tab .x {
   width: 18px;
@@ -614,25 +645,18 @@ html[data-nav="back"] .win { --push-x: -14px; }
   padding: 24px;
   overflow-y: auto;
   position: relative;
-  animation: hero-in 0.5s var(--spring-soft) both;
+  animation: hero-in var(--t-slow) var(--ease-out) both;
 }
-/* 品牌背后的一团强调色柔光：给空态一个视觉重心，不靠加边框 */
-.editor-empty::before {
-  content: "";
-  position: absolute;
-  width: 420px;
-  height: 420px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 68%);
-  pointer-events: none;
-  opacity: 0.7;
-}
+/* 这里原本有一团 420px 的强调色柔光（radial-gradient），说是"给空态一个
+   视觉重心"。已删除：零偏移的彩色光晕属于装饰而非深度，而且这个空态
+   本来就有重心 —— 图标 + 标题 + 三个动作按钮 + 一行提示，信息层级是
+   完整的，再加一团雾只是把字压灰。 */
 @keyframes hero-in {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
 }
 .editor-empty > * { position: relative; }
-.ee-logo { width: 76px; height: 76px; margin-bottom: 20px; }
+.ee-logo { width: 64px; height: 64px; margin-bottom: 18px; }
 .ee-h { font-size: var(--fs-display); font-weight: 700; letter-spacing: var(--tr-display); }
 .ee-p {
   margin-top: 7px;
@@ -643,7 +667,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .ee-actions { margin-top: 26px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .ee-actions .btn { --btn-h: 38px; padding: 0 18px; font-size: var(--fs-body); }
 .ee-actions .btn .ic { color: var(--accent-text); }
-.ee-actions .btn-accent .ic { color: #fff; }
+.ee-actions .btn-accent .ic { color: var(--on-accent); }
 .ee-hint {
   margin-top: 24px;
   font-size: var(--fs-foot);
@@ -682,56 +706,33 @@ html[data-nav="back"] .win { --push-x: -14px; }
 /* ════════════════ 右栏：AI 对话 ════════════════ */
 .panel-chat { isolation: isolate; }
 
-/* ── 签名元素：流式生成时沿边缘行走的强调色光晕 ──
-   比原来慢（4.4s）且对比更低，长尾（前 72% 全透明）——
-   读起来是"光在玻璃边上走"，不是"转圈加载"。 */
-@property --glow-angle {
-  syntax: "<angle>";
-  initial-value: 0deg;
-  inherits: false;
-}
+/* ── 生成中的状态指示：顶部一条实色行进线 ──
+   这里原来是本应用的"签名元素"：一个 conic-gradient 旋转光环 + 一圈
+   blur(1px) + drop-shadow 的发光，外加一层 3.2s 的呼吸光晕。它建立在
+   "面板是玻璃、边可以发光"这个前提上，实色体系里没有这个前提。
+
+   换成什么：面板顶缘一条 2px 的**实色强调墨**，用纯 transform 从左行到右。
+     · 它是一个不确定进度指示器（indeterminate），语义与"正在产出"一致；
+     · 零渐变、零模糊、零 drop-shadow —— 每帧只改 transform，不触发重排；
+     · 周期 1.25s，比原来 4.4s 快得多：这是**状态**不是氛围，
+       状态要让人立刻看懂"它在动"，而不是让人盯着看它转。
+   注意：这里刻意不做成"加载转圈"。产出是流式的、有内容的，
+   所以指示器只占顶缘一条线，不占据内容区。 */
 .panel-chat.streaming::before {
   content: "";
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 2px;
-  background: conic-gradient(
-    from var(--glow-angle),
-    transparent 0 62%,
-    var(--accent-glow) 78%,
-    color-mix(in srgb, var(--accent) 30%, #fff) 88%,
-    var(--accent-glow) 94%,
-    transparent 100%
-  );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  filter: blur(1px) drop-shadow(0 0 10px var(--accent-glow));
-  animation: glow-spin 4.4s linear infinite;
+  top: 0;
+  left: 0;
+  width: 34%;
+  height: 2px;
+  background: var(--accent);
   pointer-events: none;
   z-index: 4;
+  animation: stream-run 1.25s var(--ease) infinite;
 }
-/* 呼吸感：光晕之外再给一层极轻的强调色氛围，提示"正在产出" */
-.panel-chat.streaming::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    120% 60% at 50% 100%,
-    var(--accent-soft) 0%,
-    transparent 62%
-  );
-  pointer-events: none;
-  z-index: 0;
-  animation: glow-breathe 3.2s var(--ease) infinite alternate;
-}
-@keyframes glow-spin { to { --glow-angle: 360deg; } }
-@keyframes glow-breathe {
-  from { opacity: 0.45; }
-  to { opacity: 0.95; }
+@keyframes stream-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(295%); }
 }
 
 .chat-head {
@@ -753,26 +754,23 @@ html[data-nav="back"] .win { --push-x: -14px; }
   gap: 9px;
   padding: 0 11px;
   border-radius: var(--r-md);
-  background:
-    linear-gradient(180deg, var(--sheen-a) 0%, transparent 56%),
-    var(--ctl-fill);
-  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 0 0 1px var(--line);
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line);
   transition:
     background var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
 }
-.sess-sel:hover { background: linear-gradient(180deg, var(--sheen-a) 0%, transparent 56%), var(--ctl-hover); }
+.sess-sel:hover { background: var(--ctl-hover); }
 .sess-ava {
   width: 21px;
   height: 21px;
   flex: none;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background: linear-gradient(160deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  color: var(--on-accent);
+  background: var(--accent-fill);
 }
 .sess-ava .ic { width: 12px; height: 12px; }
 .sess-title {
@@ -792,7 +790,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   height: 12px;
   flex: none;
   color: var(--tx-dim);
-  transition: transform 0.28s var(--spring-soft);
+  transition: transform 0.28s var(--ease-settle);
 }
 .sess-sel.open .chat-caret { transform: rotate(180deg); }
 
@@ -886,25 +884,31 @@ html[data-nav="back"] .win { --push-x: -14px; }
   flex-direction: column;
   max-width: 92%;
   min-width: 0;
-  animation: msg-in 0.36s var(--spring-soft) both;
+  /* 进入用 160ms 的减速淡入，**不用回弹曲线、也不做编排**。
+     原来这里是 0.36s 的 spring 进场：一是超出 150–250ms 的动效预算，
+     二是每来一条消息都"弹"一下 —— 这是一段要连续读几小时的对话，
+     消息该立刻可读，而不是先表演一下再就位。 */
+  animation: msg-in 0.16s var(--ease-out) both;
 }
-/* 气泡进入：从位移+轻微缩放到位。方向按左右各自来（空间一致），
-   AI 从下方 8px、用户从右下 6px。 */
+/* 气泡进入：从位移+极轻缩放到位。方向按左右各自来（空间一致）。 */
 @keyframes msg-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  from { opacity: 0; transform: translateY(5px) scale(0.99); }
   to { opacity: 1; transform: none; }
 }
 .msg.ai { align-self: flex-start; align-items: flex-start; width: 92%; }
 .msg.user { align-self: flex-end; align-items: flex-end; }
 .msg .who {
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 660;
   color: var(--tx-dim);
   letter-spacing: var(--tr-caption);
   margin: 0 6px 4px;
 }
 .bubble {
-  font-size: var(--chat-fs, 13.5px);
+  /* 兜底值必须与 prefs 的默认对话字号一致（15px）——
+     旧值 13.5px 与默认值不符，一旦 --chat-fs 没传到（历史上确实没传到，
+     见 MainWorkbench 里关于变量挂载层的注释）就会静默变小一号。 */
+  font-size: var(--chat-fs, 15px);
   line-height: 1.78;
   letter-spacing: var(--tr-small);
   padding: 10px 14px;
@@ -917,37 +921,41 @@ html[data-nav="back"] .win { --push-x: -14px; }
   width: 100%;
   color: var(--tx-1);
   background: var(--ctl-fill);
-  box-shadow: inset 0 0 0 1px var(--line-soft), inset 0 1px 0 var(--rim-top);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
   border-bottom-left-radius: var(--r-xs); /* iMessage 式尾角（左下） */
 }
 .msg.user .bubble {
-  color: #fff;
-  background: linear-gradient(166deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: 0 2px 10px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    inset 0 -1px 0 rgba(0, 0, 0, 0.14);
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, #000);
   border-bottom-right-radius: var(--r-xs); /* 尾角右下 */
 }
 
+/* 思考过程：一个"往下凹"的旁注区。
+   原来是浅底 + 2px 强调色左边框 —— 大于 1px 的彩色边条是明确的
+   反模式（它把"这一块是什么"交给一个色块去说）。改成一个井：
+   底色比对话面暗一档 + 1px 内描边，再用一个 11px 的字段标签点明
+   它是"思考过程"。状态（正在思考…）由标签文字与颜色承担。 */
 .think {
   position: relative;
   font-size: var(--fs-foot);
   color: var(--tx-dim);
   line-height: 1.75;
   letter-spacing: var(--tr-small);
-  background: var(--inset-bg);
-  border-left: 2px solid var(--accent-line);
-  border-radius: 0 var(--r-md) var(--r-md) 0;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
+  border-radius: var(--r-md);
   padding: 9px 12px;
   margin-bottom: 7px;
   width: 100%;
   white-space: pre-wrap;
   word-break: break-word;
-  animation: msg-in 0.3s var(--ease-out) both;
+  animation: msg-in var(--t-slow) var(--ease-out) both;
 }
 .think::before {
   content: "思考过程";
   display: block;
-  font-size: 10.5px;
+  font-size: var(--fs-caption);
   font-weight: 700;
   letter-spacing: var(--tr-caption);
   color: var(--tx-3);
@@ -994,20 +1002,23 @@ html[data-nav="back"] .win { --push-x: -14px; }
   animation: msg-in 0.3s var(--ease-out) both;
 }
 
-/* 三点输入指示：不是三个点一起闪，而是相位错开的呼吸 */
+/* 三点输入指示：相位错开的**呼吸**，不做上下弹跳。
+   原来叫 typing-bounce，三点各跳 3px —— 那是"聊天气泡"的语汇；
+   这里是"AI 正在写"，而且对话面板上缘已经有一条行进线在表达同一件事，
+   两个一起跳就成了表演。呼吸只改不透明度，零位移。 */
 .typing { display: flex; align-items: center; gap: 4px; padding: 13px 15px; }
 .typing i {
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--tx-3);
-  animation: typing-bounce 1.25s var(--ease) infinite;
+  animation: typing-pulse 1.15s var(--ease) infinite;
 }
 .typing i:nth-child(2) { animation-delay: 0.16s; }
 .typing i:nth-child(3) { animation-delay: 0.32s; }
-@keyframes typing-bounce {
-  0%, 62%, 100% { opacity: 0.34; transform: translateY(0); }
-  30% { opacity: 1; transform: translateY(-3px); }
+@keyframes typing-pulse {
+  0%, 62%, 100% { opacity: 0.32; }
+  30% { opacity: 1; }
 }
 
 /* ── 对话空态 ── */
@@ -1021,18 +1032,9 @@ html[data-nav="back"] .win { --push-x: -14px; }
   justify-content: center;
   padding: 22px 20px;
   position: relative;
-  animation: hero-in 0.5s var(--spring-soft) both;
+  animation: hero-in var(--t-slow) var(--ease-out) both;
 }
-.chat-welcome::before {
-  content: "";
-  position: absolute;
-  width: 320px;
-  height: 320px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
-  pointer-events: none;
-  opacity: 0.6;
-}
+/* 同 .editor-empty：那团 320px 的强调色柔光已删除，理由相同。 */
 .chat-welcome > * { position: relative; }
 .cw-logo { width: 58px; height: 58px; margin-bottom: 15px; }
 .cw-h { font-size: var(--fs-title); font-weight: 700; letter-spacing: var(--tr-title); }
@@ -1067,21 +1069,14 @@ html[data-nav="back"] .win { --push-x: -14px; }
   background: var(--ctl-fill);
   box-shadow: inset 0 0 0 1px var(--line-soft);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
-  animation: tip-in 0.44s var(--spring-soft) both;
 }
-/* 四条提示错峰进入（40ms 一档），读起来是"依次浮现"而不是"一起弹出" */
-.cw-tip:nth-child(1) { animation-delay: 0.04s; }
-.cw-tip:nth-child(2) { animation-delay: 0.08s; }
-.cw-tip:nth-child(3) { animation-delay: 0.12s; }
-.cw-tip:nth-child(4) { animation-delay: 0.16s; }
-@keyframes tip-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
+/* 四条提示原来是 40ms 一档的错峰入场（"依次浮现"）。
+   已删除：那是编排，属于装饰性动效，不承载任何状态。这个列表在
+   用户还没开始对话时出现，他要的是"马上能点"，不是看它排队亮相。 */
 .cw-tip:hover {
   background: var(--ctl-hover);
   color: var(--tx-1);
@@ -1109,10 +1104,11 @@ html[data-nav="back"] .win { --push-x: -14px; }
   padding: 9px 10px 8px;
   transition: box-shadow var(--t-fast) var(--ease);
 }
-/* 聚焦时整块输入区亮一圈强调色：iOS 里输入区获得焦点是有明确回执的 */
+/* 聚焦时整块输入区亮一圈强调色：输入区获得焦点要有明确回执。
+   去掉了旧配方里那条 inset 0 1.5px 3px 的内凹柔影 —— 那是玻璃拱面的
+   压缩感，实色井不需要；焦点由 1.5px 强调色描边 + 一圈极淡柔光表达。 */
 .composer:focus-within {
   box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
     inset 0 0 0 1.5px var(--accent),
     var(--focus-halo);
 }
@@ -1126,11 +1122,16 @@ html[data-nav="back"] .win { --push-x: -14px; }
   background: transparent;
   color: var(--tx-1);
   font-family: var(--font-read);
-  font-size: var(--chat-fs, 13.5px);
+  /* 兜底值必须与 prefs 的默认对话字号一致（15px）：--chat-fs 由
+     .panel-chat 下发，这里是它唯一的消费者之一。 */
+  font-size: var(--chat-fs, 15px);
   line-height: 1.68;
   letter-spacing: var(--tr-small);
 }
 .comp-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+/* 发送键：整屏唯一的实心强调色圆形块（主操作）。
+   圆形是有理由的 —— 它本来就是个圆的按钮，不是为了可爱；
+   而填充取 --accent-fill（已压暗）以保证白色箭头图标可读。 */
 .send {
   width: 34px;
   height: 34px;
@@ -1140,19 +1141,22 @@ html[data-nav="back"] .win { --push-x: -14px; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background: linear-gradient(166deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.3),
-    0 2px 12px var(--accent-glow);
-  transition: transform var(--t-slow) var(--spring-soft), opacity var(--t-fast) var(--ease);
+  color: var(--on-accent);
+  background: var(--accent-fill);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, #000);
+  transition: transform var(--t-slow) var(--ease-settle), opacity var(--t-fast) var(--ease);
 }
-.send:hover { transform: scale(1.06); }
+.send:hover { transform: scale(1.04); }
 .send:active { transform: scale(0.9); transition: transform 0.07s var(--ease-out); }
-.send:disabled { opacity: 0.34; box-shadow: none; transform: none; }
+.send:disabled { opacity: 0.34; transform: none; }
 .send .ic { width: 17px; height: 17px; stroke-width: 2 !important; }
 
 /* ════════════════ 全局状态条 ════════════════ */
+/* 表单底边。它承载三件事：自由状态文案、保存态、当前文档字数。
+   保存态用线形而不是颜色表达（见下）。
+   说明：设计方向里曾规划在此处放一条"被测量的刻度尺"，最终没有做 ——
+   因为刻度的分母（每章目标字数之类）在产品里并不存在，硬做一个
+   只会是凭空发明的语义。刻度留到真的有可测量的目标时再上。 */
 .statusbar {
   height: var(--status-h);
   flex: none;
@@ -1165,24 +1169,46 @@ html[data-nav="back"] .win { --push-x: -14px; }
   color: var(--tx-dim);
   position: relative;
   z-index: 10;
+  background: var(--bg-2);
+  border-top: 1px solid var(--line);
 }
 .st-left { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .st-right {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   font-variant-numeric: tabular-nums;
 }
-.st-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--ok);
-  box-shadow: 0 0 6px var(--ok);
+
+/* 保存态：用**线形**表达，不用色相。
+   实线 = 已落盘；虚线 = 有未落盘改动。这样"是否存过"不必再消耗一个
+   颜色语义 —— 颜色在本体系里只留给"当前"与主操作两件事。
+   注意它旁边始终有文字（"未保存 · Ctrl+S 保存"），所以状态从不只靠
+   颜色或线形单独承担。 */
+.st-save {
+  width: 20px;
+  height: 2px;
   flex: none;
+  border-radius: var(--r-full);
+  background: var(--ok);
+  /* 每次保存态切换都会重建这个 span（JSX 用 key 驱动），
+     于是这条线会自左向右"划"出来一次 —— 这就是「过签」在状态条上的落点。
+     纯 transform: scaleX，无渐变、无发光、不触发重排。 */
+  transform-origin: left center;
+  animation: stamp-draw var(--t-slow) var(--ease-out);
 }
-.st-dot.dirty { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.st-save.unsaved {
+  height: 0;
+  border-radius: 0;
+  background: transparent;
+  border-top: 2px dashed var(--warn);
+  animation: none;
+}
+@keyframes stamp-draw {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
 
 /* ── 启动失败 ── */
 .boot-error { flex: 1; display: flex; align-items: center; justify-content: center; padding: 30px; }
@@ -1225,7 +1251,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   justify-content: center;
   color: var(--tx-2);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -1252,7 +1278,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   color: var(--tx-2);
   text-align: left;
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -1260,12 +1286,12 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .a-nav-item:hover { background: var(--ctl-hover); color: var(--tx-1); }
 .a-nav-item:active { transform: scale(0.985); transition: transform 0.07s var(--ease-out); }
 .a-nav-item.on {
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 620;
-  background: linear-gradient(168deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: 0 2px 10px var(--accent-glow), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+  background: var(--accent-fill);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, #000);
 }
-.a-nav-item.on .ic { color: #fff; }
+.a-nav-item.on .ic { color: var(--on-accent); }
 
 .a-content {
   flex: 1;
@@ -1277,22 +1303,33 @@ html[data-nav="back"] .win { --push-x: -14px; }
 /* 分节切换：进来的分节从位移+淡入到位，方向由 nav 顺序决定
    （往下走从右边推入、往上走从左边推入）—— 空间一致。 */
 .a-pane {
-  animation: pane-push 0.32s var(--spring-soft) both;
+  animation: pane-push var(--t-slow) var(--ease-out) both;
 }
-.a-pane[data-dir="1"] { --pane-x: 16px; }
-.a-pane[data-dir="-1"] { --pane-x: -16px; }
+.a-pane[data-dir="1"] { --pane-x: 12px; }
+.a-pane[data-dir="-1"] { --pane-x: -12px; }
 @keyframes pane-push {
   from { opacity: 0; transform: translateX(var(--pane-x, 0)); }
   to { opacity: 1; transform: none; }
 }
 
-.a-settings-panel { display: flex; flex-direction: column; gap: var(--gap); padding: 14px; }
+.a-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: 14px;
+  /* 栏宽上限。设置屏在 1600px 宽窗口下如果不设上限，表单卡片会横跨
+     1400px —— 输入框长到一行能放下整段 URL，读数时眼睛要横穿整屏。
+     正文栏宽是排版最基本的一条约束，设置屏同样是"正文"。 */
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+}
 
 .a-card {
   border-radius: var(--r-lg);
   padding: 15px 17px;
   background: var(--ctl-fill);
-  box-shadow: inset 0 0 0 1px var(--line-soft), inset 0 1px 0 var(--rim-top);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
 }
 .a-card.danger { background: var(--bad-soft); box-shadow: inset 0 0 0 1px var(--bad-line); }
 .a-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; flex-wrap: wrap; }
@@ -1340,8 +1377,12 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-size: var(--fs-foot);
   letter-spacing: var(--tr-small);
   color: var(--ok);
-  animation: hero-in 0.3s var(--ease-out) both;
+  animation: fade-in var(--t-mid) var(--ease-out) both;
 }
+/* .a-flash.error 原来缺这一条 —— JSX 里一直在按 `a-flash error` 输出
+   连接失败，但没有任何规则命中 `.error`，于是"连接失败"这句是用
+   成功色（绿）渲染的。 */
+.a-flash.error { color: var(--bad); }
 .a-save-msg { font-size: var(--fs-foot); color: var(--tx-dim); }
 .a-save-msg.error { color: var(--bad); }
 .a-model-hint { font-size: var(--fs-foot); color: var(--tx-dim); }
@@ -1355,11 +1396,13 @@ html[data-nav="back"] .win { --push-x: -14px; }
   box-shadow: inset 0 0 0 1.5px transparent, inset 0 0 0 1px var(--line-soft);
   text-align: left;
   transition:
-    box-shadow 0.2s var(--ease),
-    transform 0.3s var(--spring-soft);
+    box-shadow var(--t-mid) var(--ease),
+    transform var(--t-slow) var(--ease-settle);
 }
-.a-themecard:hover { transform: translateY(-2px); box-shadow: inset 0 0 0 1px var(--line-strong), 0 6px 18px var(--sh-2); }
-.a-themecard.on { box-shadow: inset 0 0 0 2px var(--accent), 0 4px 18px var(--accent-glow); }
+.a-themecard:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+/* 选中：一圈 2px 强调色环。这里原来还叠了一层 0 4px 18px 的强调色外发光，
+   已删除 —— 卡片是平铺在纸面上的，不该发光；选择状态由环表达就够。 */
+.a-themecard.on { box-shadow: inset 0 0 0 2px var(--accent); }
 /* 迷你预览：注意这是一枚 <span>，行内元素会忽略 height —— 必须 block 化，
    否则整块预览塌成 0 高（主题卡只剩一行文字）。 */
 .a-tc-prev { display: block; height: 78px; position: relative; overflow: hidden; }
@@ -1377,24 +1420,24 @@ html[data-nav="back"] .win { --push-x: -14px; }
   right: 12%;
   top: 22%;
   bottom: 22%;
-  border-radius: 7px;
+  border-radius: var(--r-md);
   background: var(--tc-panel);
   box-shadow: inset 0 0 0 1px var(--tc-line);
 }
 .a-tc-prev.t-light {
-  --tc-bg: linear-gradient(168deg, #fbf7ef 0%, #f1eadb 62%);
-  --tc-panel: rgba(255, 253, 248, 0.72);
-  --tc-line: rgba(96, 80, 56, 0.16);
+  --tc-bg: var(--pv-light-bg);
+  --tc-panel: var(--pv-light-panel);
+  --tc-line: var(--pv-light-line);
 }
 .a-tc-prev.t-dark {
-  --tc-bg: linear-gradient(168deg, #101012 0%, #000000 62%);
-  --tc-panel: rgba(38, 38, 40, 0.72);
-  --tc-line: rgba(255, 255, 255, 0.14);
+  --tc-bg: var(--pv-dark-bg);
+  --tc-panel: var(--pv-dark-panel);
+  --tc-line: var(--pv-dark-line);
 }
 .a-tc-prev.t-dsblue {
-  --tc-bg: linear-gradient(168deg, #0d1c33 0%, #060a14 62%);
-  --tc-panel: rgba(22, 36, 60, 0.72);
-  --tc-line: rgba(140, 175, 255, 0.20);
+  --tc-bg: var(--pv-dsblue-bg);
+  --tc-panel: var(--pv-dsblue-panel);
+  --tc-line: var(--pv-dsblue-line);
 }
 .a-tc-label {
   display: flex;
@@ -1414,17 +1457,24 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .a-swatch {
   width: 40px;
   height: 40px;
-  border-radius: var(--r-md);
+  border-radius: var(--r-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), inset 0 0 0 1px rgba(0, 0, 0, 0.12), 0 2px 8px var(--sh-2);
-  transition: transform 0.3s var(--spring-soft), box-shadow 0.2s var(--ease);
+  color: var(--on-accent);
+  /* 色板本身就是"那个颜色"，所以它的底色由 JSX 内联给出。这里只加一圈
+     极轻的暗描边把浅色色板从纸面上分出来 —— 去掉了原来的玻璃顶缘高光
+     （inset 0 1px 0 白）和那层 0 2px 8px 投影。 */
+  box-shadow: inset 0 0 0 1px var(--swatch-edge);
+  transition:
+    transform var(--t-slow) var(--ease-settle),
+    box-shadow var(--t-mid) var(--ease);
 }
-.a-swatch:hover { transform: translateY(-2px) scale(1.04); }
+.a-swatch:hover { transform: scale(1.05); }
 .a-swatch:active { transform: scale(0.94); transition: transform 0.07s var(--ease-out); }
-.a-swatch.on { box-shadow: 0 0 0 2px var(--bg-base), 0 0 0 4px var(--accent); }
+/* 选中：双层环。内圈要用设置内容区的底色（色板坐在 .a-card 上，
+   不是坐在画布上）—— 用 --bg 会让间隙颜色和卡面差一档。 */
+.a-swatch.on { box-shadow: 0 0 0 2px var(--sheet), 0 0 0 4px var(--accent); }
 .a-swatch .ic { width: 18px; height: 18px; stroke-width: 2.4 !important; }
 
 .a-num { width: 120px; flex: none; margin-left: auto; text-align: left; }
@@ -1440,197 +1490,12 @@ html[data-nav="back"] .win { --push-x: -14px; }
   color: var(--tx-2);
 }
 .a-form-hint { font-size: var(--fs-foot); color: var(--tx-dim); line-height: 1.65; letter-spacing: var(--tr-small); }
-.a-form-input {
-  width: 100%;
-  height: 38px;
-  padding: 0 13px;
-  border: 0;
-  outline: none;
-  border-radius: var(--r-md);
-  font-size: var(--fs-sub);
-  letter-spacing: var(--tr-small);
-  color: var(--tx-1);
-  background: var(--inset-bg);
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
-    inset 0 0 0 1px var(--inset-line);
-  transition: box-shadow var(--t-fast) var(--ease);
-}
-.a-form-input:focus {
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
-    inset 0 0 0 1.5px var(--accent),
-    var(--focus-halo);
-}
-.a-form-input.a-num { width: 120px; flex: none; margin-left: auto; text-align: left; }
-.a-textarea {
-  width: 100%;
-  min-height: 96px;
-  padding: 11px 13px;
-  border: 0;
-  outline: none;
-  resize: vertical;
-  border-radius: var(--r-md);
-  font-size: var(--fs-sub);
-  line-height: 1.72;
-  letter-spacing: var(--tr-small);
-  color: var(--tx-1);
-  background: var(--inset-bg);
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
-    inset 0 0 0 1px var(--inset-line);
-  transition: box-shadow var(--t-fast) var(--ease);
-}
-.a-textarea:focus {
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
-    inset 0 0 0 1.5px var(--accent),
-    var(--focus-halo);
-}
-.a-btn-primary,
-.a-btn-danger {
-  height: 34px;
-  padding: 0 15px;
-  border-radius: var(--r-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: var(--fs-sub);
-  font-weight: 580;
-  letter-spacing: var(--tr-small);
-  transition:
-    transform var(--t-slow) var(--spring-soft),
-    background var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease);
-}
-.a-btn-primary {
-  color: var(--on-accent);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.22) 0%, transparent 56%),
-    linear-gradient(168deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 2px 10px var(--accent-glow);
-}
-.a-btn-primary:hover {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.28) 0%, transparent 56%),
-    linear-gradient(168deg, color-mix(in srgb, var(--accent) 88%, #fff) 0%, var(--accent) 100%);
-}
-.a-btn-primary:active { transform: scale(var(--press)); transition: transform 0.07s var(--ease-out); }
-.a-btn-primary:disabled { opacity: 0.42; box-shadow: none; transform: none; }
-.a-btn-danger {
-  color: var(--bad);
-  background: var(--bad-soft);
-  box-shadow: inset 0 0 0 1px var(--bad-line);
-}
-.a-btn-danger:hover { background: color-mix(in srgb, var(--bad) 22%, transparent); }
-.a-btn-danger:active { transform: scale(var(--press)); transition: transform 0.07s var(--ease-out); }
-
-.a-seg,
-.a-form-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px;
-  height: 34px;
-  border-radius: var(--r-md);
-  background: var(--inset-bg);
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 55%, transparent),
-    inset 0 0 0 1px var(--inset-line);
-}
-.a-seg.wide { display: flex; width: 100%; }
-.a-seg.wide button { flex: 1; }
-.a-seg button,
-.a-toggle-btn {
-  height: 28px;
-  padding: 0 13px;
-  border-radius: var(--r-sm);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  font-size: var(--fs-foot);
-  font-weight: 560;
-  letter-spacing: var(--tr-caption);
-  color: var(--tx-3);
-  transition:
-    transform var(--t-slow) var(--spring-soft),
-    background var(--t-fast) var(--ease),
-    color var(--t-fast) var(--ease),
-    box-shadow var(--t-fast) var(--ease);
-}
-.a-seg button:hover,
-.a-toggle-btn:hover { color: var(--tx-1); }
-.a-seg button:active,
-.a-toggle-btn:active { transform: scale(0.96); transition: transform 0.07s var(--ease-out); }
-.a-seg button.on,
-.a-toggle-btn.on {
-  color: var(--tx-1);
-  font-weight: 620;
-  background: linear-gradient(180deg, var(--sheen-a) 0%, transparent 60%), var(--seg-thumb);
-  box-shadow: inset 0 1px 0 var(--rim-top), inset 0 0 0 1px var(--line), 0 1px 4px var(--sh-2);
-}
-
-.a-switch {
-  width: 42px;
-  height: 26px;
-  flex: none;
-  border-radius: var(--r-full);
-  padding: 0;
-  position: relative;
-  background: var(--ctl-fill);
-  box-shadow:
-    inset 0 1px 3px color-mix(in srgb, var(--sh-2) 60%, transparent),
-    inset 0 0 0 1px var(--line);
-  transition: background 0.26s var(--ease), box-shadow 0.26s var(--ease);
-}
-.a-switch i {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #fff 0%, #eceef2 100%);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  transition: transform 0.3s var(--spring-soft), width 0.2s var(--ease-out);
-}
-.a-switch:active i { width: 25px; }
-.a-switch.on {
-  background: linear-gradient(168deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
-}
-.a-switch.on i { transform: translateX(16px); }
-.a-switch.on:active i { transform: translateX(13px); }
-
-.a-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 26px;
-  background: transparent;
-  cursor: pointer;
-}
-.a-slider::-webkit-slider-runnable-track {
-  height: 4px;
-  border-radius: var(--r-full);
-  background: linear-gradient(90deg, var(--accent) var(--fill, 40%), transparent var(--fill, 40%)),
-    var(--inset-bg);
-  box-shadow: inset 0 0 0 1px var(--inset-line);
-}
-.a-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  margin-top: -7px;
-  border-radius: 50%;
-  background: linear-gradient(180deg, #fff 0%, #e9ebef 100%);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.34), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  transition: transform 0.24s var(--spring-soft);
-}
-.a-slider::-webkit-slider-thumb:hover { transform: scale(1.1); }
+/* ↓ 输入控件、按钮、分段控件、开关、滑杆的配方已全部移入 surface.css。
+   原本这里是"视觉与 .field / .btn 完全一致"的第二份手抄实现（注释自己
+   都这么写），两处必须同步修改才不会长歪。现在 surface.css 里是一条
+   配方挂多个选择器：.field/.a-form-input/.a-textarea、
+   .btn/.a-btn-primary/.a-btn-danger、.seg/.a-seg/.a-form-toggle 等。
+   凡是"要不要改控件外观"的问题，答案现在只有一个地方。 */
 
 .a-list-row {
   display: flex;
@@ -1649,7 +1514,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
 }
 .a-list-row:first-of-type { border-top: 0; }
 .a-list-row:hover { background: var(--ctl-hover); }
-.a-list-row em { font-style: normal; color: var(--tx-dim); font-size: 15px; margin-left: auto; }
+.a-list-row em { font-style: normal; color: var(--tx-dim); font-size: var(--fs-sub); margin-left: auto; }
 
 .a-empty { font-size: var(--fs-foot); color: var(--tx-dim); padding: 14px 4px; text-align: center; }
 .a-statbar {
@@ -1660,7 +1525,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-variant-numeric: tabular-nums;
 }
 /* 搜索框：.a-search 是"井"包裹层，input 本体必须完全裸露 ——
-   否则井里再套一个井，两个 inset 阴影打架。 */
+   否则井里再套一个井，两个 inset 阴影打架。
+   井的做法与 surface.css 的 .surface-well 一致：暗一档底色 + 1px 内描边。 */
 .a-search {
   display: flex;
   align-items: center;
@@ -1669,16 +1535,13 @@ html[data-nav="back"] .win { --push-x: -14px; }
   width: 100%;
   max-width: 260px;
   padding: 0 12px;
-  border-radius: var(--r-md);
-  background: var(--inset-bg);
-  box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
-    inset 0 0 0 1px var(--inset-line);
+  border-radius: var(--r-sm);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
   transition: box-shadow var(--t-fast) var(--ease);
 }
 .a-search:focus-within {
   box-shadow:
-    inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 70%, transparent),
     inset 0 0 0 1.5px var(--accent),
     var(--focus-halo);
 }
@@ -1707,7 +1570,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   background: var(--ctl-fill);
   box-shadow: inset 0 0 0 1px var(--line-soft);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -1731,9 +1594,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  background: linear-gradient(160deg, var(--accent) 0%, var(--accent-2) 100%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.26);
+  color: var(--on-accent);
+  background: var(--accent-fill);
 }
 .a-skill-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .a-skill-topline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -1762,7 +1624,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   flex: none;
   color: var(--tx-dim);
   transform: rotate(-90deg);
-  transition: transform 0.28s var(--spring-soft);
+  transition: transform 0.28s var(--ease-settle);
 }
 .a-group-head .caret.open { transform: rotate(0deg); }
 .a-help { font-size: var(--fs-foot); color: var(--tx-dim); line-height: 1.65; }
@@ -1770,8 +1632,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-family: var(--font-mono);
   font-size: var(--fs-foot);
   color: var(--tx-2);
-  background: var(--inset-bg);
-  border-radius: var(--r-sm);
+  background: var(--well);
+  border-radius: var(--r-xs);
   padding: 3px 8px;
   word-break: break-all;
   user-select: text;
@@ -1788,41 +1650,16 @@ html[data-nav="back"] .win { --push-x: -14px; }
   padding: 24px 0 18px;
   position: relative;
 }
-.a-about-hero::before {
-  content: "";
-  position: absolute;
-  width: 300px;
-  height: 300px;
-  border-radius: 50%;
-  background: radial-gradient(circle, var(--accent-soft) 0%, transparent 70%);
-  opacity: 0.6;
-  pointer-events: none;
-}
+/* 这里原本还有一团 300px 的强调色柔光，已删除（同 .editor-empty）。 */
 .a-about-hero > * { position: relative; }
-/* 这里的 <img> 没有自己的类，必须由后代选择器约束 —— 漏掉它 logo 会按
-   原始像素尺寸铺满整屏（大图资源）。 */
+/* logo 的方框配方已并入 surface.css 的 .app-mark（一条配方两个选择器）。
+   这里只留 About 页专属的尺寸与圆角比例。
+   注意：<img> 自身没有类，必须由 .app-mark img 后代选择器约束 ——
+   漏掉它 logo 会按原始像素尺寸铺满整屏（大图资源）。 */
 .a-about-logo {
   width: 82px;
   height: 82px;
-  flex: none;
-  border-radius: 24%;
-  overflow: hidden;
-  position: relative;
-  background: linear-gradient(158deg, var(--ctl-hover), var(--ctl-fill));
-  box-shadow:
-    inset 0 1px 0 var(--rim-top),
-    inset 0 0 0 1px var(--line),
-    0 1px 2px var(--sh-2),
-    0 8px 24px var(--sh-1);
-}
-.a-about-logo img { width: 100%; height: 100%; object-fit: contain; display: block; }
-.a-about-logo::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(166deg, rgba(255, 255, 255, 0.20) 0%, transparent 44%);
-  pointer-events: none;
+  border-radius: var(--r-xl);
 }
 .a-about-hero h2 {
   margin-top: 14px;
@@ -1838,44 +1675,29 @@ html[data-nav="back"] .win { --push-x: -14px; }
   color: var(--tx-dim);
 }
 
-.d-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: var(--r-full);
-  font-size: var(--fs-caption);
-  font-weight: 600;
-  letter-spacing: var(--tr-caption);
-  color: var(--tx-3);
-  background: var(--ctl-fill);
-  box-shadow: inset 0 0 0 1px var(--line-soft);
-}
-.d-badge i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.d-badge.ok { color: var(--ok); background: var(--ok-soft); box-shadow: inset 0 0 0 1px var(--ok-line); }
-.d-badge.bad { color: var(--bad); background: var(--bad-soft); box-shadow: inset 0 0 0 1px var(--bad-line); }
-.d-badge.off { color: var(--tx-dim); }
+/* .d-badge 的配方已并入 surface.css 的 .badge（一条配方两个选择器）。 */
 
 /* ════════════════ 备忘录 ════════════════ */
 .memo-modal { z-index: 84; }
 .memo-modal.dock-wrap {
   background: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  /* 这里原本还要显式关掉 backdrop-filter（挂边态不该有模糊）。
+     整屏已经不使用 backdrop-filter 了，这两行随之失去对象，删除。 */
   pointer-events: none;
 }
 .memo-box {
   width: 860px;
   max-width: calc(100% - 40px);
-  height: 680px;
-  max-height: calc(100% - 40px);
+  /* 原来是写死的 680px 高 —— 只有两条备忘录时，整块面板下面就是
+     一大片空白。改成贴着内容长，到 680px 或窗口高为止再滚动。 */
+  height: auto;
+  max-height: min(680px, calc(100% - 40px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-radius: var(--r-xl);
 }
-/* 挂边态：钉在对话栏左侧，不挡主界面（去掉遮罩与 blur，只留盒子可点） */
+/* 挂边态：钉在对话栏左侧，不挡主界面（去掉遮罩与模糊，只留盒子可点） */
 .memo-box.docked {
   position: absolute;
   right: calc(var(--chat-w) + var(--gap) + var(--pad));
@@ -1886,10 +1708,10 @@ html[data-nav="back"] .win { --push-x: -14px; }
   height: auto;
   max-height: none;
   pointer-events: auto;
-  animation: dock-in 0.34s var(--spring-soft) both;
+  animation: dock-in var(--t-slow) var(--ease-out) both;
 }
 @keyframes dock-in {
-  from { opacity: 0; transform: translateX(16px); }
+  from { opacity: 0; transform: translateX(10px); }
   to { opacity: 1; transform: none; }
 }
 
@@ -1902,7 +1724,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   flex: none;
   border-bottom: 1px solid var(--line-soft);
 }
-.memo-head > .ic { color: var(--accent-text); width: 17px; height: 17px; }
+.memo-head > .ic { color: var(--tx-2); width: 17px; height: 17px; }
 .memo-head .ttl { font-size: var(--fs-headline); font-weight: 690; letter-spacing: -0.006em; color: var(--tx-1); }
 .memo-head-tools { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .memo-tool {
@@ -1917,7 +1739,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   letter-spacing: var(--tr-small);
   color: var(--tx-2);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -1954,7 +1776,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
 }
 .memo-scope .ic { width: 13px; height: 13px; }
 .memo-scope span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.memo-scope em { font-style: normal; font-size: 9px; }
+.memo-scope em { font-style: normal; font-size: var(--fs-caption); opacity: 0.7; }
 
 .memo-cats { display: flex; align-items: center; gap: 8px; padding: 10px 15px 12px; flex: none; flex-wrap: wrap; }
 .mcat {
@@ -1971,7 +1793,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   font-weight: 540;
   letter-spacing: var(--tr-small);
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease);
 }
@@ -1987,14 +1809,14 @@ html[data-nav="back"] .win { --push-x: -14px; }
   width: 28px;
   padding: 0;
   justify-content: center;
-  font-size: 15px;
+  font-size: var(--fs-sub);
   color: var(--tx-3);
 }
 /* 分类上的「×」删除：默认弱化，悬停才转为危险色（避免误触） */
 .mcat em {
   font-style: normal;
   color: var(--tx-dim);
-  font-size: 13px;
+  font-size: var(--fs-caption);
   margin-left: 2px;
   transition: color var(--t-fast) var(--ease);
 }
@@ -2013,14 +1835,14 @@ html[data-nav="back"] .win { --push-x: -14px; }
   border-radius: var(--r-md);
   padding: 12px 13px;
   background: var(--ctl-fill);
-  box-shadow: inset 0 0 0 1px var(--line-soft), inset 0 1px 0 var(--rim-top);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
   cursor: pointer;
   text-align: left;
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
-  animation: msg-in 0.3s var(--spring-soft) both;
+  animation: msg-in var(--t-slow) var(--ease-out) both;
 }
 .memo-card:hover { background: var(--ctl-hover); box-shadow: inset 0 0 0 1px var(--line); }
 .memo-card:active { transform: scale(0.99); transition: transform 0.07s var(--ease-out); }
@@ -2041,16 +1863,19 @@ html[data-nav="back"] .win { --push-x: -14px; }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* 分类标签：中性。它既不是"当前"也不是主操作，不配消耗强调色 ——
+   强调色一旦被分类标签分掉，就再也读不出"哪个是选中的、哪个是主按钮"。
+   （原来这里是 accent-soft 底 + accent-line 描边 + accent-text 文字。） */
 .memo-card .c {
   flex: none;
   font-size: var(--fs-caption);
   font-weight: 620;
   letter-spacing: var(--tr-caption);
-  color: var(--accent-text);
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
-  border-radius: var(--r-full);
-  padding: 2px 8px;
+  color: var(--tx-3);
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  border-radius: var(--r-xs);
+  padding: 2px 7px;
 }
 .memo-card .d {
   margin-top: 8px;
@@ -2113,8 +1938,8 @@ html[data-nav="back"] .win { --push-x: -14px; }
 .memo-edit {
   border-radius: var(--r-md);
   padding: 12px 13px;
-  background: var(--inset-bg);
-  box-shadow: inset 0 1.5px 3px color-mix(in srgb, var(--sh-2) 60%, transparent), inset 0 0 0 1px var(--inset-line);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
 }
 .memo-back {
   height: 30px;
@@ -2138,7 +1963,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   box-shadow: inset 0 0 0 1px var(--bad-line);
   font-size: var(--fs-foot);
   font-weight: 560;
-  transition: background var(--t-fast) var(--ease), transform var(--t-slow) var(--spring-soft);
+  transition: background var(--t-fast) var(--ease), transform var(--t-slow) var(--ease-settle);
 }
 .memo-del:hover { background: color-mix(in srgb, var(--bad) 22%, transparent); }
 .memo-del:active { transform: scale(0.96); transition: transform 0.07s var(--ease-out); }
@@ -2190,7 +2015,7 @@ html[data-nav="back"] .win { --push-x: -14px; }
   box-shadow: inset 0 0 0 1px var(--line-soft);
   text-align: left;
   transition:
-    transform var(--t-slow) var(--spring-soft),
+    transform var(--t-slow) var(--ease-settle),
     background var(--t-fast) var(--ease),
     color var(--t-fast) var(--ease),
     box-shadow var(--t-fast) var(--ease);
@@ -2234,6 +2059,9 @@ html[data-nav="back"] .win { --push-x: -14px; }
 }
 
 /* ════════════════ 无障碍（结构层） ════════════════ */
+/* 降级不是"把动效关掉就完事"，而是换一个不引起前庭不适的**等价反馈**：
+   前庭敏感者依然要能看出"正在产出""有未保存改动"这些状态。
+   材质层（surface.css）自己的降级规则在那边。 */
 @media (prefers-reduced-motion: reduce) {
   /* 面板收起改为即时（宽度过渡对前庭敏感者不友好） */
   .panel-files,
@@ -2242,15 +2070,20 @@ html[data-nav="back"] .win { --push-x: -14px; }
   .editor-empty,
   .chat-welcome,
   .a-pane,
-  .cw-tip,
   .msg,
   .think,
   .tool-line,
   .err-line,
   .memo-card,
   .a-flash { animation: none; }
-  .panel-chat.streaming::before { animation: none; opacity: 0.55; }
-  .panel-chat.streaming::after { animation: none; opacity: 0.5; }
+  /* 生成中的行进线 → 一条静止的整宽强调色实线。
+     动效没了，"面板正在产出"这个信息还在（这正是等价反馈的含义）。 */
+  .panel-chat.streaming::before {
+    animation: none;
+    width: 100%;
+    opacity: 0.85;
+  }
+  /* 打点指示器 → 三点常亮。 */
   .typing i { animation: none; opacity: 0.6; }
   .tnode:active,
   .tab,
@@ -2262,18 +2095,26 @@ html[data-nav="back"] .win { --push-x: -14px; }
   .qopt:active { transform: none; }
 }
 
-/* 特性名必须写全称 prefers-reduced-transparency —— 写成 prefers-transparency
-   会被当成未知特性，整个块永远不命中。 */
-@media (prefers-reduced-transparency: reduce) {
-  .panel-chat.streaming::after { display: none; }
-}
+/* 这里原本有一个 @media (prefers-reduced-transparency: reduce) 块，用于
+   在用户要求"减少透明"时拆掉玻璃：去掉 blur、藏掉光斑、遮罩转实色。
+   整屏现在**默认**就是这个状态（没有任何半透明材质、没有光斑、遮罩本来
+   就是实色渐隐），该分支已无对象，故整块删除而不是留一个空壳。 */
 
 @media (prefers-contrast: more) {
-  .panel,
+  .surface-rail,
+  .surface-sheet,
+  .surface-raised,
   .a-nav,
   .a-content,
   .memo-box,
-  .qbox { box-shadow: 0 0 0 1px var(--tx-3); }
+  .qbox { box-shadow: inset 0 0 0 1px var(--tx-3); }
+  /* 标题栏与状态条这里必须显式列名。它们此前是靠 .surface-bar 这个
+     通用条带类蹭到本块的；那条规则已经删掉（见 surface.css 里的说明），
+     于是这两个条带的描边在"增强对比"下不再加强 —— 审计脚本抓到了这一处
+     真实回退（基准色与降级色完全相同）。删一个类时要确认它有没有
+     被别处当成钩子用。 */
+  .titlebar,
+  .statusbar,
   .panel-head,
   .panel-foot,
   .chat-head,

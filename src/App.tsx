@@ -5,12 +5,16 @@ import SettingsScreen from "./screens/SettingsScreen";
 type View = "main" | "settings";
 
 /**
- * 应用外壳：环境光壁纸（.ambient 漂移光斑 + .grain 颗粒）铺满窗口，
- * 两个屏幕的液态玻璃面板悬浮其上（材质见 styles/glass.css）。
+ * 应用外壳。
  *
- * 指针镜面反光（.glint）：委托监听 pointermove，把光斑坐标写进
- * 目标元素的 --mx/--my —— 玻璃表面的高光随指针游移（iOS Liquid Glass
- * 的动态镜面反射的低成本仿真）。
+ * 这里现在只剩两件事：换屏，和换屏的方向。旧版本在外壳上叠了三样装饰 ——
+ * 环境光壁纸（.ambient 漂移光斑）、颗粒层（.grain）、以及跟随指针游移的
+ * 镜面反光（.glint）——它们都属于"液态玻璃"那套叙事：面板必须是半透明的，
+ * 才需要底下有风景可透、才需要表面有高光可动。实色体系下这三样全部失去
+ * 前提，因此整块删除，而不是留着调低透明度。
+ *
+ * 顺带省掉的成本：一张 58vmax 的模糊光斑层 + 每帧 q 一次 getBoundingClientRect
+ * 的指针监听 + 一条 74–104s 的不停歇 CSS 动画。这个界面要连续开几个小时。
  */
 export default function App() {
   const [view, setView] = useState<View>("main");
@@ -39,46 +43,8 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // 指针镜面反光（.glint）：委托监听 pointermove，把光斑坐标写进目标元素的
-  // --mx/--my。用 rAF 合帧：pointermove 在高刷鼠标上可达 1000Hz，而每帧最多
-  // 只需要一次测量 + 一次写入，否则会在移动中反复触发布局计算。
-  useEffect(() => {
-    let pending: PointerEvent | null = null;
-    let raf = 0;
-    const flush = () => {
-      raf = 0;
-      const e = pending;
-      pending = null;
-      if (!e) return;
-      const el = (e.target as HTMLElement | null)?.closest?.(".glint") as HTMLElement | null;
-      if (!el) return;
-      const r = el.getBoundingClientRect();
-      if (r.width === 0 || r.height === 0) return;
-      el.style.setProperty("--mx", `${(((e.clientX - r.left) / r.width) * 100).toFixed(1)}%`);
-      el.style.setProperty("--my", `${(((e.clientY - r.top) / r.height) * 100).toFixed(1)}%`);
-    };
-    const onMove = (e: PointerEvent) => {
-      pending = e;
-      if (!raf) raf = requestAnimationFrame(flush);
-    };
-    document.addEventListener("pointermove", onMove, { passive: true });
-    return () => {
-      document.removeEventListener("pointermove", onMove);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, []);
-
   return (
     <div className="app-shell">
-      {/* 环境光壁纸：玻璃透出的"风景"，三主题各自的色相（tokens.css --orb-*） */}
-      <div className="ambient" aria-hidden="true">
-        <span className="orb" />
-        <span className="orb" />
-        <span className="orb" />
-        <span className="orb" />
-      </div>
-      <div className="grain" aria-hidden="true" />
-
       {view === "settings" ? (
         <SettingsScreen onBack={() => go("main")} />
       ) : (
