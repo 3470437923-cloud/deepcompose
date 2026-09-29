@@ -1,11 +1,27 @@
-# End-to-end chat check: drive the real exe with a mock provider.
-#   1) point prefs at the local mock provider
-#   2) launch writerd.exe, click the composer, type a prompt, press Enter
-#   3) wait, capture the window, then report what is on screen
+# KeepCompose end-to-end chat check: drive the real exe with a mock provider.
+#
+# Purpose : prove the full loop (Rust stream relay -> protocol parse -> tool
+#           dispatch -> persistence -> UI render) without a real API key:
+#             1) point prefs at the local mock provider
+#             2) launch keepcompose.exe, click the composer, paste a prompt,
+#                click the send button
+#             3) wait, capture the window, report what is on screen
+# Usage   : start the mock first:   python tools\mock_provider.py 8899
+#           then:  .\tools\e2e_chat.ps1 [-Exe <path>] [-Out <png>]
+#                  [-Prompt <text>] [-WaitSec <n>] [-AfterSendSec <n>]
+# Pitfalls: - Overwrites shared_preferences.json under
+#             %APPDATA%\com.writerd\writerD. That legacy dir is a frozen disk
+#             contract (the app still uses it after the rename); never rebrand
+#             this path.
+#           - Text goes in via clipboard paste: raw SendKeys keystrokes get
+#             swallowed by the Chinese IME, and SendKeys ENTER is unreliable in
+#             WebView2, so the round send button is clicked instead.
+#           - Click targets are window-relative pixel offsets tuned for the
+#             default layout; odd window sizes can misplace them.
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
-    [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
-    [string]$Out = "S:\writerD\shots\shot-chat.png",
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
+    [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-chat.png"),
     [string]$Prompt = "List chapters",
     [int]$WaitSec = 8,
     [int]$AfterSendSec = 25
@@ -55,7 +71,9 @@ public class E2E {
 '@
 if (-not ("E2E" -as [type])) { Add-Type -TypeDefinition $sig }
 
-# 1) point prefs at the mock provider
+# 1) point prefs at the mock provider.
+# NOTE: com.writerd\writerD is the frozen legacy config dir (disk contract):
+# the app still reads/writes it after the KeepCompose rename. Do not rebrand.
 $prefsDir = Join-Path $env:APPDATA "com.writerd\writerD"
 New-Item -ItemType Directory -Force -Path $prefsDir | Out-Null
 $prefsFile = Join-Path $prefsDir "shared_preferences.json"
@@ -74,8 +92,9 @@ $prefs = @{
     "flutter.current_novel_project" = ""
 }
 ($prefs | ConvertTo-Json -Compress) | Set-Content -LiteralPath $prefsFile -Encoding UTF8
-# PowerShell 5.1 的 Set-Content -Encoding UTF8 会写 BOM；应用侧已容错，
-# 但测试工具本身也要写干净的文件，避免把 BOM 问题与产品问题混在一起。
+# Set-Content -Encoding UTF8 on PowerShell 5.1 writes a BOM. The app tolerates
+# it, but the test tooling should still emit a clean file so BOM trouble never
+# gets mixed up with product trouble - strip the BOM when present.
 $bytes = [System.IO.File]::ReadAllBytes($prefsFile)
 if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
     [System.IO.File]::WriteAllBytes($prefsFile, $bytes[3..($bytes.Length - 1)])
@@ -84,7 +103,7 @@ if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $by
 Write-Output "PREFS -> $prefsFile"
 
 # 2) launch
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds $WaitSec
@@ -138,5 +157,5 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "CLOSED"

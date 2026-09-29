@@ -1,9 +1,29 @@
-"""类名覆盖校验：旧 CSS 的每个类 token 必须在新 CSS 里有落点。"""
+"""类名覆盖校验：旧 CSS 的每个类 token 必须在新 CSS 里有落点。
+
+用途：CSS 重构的安全网。对比三方类名 token：
+    1) git HEAD 上的旧样式（app.css / glass.css / tokens.css）；
+    2) src/**/*.tsx 里出现的全部 className；
+    3) src/styles/*.css 里当前定义的全部类名。
+报告：旧有新无（漏掉的组件）、JSX 用而未定义（会裸奔）、定义而无人引用
+（冗余，仅提示）。
+
+用法：
+    python tools/_css_coverage.py    # 需要 git 命令行可用
+
+已知坑：
+    - "旧 CSS"取自 `git show HEAD:src/styles/<file>`：重构一旦提交，HEAD 上
+      不再有这三个旧文件，git show 返回空/报错，本脚本失去对比基线——它是
+      重构窗口期的一次性验收工具，不是常驻检查。
+    - className={...} 表达式已剔除比较操作数（见下方行内注释），但更复杂的
+      模板串拼接仍可能漏提或误提类名。
+    - 仓库根目录从本脚本位置推导（tools/ 的上一级），不再写死盘符路径。
+"""
 import os
 import re
 import subprocess
+from pathlib import Path
 
-ROOT = r"S:\writerD"
+ROOT = str(Path(__file__).resolve().parent.parent)
 STYLES = os.path.join(ROOT, "src", "styles")
 
 COMMENT = re.compile(r"/\*[\s\S]*?\*/")

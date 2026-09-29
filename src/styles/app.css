@@ -1,5 +1,5 @@
 /* ════════════════════════════════════════════════════════════════
-   writerD 界面结构与组件
+   KeepCompose 界面结构与组件
    ────────────────────────────────────────────────────────────────
    主界面三栏：文件（左）· 编辑器（中）· AI 对话（右）。三栏是**实色
    表面**，坐在同一片冷调画布上；层级由明度色阶表达（画布 → 侧轨 →
@@ -1494,7 +1494,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
    原本这里是"视觉与 .field / .btn 完全一致"的第二份手抄实现（注释自己
    都这么写），两处必须同步修改才不会长歪。现在 surface.css 里是一条
    配方挂多个选择器：.field/.a-form-input/.a-textarea、
-   .btn/.a-btn-primary/.a-btn-danger、.seg/.a-seg/.a-form-toggle 等。
+   .btn/.a-btn-primary/.a-btn-danger、.a-form-toggle/.a-toggle-btn/.a-slider 等。
    凡是"要不要改控件外观"的问题，答案现在只有一个地方。 */
 
 .a-list-row {

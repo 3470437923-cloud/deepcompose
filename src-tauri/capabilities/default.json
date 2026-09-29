@@ -1,14 +1,13 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "writerD 默认能力：核心窗口操作 + 文件选择对话框 + 打开外部链接。",
+  "description": "KeepCompose 默认能力：核心窗口操作 + 文件选择对话框 + 打开外部链接与本地目录。",
   "windows": [
     "main"
   ],
   "permissions": [
     "core:default",
     "dialog:default",
-    "opener:default",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",

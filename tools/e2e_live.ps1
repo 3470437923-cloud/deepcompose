@@ -1,12 +1,24 @@
-# End-to-end LIVE chat check: drives the real exe with whatever provider is
-# already configured in shared_preferences.json (does NOT touch prefs).
-#   1) launch writerd.exe
-#   2) click the composer, type a prompt, press Enter
-#   3) wait for the reply, capture the window
+# KeepCompose end-to-end LIVE chat check: drives the real exe with whatever
+# provider is already configured in shared_preferences.json (does NOT touch
+# prefs, unlike e2e_chat.ps1 which seeds the mock provider).
+#
+# Purpose : smoke-test the real backend path:
+#             1) launch keepcompose.exe
+#             2) click the composer, type a prompt, press Enter
+#             3) wait for the reply, capture the window
+# Usage   : .\tools\e2e_live.ps1 [-Exe <path>] [-Out <png>] [-Prompt <text>]
+#           [-WaitSec <n>] [-AfterSendSec <n>]
+# Pitfalls: - Talks to the user's real configured provider; a slow or dead
+#             upstream just yields no visible reply once -AfterSendSec runs out.
+#           - The prompt is typed with raw SendKeys, so keep -Prompt ASCII: a
+#             Chinese IME would swallow the keystrokes (e2e_chat.ps1 pastes via
+#             clipboard for exactly this reason).
+#           - PrintWindow on an unfocused WebView2 can return a blank frame, so
+#             the window is re-foregrounded right before the capture.
 # ASCII-only source (Windows PowerShell 5.1 misreads UTF-8 without BOM).
 param(
-    [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
-    [string]$Out = "S:\writerD\shots\shot-live.png",
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
+    [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-live.png"),
     [string]$Prompt = "List the files in the chapter content folder of the current book.",
     [int]$WaitSec = 8,
     [int]$AfterSendSec = 45
@@ -56,7 +68,7 @@ public class E2E {
 '@
 if (-not ("E2E" -as [type])) { Add-Type -TypeDefinition $sig }
 
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Milliseconds 500
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds $WaitSec
@@ -105,5 +117,5 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-Get-Process -Name writerd -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name keepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
 Write-Output "CLOSED"

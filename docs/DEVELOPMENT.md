@@ -1,21 +1,21 @@
-# writerD 开发与验收手册
+# KeepCompose 开发与验收手册
 
-本文件是构建、验证、排障的操作手册。改动代码前请先读 `README.md` 的「改代码前必读」。
+本文件是构建、验证、排障的操作手册。改动代码前请先读 `README.md` 的「改代码前必读」与根目录 `AGENTS.md`。
 
 ---
 
 ## 1. 闸门（每次声称完成前必跑）
 
 ```powershell
-cd S:\writerD
+cd S:\KeepCompose
 .\node_modules\.bin\tsc.cmd --noEmit        # 期望 exit 0
-.\node_modules\.bin\vitest.cmd run          # 期望全部通过（当前 174 项 / 14 文件）
+.\node_modules\.bin\vitest.cmd run          # 期望全部通过
 ```
 
 Rust 侧单测：
 
 ```powershell
-cd S:\writerD\src-tauri
+cd S:\KeepCompose\src-tauri
 cargo test --lib                            # 期望全绿
 ```
 
@@ -29,22 +29,25 @@ cargo test --lib                            # 期望全绿
 npm.cmd run package
 ```
 
-`tools/package.ps1` 的动作顺序：杀掉运行中的 `writerd` 进程（否则 cargo 无法替换 exe，
-`failed to remove writerd.exe`，os error 5）→ `vite build` → `cargo build --release` →
-复制 exe 到 `release\writerD.exe` → 刷新桌面快捷方式。cargo 缓存热时约 2 分钟，冷编译 10–15 分钟。
+`tools/package.ps1` 的动作顺序：杀掉运行中的 `keepcompose` 进程（否则 cargo 无法替换 exe，
+`failed to remove keepcompose.exe`，os error 5）→ `vite build` → `cargo build --release` →
+复制 exe 到 `release\KeepCompose.exe` → 删除旧 `writerD.lnk` → 刷新桌面快捷方式 `KeepCompose.lnk`。
+脚本根目录从自身位置推导（不硬编码盘符路径）。cargo 缓存热时约 2 分钟，冷编译 10–15 分钟。
 
 ## 3. 桌面端验收（真实 exe，会话锁定屏幕时也能做）
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1 -Exe S:\writerD\release\writerD.exe
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1
 ```
 
-`capture.ps1` 按 pid 挑最大的可见窗口（避开 WebView2 辅助窗口）、必要时 `ShowWindow(SW_RESTORE)`、
-发一次 `ESC` 固定回主界面再截图（否则齿轮被误点就会截到设置屏），输出到 `shots\`。
+`capture.ps1` 默认截 `src-tauri\target\release\keepcompose.exe`（cargo 直出产物，可用 `-Exe` 覆盖；
+`probe_win_style.ps1` / `probe_window.ps1` 默认截打包产物 `release\KeepCompose.exe`）：按 pid 挑最大的可见窗口
+（避开 WebView2 辅助窗口）、必要时 `ShowWindow(SW_RESTORE)`、发一次 `ESC` 固定回主界面再截图
+（否则齿轮被误点就会截到设置屏），输出到 `shots\`。
 
 - 启动即最小化（截到 `160×28 @ (-32000,-32000)`）是已知现象，脚本已处理。
 - `PrintWindow` 对未聚焦的 WebView2 会返回白图：截屏前必须 `SetForegroundWindow` 并等 0.5–1 秒。
-- 运行中的 `writerd` 会占用 exe，重新打包前先关掉。
+- 运行中的 `keepcompose` 会占用 exe，重新打包前先关掉。
 
 ## 4. 浏览器预览沙箱（三主题取证，免 Playwright）
 
@@ -55,7 +58,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1 -Exe
 .\node_modules\.bin\vite.cmd --port 5183 --strictPort      # 后台常驻
 & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" `
   --headless=new --remote-debugging-port=9223 --remote-allow-origins=* `
-  --user-data-dir="$env:TEMP\writerd-edge" --window-size=1600,1000 `
+  --user-data-dir="$env:TEMP\keepcompose-edge" --window-size=1600,1000 `
   --enable-unsafe-swiftshader about:blank                  # 后台常驻
 python tools\preview_shot.py                               # 三主题 × 三尺寸截图 + 几何断言
 python tools\preview_shot.py --view settings
@@ -75,7 +78,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 `e2e_chat.ps1` 会把配置**覆写为本地 mock**，跑完记得恢复真实配置；
 `e2e_live.ps1` 不覆写配置，用现有配置直连真实端点。
 
-已知工具缺陷（非产品缺陷）：`SendKeys` 会吞字（`List` → `LISt`）；**中文输入法会把整串按键截成未提交组合串**（`hello` 落框成「合理」且 React 状态为空，发送被空内容拦截）——`e2e_chat.ps1` 已改为 `clip.exe` 粘贴 + 点击发送按钮；截屏前缺 `SetForegroundWindow` 会拿到白图。
+已知工具缺陷（非产品缺陷）：`SendKeys` 会吞字；**中文输入法会把整串按键截成未提交组合串**
+——`e2e_chat.ps1` 已改为 `clip.exe` 粘贴 + 点击发送按钮；截屏前缺 `SetForegroundWindow` 会拿到白图。
 
 ## 6. 本机环境坑（都是实际踩过的）
 
@@ -84,22 +88,24 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | 没有 `pwsh` | `pwsh : 无法识别` | 只有 Windows PowerShell 5.1；`.ps1` 走 `-NoProfile -ExecutionPolicy Bypass -File` |
 | 执行策略拦脚本 | `npm` / `npm.ps1` 被拦 | 用 `npm.cmd` |
 | PowerShell 写文件带 BOM | `JSON.parse` 失败 → 整份配置被静默忽略 | 产品侧 `parsePrefs` 已剥 BOM；脚本用 `[System.IO.File]::WriteAllText(..., UTF8Encoding($false))` |
-| **PowerShell 写中文源码会毁文件** | GBK 双字节吃掉紧随的 ASCII 字符（可能是 `}` 或引号），脚本直接语法错误 | **绝不用 PowerShell 改源码**，一律用文件工具；`.ps1` 保持 ASCII |
-| **vite dev server 开着时改项目内文件 → vite 致命退出** | `EBUSY: resource busy or locked, watch '…tmpdir\…tmp'` | 文件工具用「同目录临时目录 + rename」落盘，落在 chokidar 监视树内。**改文件前先停 dev server** |
+| **PowerShell 写中文源码会毁文件** | GBK 双字节吃掉紧随的 ASCII 字符，脚本直接语法错误 | **绝不用 PowerShell 改源码**，一律用文件工具；`.ps1` 保持 ASCII |
+| **vite dev server 开着时改项目内文件 → vite 致命退出** | `EBUSY: resource busy or locked` | **改文件前先停 dev server** |
 | PS 传参给原生程序吞双引号 | `python x.py --eval '{"a":"b"}'` 报 `unrecognized arguments` | 传给 python/node 的表达式改用单引号 |
-| 读运行时配置乱码且回显密钥 | PS 无 `-Encoding` 读 UTF-8 → 乱码 + `ConvertFrom-Json` 报错，**并把整份配置（含 key）回显到 stderr** | 一律 `python -c`（`json.load(open(p, encoding='utf-8'))`）或 `Get-Content -Encoding utf8` |
+| 读运行时配置乱码且回显密钥 | PS 无 `-Encoding` 读 UTF-8 → 乱码 + 把整份配置（含 key）回显到 stderr | 一律 `python -c`（`json.load(open(p, encoding='utf-8'))`）或 `Get-Content -Encoding utf8` |
 | React 19 + 新 JSX transform | `JSX.Element` 报 `Cannot find namespace 'JSX'` | 用 `ReactElement`（`import type { ReactElement } from "react"`） |
-| Windows 窗口几何 | `set_size` 是**客户区**口径；窗口创建后第一次 `set_size` 会多一个标题栏高度（请求 751 落地 781），第二次才精确 | 位置存外框、尺寸存 `inner_size()`；读回不一致就用同一个值重试（最多 3 次）；**反向按差额补偿是错的** |
-| **系统提交内存耗尽** | vitest/vite/cargo 起不来：`low_level_alloc.cc: VirtualAlloc failed`、`WebAssembly.instantiate(): Out of memory`，而物理内存还有几个 GB 空闲 | 看 `Win32_OperatingSystem.FreeVirtualMemory`（提交余量，<500MB 必炸）；关掉吃提交的大户（多开 IDE / Edge / WebView2 宿主）再跑闸门 |
+| Windows 窗口几何 | `set_size` 是**客户区**口径；窗口创建后第一次 `set_size` 会多一个标题栏高度 | 位置存外框、尺寸存 `inner_size()`；读回不一致就用同一个值重试（最多 3 次）；**反向按差额补偿是错的** |
+| **系统提交内存耗尽** | vitest/vite/cargo 起不来：`VirtualAlloc failed` / `Out of memory`，而物理内存还有空闲 | 看 `Win32_OperatingSystem.FreeVirtualMemory`（提交余量，<500MB 必炸）；关掉吃提交的大户再跑闸门 |
 
 ## 7. 数据与配置位置
 
 | 内容 | 路径 |
 |---|---|
-| 作品根（默认） | `%USERPROFILE%\AI写小说\`（可在设置里改，prefs `custom_novels_dir`） |
+| 作品根（默认） | `%USERPROFILE%\AI写小说\`（设置「数据」页可改，prefs `custom_novels_dir`） |
 | 会话 / 快照 / 备忘录 / 技能 | `%USERPROFILE%\Documents\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}` |
 | 配置 | `%APPDATA%\com.writerd\writerD\shared_preferences.json` |
 | 窗口几何 | `%APPDATA%\com.writerd\writerD\window_state.json` |
+
+以上名字是**磁盘契约**（见 README 契约表），产品更名不改它们。
 
 ## 8. 批次工作方式
 

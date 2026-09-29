@@ -1,9 +1,9 @@
 {
-  "name": "writerd",
+  "name": "keepcompose",
   "private": true,
-  "version": "3.0.0",
+  "version": "1.0.0",
   "type": "module",
-  "description": "writerD — 长篇中文小说 AI 写作工作台",
+  "description": "KeepCompose — 长篇中文小说 AI 写作工作台",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -19,9 +19,6 @@
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",
     "@tauri-apps/plugin-dialog": "^2.4.0",
-    "@tauri-apps/plugin-fs": "^2.4.0",
-    "@tauri-apps/plugin-global-shortcut": "^2.4.0",
-    "@tauri-apps/plugin-opener": "^2.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

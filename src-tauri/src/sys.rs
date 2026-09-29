@@ -72,3 +72,21 @@ pub fn prefs_save(json: String) -> Result<(), String> {
     }
     fs::write(&p, json).map_err(|e| format!("写配置失败: {e}"))
 }
+
+/// 在 Windows 资源管理器中打开指定目录（设置页「打开目录」用）。
+///
+/// 为什么不用 opener 插件的 open_path：它的授权 scope 是**静态白名单**，
+/// 而作品根可由用户改到任意盘符路径，静态白名单覆盖不了；这里改为
+/// 运行时校验"确实是目录"后直接拉起 explorer，行为可控且无需配置 scope。
+#[tauri::command]
+pub fn open_dir(path: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if !p.is_dir() {
+        return Err(format!("目录不存在：{path}"));
+    }
+    std::process::Command::new("explorer")
+        .arg(&p)
+        .spawn()
+        .map_err(|e| format!("拉起资源管理器失败: {e}"))?;
+    Ok(())
+}

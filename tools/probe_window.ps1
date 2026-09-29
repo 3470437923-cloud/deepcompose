@@ -1,16 +1,31 @@
-# Verify window geometry memory on the real writerD exe, end to end.
+# Verify window geometry memory on the real KeepCompose exe, end to end.
+# (Renamed from probe_writerd_window.ps1 during the KeepCompose rebrand.)
 #
-# Cases (each one prints PASS/FAIL with the measured numbers):
-#   T0 clean first run      -> default 1440x900, centred
-#   T1 resize + close       -> window_state.json records the new rect
-#   T2 relaunch             -> comes back at the resized rect          (memory works)
-#   T3 maximise + close     -> state keeps the restorable rect + maximized=true
-#   T4 relaunch             -> starts maximized; unmaximise returns the old size
-#   T5 bogus off-screen     -> falls back to the centred default       (no lost window)
-#
+# Purpose : prove the app remembers its window rect across restarts. Each case
+#           prints PASS/FAIL with the measured numbers:
+#             T0 clean first run      -> default 1440x900, centred
+#             T1 resize + close       -> window_state.json records the new rect
+#             T2 relaunch             -> comes back at the resized rect (memory works)
+#             T3 maximise + close     -> state keeps the restorable rect + maximized=true
+#             T4 relaunch             -> starts maximized; unmaximise returns the old size
+#             T5 bogus off-screen     -> falls back to the centred default (no lost window)
+# Usage   : .\tools\probe_window.ps1 [-Exe <path>] [-StateFile <json>] [-WaitSec <n>]
+#           Default -Exe is the packaged build release\KeepCompose.exe.
+#           The script rewrites and finally deletes nothing outside -StateFile,
+#           but it DOES kill running keepcompose processes between cases.
+# Pitfalls: - -StateFile defaults to %APPDATA%\com.writerd\writerD\
+#             window_state.json: that legacy dir is a frozen disk contract (the
+#             app still uses it after the rename). Do not rebrand this path.
+#           - window_state.json stores the CLIENT size (set_size -> tao
+#             set_inner_size), not the outer rect; assertions use client metrics
+#             and accept a frame-height difference on the outer rect.
+#           - JSON is read/written through embedded python snippets on purpose:
+#             PowerShell 5.1 JSON + encoding round-trips are not trustworthy
+#             for this file.
+#           - Needs a real interactive desktop session and ~2 minutes to run.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
-    [string]$Exe = "S:\writerD\release\writerD.exe",
+    [string]$Exe = (Join-Path $PSScriptRoot "..\release\KeepCompose.exe"),
     [string]$StateFile = "$env:APPDATA\com.writerd\writerD\window_state.json",
     [int]$WaitSec = 12
 )
@@ -38,6 +53,8 @@ public class WProbe {
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT { public int Left, Top, Right, Bottom; }
 
+    // Pick the largest visible top-level window owned by pid (the app window,
+    // not WebView2 helper windows).
     public static IntPtr Pick(uint pid) {
         IntPtr best = IntPtr.Zero; int bestArea = 0;
         EnumWindows((h, p) => {
@@ -94,7 +111,7 @@ function Read-State {
 }
 
 $wa = New-Object WProbe+RECT
-[WProbe]::SystemParametersInfo(0x0030, 0, [ref]$wa, 0) | Out-Null
+[WProbe]::SystemParametersInfo(0x0030, 0, [ref]$wa, 0) | Out-Null   # SPI_GETWORKAREA
 $waW = $wa.Right - $wa.Left; $waH = $wa.Bottom - $wa.Top
 Write-Output "screen    = $([WProbe]::GetSystemMetrics(0))x$([WProbe]::GetSystemMetrics(1))"
 Write-Output "workarea  = ${waW}x${waH} at ($($wa.Left),$($wa.Top))"
@@ -102,7 +119,8 @@ Write-Output "statefile = $StateFile"
 Write-Output ""
 
 function Launch([string]$tag) {
-    Get-Process -Name writerd -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+    # Kill leftovers first so the fresh instance owns the only app window.
+    Get-Process -Name keepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
     Start-Sleep -Milliseconds 800
     $proc = Start-Process $Exe -PassThru
     Start-Sleep -Seconds $WaitSec
@@ -110,12 +128,16 @@ function Launch([string]$tag) {
     if ($proc.HasExited) { Write-Output "  [$tag] FAIL process exited: $($proc.ExitCode)"; return $null }
     $h = [WProbe]::Pick([uint32]$proc.Id)
     if ($h -eq [IntPtr]::Zero) { Write-Output "  [$tag] FAIL no visible window"; Stop-Process -Id $proc.Id -Force; return $null }
+    # A window born minimized must be restored before measuring, else the rect
+    # is the off-screen (-32000,-32000) placeholder.
     if ([WProbe]::IsIconic($h)) { [WProbe]::ShowWindow($h, 9) | Out-Null; Start-Sleep -Milliseconds 800 }
     Start-Sleep -Milliseconds 600
     return @{ proc = $proc; hwnd = $h; rect = (Rect-Of $h) }
 }
 
 function Close-App($s) {
+    # Close via WM_CLOSE (not kill): the app only persists window state on a
+    # graceful close. Force-kill is the fallback after 12s of no exit.
     [WProbe]::SendMessage($s.hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null   # WM_CLOSE
     for ($i = 0; $i -lt 24; $i++) {
         Start-Sleep -Milliseconds 500
@@ -180,7 +202,7 @@ Write-Output ""
 
 # -- T3/T4: maximise -> close -> relaunch ---------------------------------
 Write-Output "T3 maximise, then close"
-[WProbe]::SendMessage($s.hwnd, 0x0112, [IntPtr]0xF030, [IntPtr]::Zero) | Out-Null
+[WProbe]::SendMessage($s.hwnd, 0x0112, [IntPtr]0xF030, [IntPtr]::Zero) | Out-Null   # WM_SYSCOMMAND SC_MAXIMIZE
 Start-Sleep -Milliseconds 1500
 Write-Output "  zoomed = $([WProbe]::IsZoomed($s.hwnd))  rect = $(Fmt (Rect-Of $s.hwnd))"
 Close-App $s | Out-Null
@@ -198,7 +220,7 @@ if ($null -eq $s) { exit 1 }
 $zoomed = [WProbe]::IsZoomed($s.hwnd)
 Write-Output "  zoomed = $zoomed  rect = $(Fmt $s.rect)"
 Check "T4 started maximized" $zoomed (Fmt $s.rect)
-[WProbe]::SendMessage($s.hwnd, 0x0112, [IntPtr]0xF120, [IntPtr]::Zero) | Out-Null   # SC_RESTORE
+[WProbe]::SendMessage($s.hwnd, 0x0112, [IntPtr]0xF120, [IntPtr]::Zero) | Out-Null   # WM_SYSCOMMAND SC_RESTORE
 Start-Sleep -Milliseconds 1500
 $r4 = Rect-Of $s.hwnd
 $c4 = Client-Of $s.hwnd
@@ -216,6 +238,7 @@ Write-Output "  state written: $(Read-State)"
 $s = Launch "T5"
 if ($null -eq $s) { exit 1 }
 $r5 = $s.rect
+# On-screen = the rect intersects the work area at all (not merely x<right).
 $onScreen = $r5.x -lt ($wa.Right) -and $r5.y -lt ($wa.Bottom) -and ($r5.x + $r5.w) -gt $wa.Left -and ($r5.y + $r5.h) -gt $wa.Top
 Write-Output "  rect: $(Fmt $r5)"
 Check "T5 window is on screen" $onScreen (Fmt $r5)

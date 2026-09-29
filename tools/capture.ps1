@@ -1,9 +1,21 @@
-# Launch writerd.exe, restore its window, capture it to PNG.
-# Used to verify UI rendering without a human looking at the screen.
+# KeepCompose window capture: launch the exe, restore its window, save a PNG.
+#
+# Purpose : verify UI rendering without a human looking at the screen. Escape
+#           is sent first so the shot always shows the main view, which makes
+#           the capture deterministic across runs.
+# Usage   : .\tools\capture.ps1 [-Exe <path>] [-Out <png>] [-WaitSec <seconds>]
+#           Path defaults are derived from the repo root (parent of tools\).
+# Pitfalls: - A freshly started window can be born minimized; without the
+#             restore below the capture is a 160x28 off-screen frame at
+#             (-32000,-32000).
+#           - PrintWindow may return false on WebView2; the script then falls
+#             back to a screen copy, which needs the window in the foreground.
+#           - The app process is force-killed at the end, so any unsaved
+#             in-app state is lost by design.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
-    [string]$Exe = "S:\writerD\src-tauri\target\release\writerd.exe",
-    [string]$Out = "S:\writerD\shots\shot-writerd.png",
+    [string]$Exe = (Join-Path $PSScriptRoot "..\src-tauri\target\release\keepcompose.exe"),
+    [string]$Out = (Join-Path $PSScriptRoot "..\shots\shot-keepcompose.png"),
     [int]$WaitSec = 10
 )
 

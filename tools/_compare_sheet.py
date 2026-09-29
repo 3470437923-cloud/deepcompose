@@ -1,10 +1,20 @@
 """把 before/after 截图拼成并排对比图，作为改版验收证据。
 
+前提：
+    先用 preview_shot.py 分别产出两套截图到 shots/preview-before 与
+    shots/preview-after（--label before / --label after，文件名需与下方
+    PAIRS 对应）；pip install pillow。
 用法：
-    python tools/_compare_sheet.py
+    python tools/_compare_sheet.py     # 在仓库根目录下运行
 产出：
     shots/compare/<name>.png      每套主题一张「左旧右新」
     shots/compare/overview.png    三套主题叠成一张总览
+已知坑：
+    - 输入缺文件是「跳过」不是「报错」：产出变少不等于验收全过。
+    - PAIRS 写死了截图文件名；改 preview_shot 的 --label / --sizes 后
+      要同步这里。
+    - 中文标题依赖微软雅黑/黑体；都找不到时回退 PIL 默认字体，中文
+      会渲染成方块。
 """
 import os
 from PIL import Image, ImageDraw, ImageFont

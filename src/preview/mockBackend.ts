@@ -261,6 +261,15 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     case "ai_stream":
     case "ai_abort":
       return null;
+    // 应用身份（桌面端为 Rust app_info）：设置屏「关于」的名称/版本取自这里
+    case "app_info":
+      return { name: "KeepCompose", version: "1.0.0" };
+    // 目录选择器（plugin-dialog）：沙箱里返回 null = 用户取消，正好验证取消分支
+    case "plugin:dialog|open":
+      return null;
+    // 打开目录（自研 Rust 命令）：沙箱无资源管理器，静默成功即可
+    case "open_dir":
+      return null;
     // 模型清单（桌面端走 Rust ai_models → OpenAI/Anthropic /models）；
     // 返回与 DeepSeek 实测一致的 2 个模型，供设置屏「检测连接」走真实渲染路径
     case "ai_models":

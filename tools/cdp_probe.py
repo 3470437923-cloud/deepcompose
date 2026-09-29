@@ -1,10 +1,25 @@
-"""CDP 验证工具：通过 Chrome DevTools 协议直接驱动 writerD 页面。
-用途：物理屏幕关闭/会话锁定时，仍可完成 UI 交互验证（点击、读状态、截图）。
+"""CDP 验证工具：通过 Chrome DevTools 协议直接驱动 KeepCompose 应用页面。
+
+用途：物理屏幕关闭/会话锁定时，仍可完成 UI 交互验证（点击、eval 读状态、
+截图）——交互与截图都走 CDP，不经过操作系统桌面。
+
+前提：
+    - KeepCompose 的 WebView2 已开远程调试，端口 9223（与 docs/DEVELOPMENT.md
+      的口径一致）；
+    - pip install websocket-client。
+
 用法：
-  python tools/cdp_probe.py eval "document.title"
-  python tools/cdp_probe.py click ".b-icon-btn.gear"
-  python tools/cdp_probe.py shot out.png
-  python tools/cdp_probe.py exists ".a-nav"
+    python tools/cdp_probe.py eval "document.title"
+    python tools/cdp_probe.py click ".b-icon-btn.gear"
+    python tools/cdp_probe.py shot out.png
+    python tools/cdp_probe.py alive          # 连通性检查（eval 1+1）
+
+已知坑：
+    - 支持的 action 只有 eval / click / shot / alive；旧文档示例里的
+      "exists" 从未实现，传入会按 unknown action 退出。
+    - 优先挑 URL 含 "tauri" 的 page target，兜底取第一个 page；同时开着
+      多个可调试实例时可能连错目标。
+    - 端口 9223 硬编码在模块级 PORT，改端口需同步 docs 口径。
 """
 import base64
 import json

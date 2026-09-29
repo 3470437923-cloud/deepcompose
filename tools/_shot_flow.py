@@ -1,10 +1,23 @@
 """按交互流程截图（气泡 / 思考块 / 工具行 / 备忘录 / 输入聚焦）。
 
-preview_shot.py 只能截静态首屏；本工具在加载后按脚本点几步再截，
-用来验收需要交互才看得见的界面。
+用途：preview_shot.py 只能截静态首屏；本工具在加载后按脚本点几步再截，
+用来验收需要交互才看得见的界面。同时它也是公共库：_a11y_check.py /
+_contrast_audit.py / _style_audit.py 都从这里 import CDP、FLOWS、run_flow
+（改签名会同时波及三者）。
+
+前提：vite dev server（5183）+ 无头 Edge CDP（9223）已启动（口径见
+docs/DEVELOPMENT.md）；pip install websocket-client。
 
 用法：
     python tools/_shot_flow.py --out shots/_tmp --label chat --themes dsblue --flows chat
+
+已知坑：
+    - FLOWS 里的选择器钉死了 mockBackend 的预置文案（会话标题
+      「帮我续写第五章的结尾」、章节「第1章.md」、按钮「冷读本章」等）；
+      改预置数据会让对应流程 miss，界面看似没截到交互态。
+    - __type__ 用原生 setter + input 事件灌文本，绕开 IME；直接对
+      textarea.value 赋值不会触发 React 状态更新。
+    - CDP 连接取端口上第一个 page target，多个可调试浏览器同开时可能连错。
 """
 import argparse
 import json
