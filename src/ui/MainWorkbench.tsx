@@ -35,6 +35,13 @@ import { parseChapterName, stripMd } from "../core/store/chapter";
 import { appendOplog, diffLines, isLightEdit, type DiffResult } from "../core/store/oplog";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
+import {
+  DEFAULT_THINKING_LEVEL,
+  THINKING_STOPS,
+  effectiveThinking,
+  thinkingSupportedFor,
+  type ThinkingLevel,
+} from "../core/ai/thinking";
 import { buildReflowPrompt, reflowSessionTitle } from "../core/ai/reflow";
 import {
   COLD_READ_GOAL_LABEL,
@@ -292,6 +299,21 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const chatFontSize = bootPrefs?.chatFontSize ?? 15;
   const modelLabel = bootPrefs?.model?.trim() || "未配置模型";
   const hasKey = Boolean(bootPrefs?.apiKey?.trim());
+
+  /**
+   * 会话级思考档位（D-011）：`null` = 跟随配置默认；一旦用户在本会话里选过就是临时值，
+   * **只存内存**（不写会话文件、不碰磁盘契约），换会话/重启即回到配置默认。
+   */
+  const [thinkLevel, setThinkLevel] = useState<ThinkingLevel | null>(null);
+  const [thinkOpen, setThinkOpen] = useState(false);
+  const thinkSupported = bootPrefs ? thinkingSupportedFor(bootPrefs) : false;
+  const thinkEffective = bootPrefs ? effectiveThinking(bootPrefs, thinkLevel) : DEFAULT_THINKING_LEVEL;
+  const thinkStop = THINKING_STOPS.find((s) => s.level === thinkEffective) ?? THINKING_STOPS[2];
+
+  // 生成中收起档位浮层：它悬在输入框上方，跑起来就挡字了
+  useEffect(() => {
+    if (busy) setThinkOpen(false);
+  }, [busy]);
 
   /** 保存单个标签（写前快照 + 落盘 + oplog；不弹确认——3.0 起自动保存） */
   const saveTabAs = useCallback(
@@ -639,6 +661,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             transport,
             askQuestions,
             signal: abortRef.current,
+            // 回流是后台整理任务：强制关闭思考（不需要推理，也不该为此付费）
+            thinking: "off",
           });
           await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title });
           setStatus(`回流完成：${task.title}（审稿报告与学习记录已落盘）`);
@@ -749,6 +773,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           onEvent: onAgentEvent,
           askQuestions,
           signal,
+          // 会话级临时档位（null = 配置默认）；平台不支持时由 providerOf 统一过滤掉
+          thinking: thinkLevel,
         });
         setSession(res.session);
         if (res.error) setChatError(res.error);
@@ -770,7 +796,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         void drainReflow(); // 生成槽空出后排空待跑回流
       }
     },
-    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow],
+    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow, thinkLevel],
   );
 
   const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
@@ -1630,6 +1656,57 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               }}
             />
             <div className="comp-row">
+              <div className="think-wrap">
+                <button
+                  className={thinkEffective === "off" ? "chip think" : "chip think accent"}
+                  title={
+                    thinkSupported
+                      ? `思考模式：${thinkStop.label}（点选档位，本会话内临时生效，不改配置文件）`
+                      : "当前平台不支持思考参数（仅 DeepSeek 官方端点可用）"
+                  }
+                  aria-haspopup="true"
+                  aria-expanded={thinkOpen}
+                  disabled={busy || !thinkSupported}
+                  onClick={() => setThinkOpen((v) => !v)}
+                >
+                  <svg viewBox="0 0 20 20" className="ic">
+                    <path d="M6.6 15.6h6.8M7.2 17.8h5.6" />
+                    <path d="M10 2.6c3 0 5.2 2 5.2 4.7 0 2-1.1 3-2.2 4.1-.7.7-1 1.3-1 2.2H8c0-.9-.3-1.5-1-2.2-1.1-1.1-2.2-2.1-2.2-4.1C4.8 4.6 7 2.6 10 2.6z" />
+                  </svg>
+                  思考·{thinkStop.label}
+                </button>
+                {thinkOpen ? (
+                  <div className="think-pop surface-raised" role="group" aria-label="思考档位">
+                    {THINKING_STOPS.map((s) => (
+                      <button
+                        key={s.level}
+                        type="button"
+                        className={`think-stop ${s.level === thinkEffective ? "on" : ""}`}
+                        aria-pressed={s.level === thinkEffective}
+                        onClick={() => {
+                          setThinkLevel(s.level);
+                          setThinkOpen(false);
+                        }}
+                      >
+                        <span className="ts-label">{s.label}</span>
+                        <span className="ts-hint">{s.hint}</span>
+                      </button>
+                    ))}
+                    {thinkLevel !== null ? (
+                      <button
+                        type="button"
+                        className="think-reset"
+                        onClick={() => {
+                          setThinkLevel(null);
+                          setThinkOpen(false);
+                        }}
+                      >
+                        跟随配置默认
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
               <button className="chip model" title="在设置中配置模型" onClick={onOpenSettings}>
                 <svg viewBox="0 0 16 16" className="ic">
                   <path

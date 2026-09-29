@@ -62,8 +62,9 @@
 | D-023 | **新增本地文件** `%APPDATA%\com.writerd\writerD\usage_stats.json`（按日 token 分桶 + 余额快照 + 最近错误），**additive 契约**，可随时删除 | README 契约表已加行；与 `shared_preferences.json`、`window_state.json` 同目录 |
 | D-024 | 上限放宽：`contextLimit` → **1M**、`maxOutputTokens` → **384K** | 对应 KL-DF-09（原钳在 200K） |
 | D-025 | 引擎侧**不传 `user_id`**（少一个变量）；**不内置价格表** | 官方 `user_id` 只做内容安全/KVCache/调度隔离，且要求 `[a-zA-Z0-9\-_]+` |
-| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线：vitest 273 例、cargo 13 例 |
+| D-026 | 闸门口径不变：`tsc --noEmit` 干净 + `vitest run` 全绿 + `cargo test --lib` 全绿（**永不跑 `--release`**）；每批原子提交并附实测输出 | 基线（随批次滚动刷新）：vitest 316 例、cargo 13 例 |
 | D-027 | **ADR（新增配置键）**：`platform_notice_dismissed`（boolean，DeepCompose 扩展键）——D-022 的「不再提示」需要一个持久位；缺失按 `false`，与既有键同文件，只写不删 | 已同步 `prefs.ts` 的 `Prefs` / `DEFAULT_PREFS` / `KEY_MAP` / `parsePrefs` 四处；新增键必须四处同改（本 ADR 即该纪律的实例） |
+| D-028 | 思考档位的 **UI 入口只做「会话级」**（主界面输入区 chip + 四档浮层，只存内存）；配置级默认（具名配置的 `thinking` / `reasoningEffort`）**本批不开设置页入口**——用户已确认会话级为准，且旧版设置页从来没有这两个字段的编辑器；字段保留兼容并参与 D-011 的回落链 | 回落链：会话级 > 配置级 > 平台内置初值（开启 + high）。若将来要在设置页暴露，按 D-027 的四点同步纪律走 |
 
 ---
 

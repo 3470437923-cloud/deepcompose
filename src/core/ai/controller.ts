@@ -32,6 +32,7 @@ import {
 import { isoMicros } from "../ids";
 import { recordUsage } from "../usage/persist";
 import { ZERO_USAGE, type UsageTotals } from "../usage/stats";
+import { choiceOfLevel, effectiveThinking, thinkingSupportedFor, type ThinkingLevel } from "./thinking";
 
 /** 当前注册给模型的工具（web_search/terminal/rank_data_query 尚未实现，故不在其中） */
 export const ENABLED_TOOLS = IMPLEMENTED_TOOLS.map((t) => t.name);
@@ -39,10 +40,14 @@ export const ENABLED_TOOLS = IMPLEMENTED_TOOLS.map((t) => t.name);
 /**
  * 从用户配置装配供应商参数；三要素（baseUrl/apiKey/model）缺一即返回 null，
  * 调用方须以 AI_ERRORS.invalidKey 逐字文案拒绝发送。
+ *
+ * `sessionThinking` 是**会话级临时档位**（D-011，只存内存）：显式传入则覆盖配置级默认；
+ * `null`/`undefined` 都表示"按配置默认"。思考参数只发给支持的平台，
+ * 不支持的平台一个字段都不写（发了就是 422，见 KL-DF-07）。
  */
-export function providerOf(prefs: Prefs): ProviderConfig | null {
+export function providerOf(prefs: Prefs, sessionThinking?: ThinkingLevel | null): ProviderConfig | null {
   if (!prefs.llmBaseUrl || !prefs.apiKey || !prefs.model) return null;
-  return {
+  const cfg: ProviderConfig = {
     baseUrl: prefs.llmBaseUrl,
     apiKey: prefs.apiKey,
     model: prefs.model,
@@ -52,6 +57,13 @@ export function providerOf(prefs: Prefs): ProviderConfig | null {
     // maxOutputTokens <= 0 视为未设置：交给协议层用 DEFAULT_MAX_TOKENS
     maxTokens: prefs.maxOutputTokens > 0 ? prefs.maxOutputTokens : undefined,
   };
+  if (thinkingSupportedFor(prefs)) {
+    const level = effectiveThinking(prefs, sessionThinking ?? null);
+    const choice = choiceOfLevel(level);
+    cfg.thinking = choice.enabled;
+    cfg.reasoningEffort = choice.effort;
+  }
+  return cfg;
 }
 
 /** send() 的输入（一次完整对话发送） */
@@ -67,6 +79,11 @@ export interface SendOptions {
   /** question 工具的界面回调（弹窗提问 → 用户选择 → resolve 答案） */
   askQuestions?: (questions: QuestionItem[]) => Promise<string[][]>;
   signal?: { aborted: boolean };
+  /**
+   * 会话级临时思考档位（D-011，只存内存）；`null`/省略 = 跟随配置默认。
+   * 回流这类后台任务由调用方显式传 `"off"`。
+   */
+  thinking?: ThinkingLevel | null;
 }
 
 export interface SendResult {
@@ -84,7 +101,7 @@ export interface SendResult {
  */
 export async function send(opts: SendOptions): Promise<SendResult> {
   const fs = getFs();
-  const cfg = providerOf(opts.prefs);
+  const cfg = providerOf(opts.prefs, opts.thinking ?? null);
   const session = opts.session ?? newSession(opts.projectRoot ?? "");
 
   if (!cfg) {
@@ -106,7 +123,8 @@ export async function send(opts: SendOptions): Promise<SendResult> {
   if (opts.prefs.autoClearContext) {
     try {
       const compressed = await maybeCompress({
-        cfg,
+        // 压缩是后台任务：强制关闭思考（省 token，也避免思考内容混进摘要）
+        cfg: { ...cfg, thinking: false },
         transport: opts.transport,
         messages: session.messages,
         contextLimit: opts.prefs.contextLimit,

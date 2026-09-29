@@ -87,9 +87,9 @@
 | KL-DF-02 | 带 `tools` 的请求里，历史轮缺 `reasoning_content` 会不会 400？（官方只规定「有则必须完整回传」） | 决定「中途切思考开关 / 跨平台切换」要不要自动开新推理段 | 待实测 | B5 实测（P0） |
 | KL-DF-03 | 长会话触发压缩后（整轮被检查点摘要替换）是否仍满足回传规则？ | 压缩与 DeepSeek 回传规则的交互，可能是 400 来源 | 待实测 | B5 实测（P0） |
 | KL-DF-04 | 思考模式下「压缩」可能打掉 DeepSeek 前缀缓存（缓存按前缀完整匹配），省钱方向可能反转 | 影响压缩阈值策略 | 待实测 | B5 实测（用缓存命中率观测） |
-| KL-DF-05 | Anthropic 格式的思考开关与档位落在**两个不同字段**（`reasoning.effort` 与 `output_config.effort`），最易写错 | 一处写错就是 400/静默无效 | 待实测 | B5 实测 |
+| KL-DF-05 | Anthropic 格式的思考开关与档位落在**两个不同字段**（`reasoning.effort` 与 `output_config.effort`），最易写错 | 一处写错就是 400/静默无效 | 待实测 | **部分落地**（B4）：只发文档明确给出取值集合的 `reasoning.effort`（`none` = 关闭）；`output_config.effort` 是否同发 → B5 实测 |
 | KL-DF-06 | DeepSeek `strict` 模式（Beta，需 `/beta` 端点）要求所有 object 属性 required + `additionalProperties:false`，且不支持 minLength/minItems 等 | 我们现有工具 schema 不满足 → **默认不开** | 文档判定 | 保留（不启用；将来要开需先改造 schema） |
-| KL-DF-07 | 硅基流动是否接受 `thinking` 参数？（不接受而我们发了 → 422） | 决定参数过滤策略 | 待实测 | B5 实测；默认**按平台过滤不发** |
+| KL-DF-07 | 硅基流动是否接受 `thinking` 参数？（不接受而我们发了 → 422） | 决定参数过滤策略 | 待实测 | **默认策略已落地**（B4）：按**请求地址**判定，非 DeepSeek 端点默认一个思考字段都不发（档位 chip 直接禁用）；是否接受 → B5 实测 |
 | KL-DF-08 | 硅基流动的默认模型 id 无法凭记忆断言 | 写死就是错误预设 | 未知 | **不写死**：预设 Base URL + 运行时 `/models` 拉取 |
 | KL-DF-09 | `maxOutputTokens` 的**设置页上限被钳在 200K**（原描述写成「`contextLimit` / `maxOutputTokens` 都被钳在 200K」**不准确，此处更正**：`contextLimit` 默认已是 1M 且无上限钳制），而官方最大输出是 384K | 用户想用满会被自己的 UI 挡住 | 代码判定 | **已修**（B1） |
 | KL-DF-10 | 删除作品的路径安全边界：reparse point（junction/符号链接）穿透、Windows 保留设备名、含冒号的 ADS 路径 | 误删可致灾难 | 代码判定 | **本轮修**（B7，四道安全门覆盖） |
@@ -102,6 +102,7 @@
 |---|---|
 | B1 | KL-DF-09 |
 | B2 | KL-AI-02 |
+| B4 | KL-DF-05（部分：只发 `reasoning.effort`）、KL-DF-07（按地址过滤的默认策略落地） |
 | B5 | KL-AI-06、KL-AI-16、KL-DF-01（核实并修）、KL-DF-02/03/04/05/07（实测出结论） |
 | B7 | KL-AI-11、KL-ST-02、KL-ST-04、KL-TL-04、KL-DF-10 |
 | B8 | KL-TL-02、其余保留项的复核（不强制销项） |
