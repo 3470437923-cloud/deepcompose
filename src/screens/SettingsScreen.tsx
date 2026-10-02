@@ -14,7 +14,7 @@
  * 材质配方在 styles/surface.css，布局与组件样式在 styles/app.css。
  */
 
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -22,7 +22,7 @@ import { useMaximized } from "../ui/useMaximized";
 import logo from "../assets/logo.png";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
-import { fetchModels } from "../core/ai/models";
+import { fetchModels, filterModelOptions } from "../core/ai/models";
 import { PLATFORM_PRESETS, platformLabel, platformSupportsBalance, platformSupportsThinking, presetOf } from "../core/ai/platforms";
 import { NOTICE_BUBBLE_MS, platformNoticeFor, type PlatformNotice } from "../core/ai/platformNotice";
 import {
@@ -136,8 +136,53 @@ export default function SettingsScreen({ onBack }: Props) {
     );
   }
 
+  /* ── 自动保存（修复"API 设置疑似不自动保存 / 有时保存错误"）──
+     纪律：update/patch 只标脏，落盘走唯一出口 doSave(formRef.current) ——
+     formRef 永远指向最新表单，手动保存、防抖保存、卸载兜底保存拿到的
+     都是同一份最新值，不存在"保存的是上一次渲染的旧表单"这条路径。 */
+  const formRef = useRef(form);
+  useEffect(() => {
+    formRef.current = form;
+  }, [form]);
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+
+  /** 唯一落盘出口：immediate=true 为手动「保存」/Ctrl+S，否则为防抖自动保存 */
+  const doSave = useCallback(async (immediate: boolean) => {
+    setSaving(true);
+    try {
+      await savePrefs(formRef.current);
+      dirtyRef.current = false;
+      setDirty(false);
+      setSaveMsg(immediate ? "配置已保存" : "已自动保存");
+    } catch (e) {
+      setSaveMsg(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  // 防抖自动保存：最后一次改动 900ms 后落盘（连续输入不会每键一次写盘）
+  useEffect(() => {
+    if (!dirty) return;
+    const t = setTimeout(() => void doSave(false), 900);
+    return () => clearTimeout(t);
+  }, [form, dirty, doSave]);
+
+  // 离开设置页（卸载/Esc 返回）时兜底：防抖窗口内的最后改动不能丢
+  useEffect(
+    () => () => {
+      if (dirtyRef.current) void doSave(false);
+    },
+    [doSave],
+  );
+
   const update = <K extends keyof Prefs>(key: K, value: Prefs[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+    setDirty(true);
     setSaveMsg("");
   };
 
@@ -147,20 +192,24 @@ export default function SettingsScreen({ onBack }: Props) {
    */
   const patch = useCallback((p: Partial<Prefs>) => {
     setForm((prev) => ({ ...prev, ...p }));
+    setDirty(true);
     setSaveMsg("");
   }, []);
 
   const handleSave = async () => {
-    setSaving(true);
-    setSaveMsg("");
-    try {
-      await savePrefs(form);
-      setSaveMsg("配置已保存");
-    } catch (e) {
-      setSaveMsg(`保存失败：${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSaving(false);
-    }
+    await doSave(true);
+  };
+
+  /**
+   * 「重置数据」后同步本地表单：重置已把默认配置写盘，若不同步 form/清 dirty，
+   * 之后任何一次防抖/卸载兜底保存都会把**重置前的整份旧表单**写回磁盘 ——
+   * 重置被静默回滚（连 API Key 都"复活"）。
+   */
+  const handleResetSync = (next: Prefs) => {
+    setForm(next);
+    formRef.current = next; // 卸载兜底读的是 formRef：必须立即同步，不能等下一轮渲染
+    dirtyRef.current = false;
+    setDirty(false);
   };
 
   /** 数据页改存储路径：立即写盘并重推进程内目录（返回主界面即按新路径装配） */
@@ -411,7 +460,16 @@ export default function SettingsScreen({ onBack }: Props) {
                 onSave={handleSave}
               />
             )}
-            {section === "data" && <DataSection form={form} flash={flash} onFlash={setFlash} askConfirm={askConfirm} onPathsChange={handlePathsChange} />}
+            {section === "data" && (
+              <DataSection
+                form={form}
+                flash={flash}
+                onFlash={setFlash}
+                askConfirm={askConfirm}
+                onPathsChange={handlePathsChange}
+                onReset={handleResetSync}
+              />
+            )}
             {section === "about" && <AboutSection />}
           </div>
         </div>
@@ -581,7 +639,7 @@ function ProviderSection({
   const applyEntry = (p: Provider) => {
     patch(profilePatch(p));
     setChosen(null);
-    setLocalMsg(`已切换到「${p.name}」，点「保存」后写盘生效`);
+    setLocalMsg(`已切换到「${p.name}」（改动会自动保存）`);
   };
 
   /** 删除某条档位（只删本地配置，不碰任何作品文件） */
@@ -664,7 +722,7 @@ function ProviderSection({
           <div className={conn === "error" ? "a-flash error" : "a-flash ok"} role="status">{connMsg}</div>
         ) : null}
         <div className="a-card-desc">
-          填好地址与 Key 后会自动检测连接并拉取模型清单，也可以手动检测。选用后点下方「保存」生效。
+          填好地址与 Key 后会自动检测连接并拉取模型清单，也可以手动检测。所有改动都会自动保存，也可点下方「保存」立即生效。
         </div>
 
         <div className="a-form-row">
@@ -709,24 +767,18 @@ function ProviderSection({
 
         <div className="a-form-row">
           <label className="a-form-label">
-            模型{models.length > 0 ? <span className="a-model-hint">（检测到 {models.length} 个，可下拉选择或手填）</span> : null}
+            模型{models.length > 0 ? <span className="a-model-hint">（检测到 {models.length} 个，点开下拉选择）</span> : null}
           </label>
-          {/* 用 input + datalist 而不是 select：端点不返回清单时也能手填模型名
-              （旧实现是纯 select，"可手填"的文案兑现不了，且已配置的模型
-              不在清单里时下拉会显示成空的占位项）。 */}
-          <input
-            className="a-form-input"
-            list="kc-model-options"
-            placeholder={preset.suggestedModels[0] ?? "如 deepseek-flash"}
+          {/* 只能选、不能手填（用户裁决）：手填与已选值混在一起时，"当前到底
+              用的是哪个模型"要靠猜；点选则永远确定。清单来自预设建议 +
+              「检测连接」实测拉取，长清单在弹层内可滚动、可按子串筛选。
+              不用原生 datalist：WebView2 里弹层高度不受控、只按前缀过滤，
+              长清单显示不全（用户实测"选项堆叠、模型多了看不清"）。 */}
+          <ModelSelect
             value={form.model}
-            onChange={(e) => update("model", e.target.value)}
-            spellCheck={false}
+            options={modelOptions}
+            onChange={(v) => update("model", v)}
           />
-          <datalist id="kc-model-options">
-            {modelOptions.map((m) => (
-              <option key={m} value={m} />
-            ))}
-          </datalist>
         </div>
 
         <div className="a-form-row a-form-row-inline">
@@ -740,10 +792,12 @@ function ProviderSection({
               step={0.1}
               value={form.temperature}
               /* 旧实现 `parseFloat(v) || 0.8`：输入 0 或清空都会被弹回 0.8。
-                 这里忽略空串/非法中间态，失焦时再夹回 [0,2]。 */
+                 这里忽略空串/非法中间态；越界值**当场**夹回 [0,2] —— 只等 onBlur
+                 夹取的话，900ms 防抖自动保存会抢先把非法温度落盘（之后每次
+                 生成请求都带非法 temperature，全部报错）。 */
               onChange={(e) => {
                 const v = numGuard(e.target.value);
-                if (v !== null) update("temperature", v);
+                if (v !== null) update("temperature", clamp(v, 0, 2));
               }}
               onBlur={(e) => {
                 const v = numGuard(e.target.value);
@@ -846,7 +900,7 @@ function ProviderSection({
             保存为新配置
           </button>
         </div>
-        <div className="a-form-row-note">具名配置的增删改与切换都只改本地配置，点下方「保存」后写盘生效。</div>
+        <div className="a-form-row-note">具名配置的增删改与切换都只改本地配置，会自动保存写盘。</div>
 
         <div className="a-form-actions">
           <button className="a-btn-primary" onClick={onSave} disabled={saving}>
@@ -1189,7 +1243,7 @@ function ParamsSection({
       </div>
 
       <div className="a-params-footer">
-        <span className="a-form-hint">参数保存后立即生效，也可以按 Ctrl+S 保存</span>
+        <span className="a-form-hint">改动会自动保存并立即生效，也可以按 Ctrl+S 立即保存</span>
         <button className="a-btn-primary" onClick={onSave} disabled={saving}>
           {saving ? "保存中..." : "保存参数"}
         </button>
@@ -1294,6 +1348,9 @@ function ThemeSection({
           <span className="a-card-title">字号</span>
           <span className="a-card-side">对话与编辑器正文字号</span>
         </div>
+        {/* 两个字号框与其它数字输入同一守卫：清空/非法中间态不落盘，越界当场夹取。
+            旧实现裸 Number(v)：清空 → Number("")===0 → 自动保存把字号存成 0px，
+            主界面 --chat-fs/--editor-fs 变 0，聊天区与编辑器文字全部消失。 */}
         <div className="a-card-row">
           <span>对话字号</span>
           <input
@@ -1303,7 +1360,10 @@ function ThemeSection({
             max={24}
             step={1}
             value={Math.round(form.chatFontSize)}
-            onChange={(e) => update("chatFontSize", Number(e.target.value))}
+            onChange={(e) => {
+              const v = numGuard(e.target.value);
+              if (v !== null) update("chatFontSize", clamp(Math.round(v), 11, 24));
+            }}
           />
         </div>
         <div className="a-card-row">
@@ -1315,7 +1375,10 @@ function ThemeSection({
             max={28}
             step={1}
             value={Math.round(form.editorFontSize)}
-            onChange={(e) => update("editorFontSize", Number(e.target.value))}
+            onChange={(e) => {
+              const v = numGuard(e.target.value);
+              if (v !== null) update("editorFontSize", clamp(Math.round(v), 11, 28));
+            }}
           />
         </div>
         <div className="a-form-actions">
@@ -1339,12 +1402,15 @@ function DataSection({
   onFlash,
   askConfirm,
   onPathsChange,
+  onReset,
 }: {
   form: Prefs;
   flash: string;
   onFlash: (s: string) => void;
   askConfirm: (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) => Promise<boolean>;
   onPathsChange: (next: Prefs) => Promise<void>;
+  /** 重置写盘成功后同步父级表单（否则自动保存会把旧表单写回，重置被静默回滚） */
+  onReset: (next: Prefs) => void;
 }) {
   const boot = currentBoot();
   const dirs = boot?.dirs;
@@ -1460,7 +1526,9 @@ function DataSection({
                 if (!ok) return;
                 try {
                   const { parsePrefs, serializePrefs, DEFAULT_PREFS } = await import("../core/prefs");
-                  await savePrefs(parsePrefs(serializePrefs({ ...DEFAULT_PREFS })));
+                  const fresh = parsePrefs(serializePrefs({ ...DEFAULT_PREFS }));
+                  await savePrefs(fresh);
+                  onReset(fresh); // 同步本地表单并清脏：防止自动保存把重置前的旧表单写回去
                   onFlash("配置已重置为默认（主题与强调色返回主界面后生效）");
                 } catch (e) {
                   onFlash(`重置失败：${e instanceof Error ? e.message : String(e)}`);
@@ -1542,6 +1610,129 @@ function AboutSection() {
           <em>›</em>
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── 模型选择框（自绘：只能选择，不能手填） ──
+   为什么只能选：手填与已选值共用一个输入框时，"当前生效的到底是哪个模型"
+   要靠用户自己记住；点选则永远确定（选中项高亮 + 按钮回显）。
+   为什么自绘：原生 datalist 在 WebView2 里弹层高度与样式都不受控，
+   长清单显示不全，且只按前缀过滤。这里的弹层 = 完整清单（滚动）+
+   子串筛选（筛选只缩小列表，不改变已选值）+ 空清单时的明确引导。 */
+function ModelSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // 与应用内其它弹层同一条纪律：点外部 / Esc 收起。
+  // Esc 要 stopPropagation —— App 外壳在 window 上还挂着一个「Esc 返回主界面」，
+  // 不拦住的话收下拉会顺手把整个设置页也退掉。
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.isComposing) return;
+      e.stopPropagation();
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  // 展开时清空上次的筛选并把焦点放进筛选框（清单长时才渲染它）
+  useEffect(() => {
+    if (!open) return;
+    setQuery("");
+    if (options.length > 6) {
+      const raf = requestAnimationFrame(() => searchRef.current?.focus());
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [open, options.length]);
+
+  const filtered = filterModelOptions(options, query);
+  const current = value.trim();
+
+  return (
+    <div className="a-combo" ref={wrapRef}>
+      <button
+        type="button"
+        className="a-form-input a-combo-btn"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="模型"
+        title={current || "请选择模型"}
+        onClick={() => setOpen((v) => !v)}
+      >
+        <span className={current ? "a-combo-val" : "a-combo-val dim"}>
+          {current || "请选择模型（先点「检测连接」拉取清单）"}
+        </span>
+        <svg
+          viewBox="0 0 12 12"
+          className={open ? "caret open" : "caret"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.6"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M3 4.6L6 7.6l3-3" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="a-combo-pop surface-raised" role="listbox" aria-label="可选模型">
+          {options.length > 6 ? (
+            <input
+              ref={searchRef}
+              className="a-combo-search"
+              value={query}
+              placeholder="输入以筛选…"
+              spellCheck={false}
+              aria-label="筛选模型"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          ) : null}
+          <div className="a-combo-list">
+            {options.length === 0 ? (
+              <div className="a-combo-none">尚未拉取到模型清单，请先点上方「检测连接」</div>
+            ) : filtered.length === 0 ? (
+              <div className="a-combo-none">没有匹配「{query}」的模型</div>
+            ) : (
+              filtered.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  role="option"
+                  aria-selected={m === current}
+                  className={m === current ? "a-combo-opt on" : "a-combo-opt"}
+                  title={m}
+                  onClick={() => {
+                    onChange(m);
+                    setOpen(false);
+                  }}
+                >
+                  {m}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

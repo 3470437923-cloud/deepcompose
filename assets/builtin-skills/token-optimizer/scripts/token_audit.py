@@ -2,7 +2,36 @@
 """Token Audit V9 - Full directory scan with refs/scripts detection"""
 import os, sys
 
-SKILLS_DIR = os.path.expanduser("~/.workbuddy/skills")
+DEFAULT_SKILLS_DIR = os.path.join(os.path.expanduser("~"), "Documents", "skills")
+
+
+def resolve_skills_dir():
+    """Resolve the skills root that this script audits.
+
+    Order: --skills-dir <path> / --skills-dir=<path> > env DEEPCOMPOSE_SKILLS_DIR
+    > ~/Documents/skills (DeepCompose default; Documents\\skills on Windows).
+    The override matters because the app lets the user move the skills root
+    (prefs key custom_skills_dir).
+    """
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == "--skills-dir" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--skills-dir="):
+            return arg.split("=", 1)[1]
+    return os.environ.get("DEEPCOMPOSE_SKILLS_DIR") or DEFAULT_SKILLS_DIR
+
+
+SKILLS_DIR = resolve_skills_dir()
+
+
+def require_skills_dir():
+    """Return False (and explain the fix) when the skills root does not exist."""
+    if os.path.isdir(SKILLS_DIR):
+        return True
+    print("  [ERROR] skills directory not found: {}".format(SKILLS_DIR))
+    print("  Use --skills-dir <path> or set DEEPCOMPOSE_SKILLS_DIR.")
+    return False
 
 def kb(b):
     return f"{b/1024:.1f}"
@@ -19,6 +48,9 @@ def dir_size(path):
 
 print("=== Token Audit V9 - Full Directory Scan ===")
 print()
+
+if not require_skills_dir():
+    sys.exit(2)
 
 skills = []
 for name in os.listdir(SKILLS_DIR):

@@ -39,35 +39,50 @@ export async function saveUsageStats(fs: FsBridge, file: string, stats: UsageSta
   await fs.writeText(file, serializeUsageStats(stats));
 }
 
-/** 记一次运行并落盘：读 → 按日累加 → 裁剪 90 天 → 写 */
-export async function recordUsage(
+/**
+ * 进程内串行队列（与 snapshot/session 同一手法）：三条 record* 都是
+ * 「读 → 改 → 写」整条链，不串行的话并发更新互相整文件覆盖 ——
+ * 生成结束落 token 与鲸鱼面板刷新余额时间重叠时，后写者盖掉先写者，
+ * 丢一日统计或丢余额快照。前序失败不阻塞后续；各调用方仍拿到自己的错误。
+ */
+let queue: Promise<unknown> = Promise.resolve();
+function enqueue<T>(job: () => Promise<T>): Promise<T> {
+  const run = queue.then(job, job);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+/** 记一次运行并落盘：读 → 按日累加 → 裁剪 90 天 → 写（经串行队列） */
+export function recordUsage(
   fs: FsBridge,
   file: string,
   delta: UsageTotals,
   when: Date = new Date(),
 ): Promise<UsageStatsFile> {
-  const current = await loadUsageStats(fs, file);
-  const next = pruneDays(recordRun(current, when, delta), USAGE_DAY_KEEP);
-  await saveUsageStats(fs, file, next);
-  return next;
+  return enqueue(async () => {
+    const current = await loadUsageStats(fs, file);
+    const next = pruneDays(recordRun(current, when, delta), USAGE_DAY_KEEP);
+    await saveUsageStats(fs, file, next);
+    return next;
+  });
 }
 
-/** 缓存一次余额快照（面板展示；不做任何金额推算） */
-export async function recordBalance(
-  fs: FsBridge,
-  file: string,
-  snapshot: BalanceSnapshot,
-): Promise<UsageStatsFile> {
-  const current = await loadUsageStats(fs, file);
-  const next = withBalance(current, snapshot);
-  await saveUsageStats(fs, file, next);
-  return next;
+/** 缓存一次余额快照（面板展示；不做任何金额推算；经串行队列） */
+export function recordBalance(fs: FsBridge, file: string, snapshot: BalanceSnapshot): Promise<UsageStatsFile> {
+  return enqueue(async () => {
+    const current = await loadUsageStats(fs, file);
+    const next = withBalance(current, snapshot);
+    await saveUsageStats(fs, file, next);
+    return next;
+  });
 }
 
-/** 记一次错误（诊断用；面板异常态读取） */
-export async function recordError(fs: FsBridge, file: string, note: UsageNote): Promise<UsageStatsFile> {
-  const current = await loadUsageStats(fs, file);
-  const next = withError(current, note);
-  await saveUsageStats(fs, file, next);
-  return next;
+/** 记一次错误（诊断用；面板异常态读取；经串行队列） */
+export function recordError(fs: FsBridge, file: string, note: UsageNote): Promise<UsageStatsFile> {
+  return enqueue(async () => {
+    const current = await loadUsageStats(fs, file);
+    const next = withError(current, note);
+    await saveUsageStats(fs, file, next);
+    return next;
+  });
 }

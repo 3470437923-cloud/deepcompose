@@ -71,16 +71,24 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
   // 焦点默认落在"关闭"上：面板一打开，最需要能立刻脱身
   useDialogFocus(open, panelRef, closeRef);
 
+  /**
+   * 逐键全量落盘的串行队列：快速连续输入时多个 saveMemos 在飞，慢盘上
+   * 先发出的写可能后完成，磁盘最终停在较旧快照（丢末尾几个字符）。
+   * 排队后先发的写必定先完成，磁盘收敛到最新内容。
+   */
+  const saveQueue = useRef<Promise<void>>(Promise.resolve());
   const persist = useCallback(
-    async (next: MemoFile) => {
+    (next: MemoFile) => {
       setData(next);
       const b = currentBoot();
       if (!b) return;
-      try {
-        await saveMemos(getFs(), b.dirs.memosFile, next);
-      } catch (e) {
-        onStatus(`备忘录保存失败：${String(e)}`);
-      }
+      saveQueue.current = saveQueue.current.then(async () => {
+        try {
+          await saveMemos(getFs(), b.dirs.memosFile, next);
+        } catch (e) {
+          onStatus(`备忘录保存失败：${String(e)}`);
+        }
+      });
     },
     [onStatus],
   );

@@ -446,6 +446,23 @@ html[data-nav="back"] .win { --push-x: -10px; }
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* 常驻回收站入口（侧栏底部）：统计行右侧的小按钮，角标复用 .rb-badge */
+.foot-recycle {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--r-sm);
+  color: var(--tx-dim);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--tr-caption);
+  white-space: nowrap;
+}
+.foot-recycle:hover { background: var(--ctl-hover); color: var(--tx-1); }
+.foot-recycle .ic { width: 13px; height: 13px; }
+.foot-recycle .rb-badge { position: static; margin-left: 1px; }
 
 /* ════════════════ 左栏：作品选择 + 文件树 ════════════════ */
 .filesel-wrap { position: relative; flex: none; padding: 10px 10px 2px; }
@@ -1077,6 +1094,14 @@ html[data-nav="back"] .win { --push-x: -10px; }
 }
 
 /* ── 消息流 ── */
+/* 消息区与「回到底部」悬浮钮的定位容器：按钮钉在容器里，不随内容滚动 */
+.chat-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
 .chat-scroll {
   flex: 1;
   min-height: 0;
@@ -1088,6 +1113,27 @@ html[data-nav="back"] .win { --push-x: -10px; }
   position: relative;
   z-index: 1;
 }
+/* 「回到底部」悬浮钮：上翻阅读历史（自动跟随已让位）时出现；
+   生成中文案变为「有新消息」。钉在消息区下缘中央，实色浮起面。 */
+.chat-jump {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  font-size: var(--fs-foot);
+  font-weight: 620;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line, transparent);
+}
+.chat-jump:hover { filter: brightness(1.06); }
+.chat-jump .ic { width: 14px; height: 14px; }
 .msg {
   display: flex;
   flex-direction: column;
@@ -1350,7 +1396,10 @@ html[data-nav="back"] .win { --push-x: -10px; }
   line-height: 1.68;
   letter-spacing: var(--tr-small);
 }
-.comp-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+/* 允许换行：思考 / 模型 / 停止 / 警告四个胶囊在窄面板里挤不下时，
+   旧单行布局会把它们压扁、文字互相顶出（"堆叠"观感的另一半来源）；
+   换行后发送键仍靠 margin-left:auto 停在每行右端。 */
+.comp-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; flex-wrap: wrap; }
 /* 发送键：整屏唯一的实心强调色圆形块（主操作）。
    圆形是有理由的 —— 它本来就是个圆的按钮，不是为了可爱；
    而填充取 --accent-fill（已压暗）以保证白色箭头图标可读。 */
@@ -1609,6 +1658,81 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .a-save-msg.error { color: var(--bad); }
 .a-model-hint { font-size: var(--fs-foot); color: var(--tx-dim); }
 
+/* ── 模型选择框（自绘，只能选不能填）：显示钮 + 完整可滚动弹层 ──
+   滚动拆两层：外壳（.a-combo-pop）管定位与圆角裁剪，列表（.a-combo-list）管
+   overflow-y —— 外壳 overflow:hidden 负责把列表滚动条和首末项裁进圆角；
+   列表上限约 8 条高度，清单再长也完整可达（datalist 弹层两样都做不到）。 */
+.a-combo { position: relative; display: flex; align-items: center; }
+.a-combo-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  text-align: left;
+}
+.a-combo-val {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+.a-combo-val.dim { color: var(--tx-3); font-family: inherit; }
+.a-combo-btn .caret { flex: none; width: 12px; height: 12px; color: var(--tx-3); transition: transform var(--t-fast) var(--ease); }
+.a-combo-btn .caret.open { transform: rotate(180deg); }
+.a-combo-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  padding: 5px;
+  border-radius: var(--r-md);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+}
+.a-combo-search {
+  flex: none;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--tx-1);
+  font-size: var(--fs-foot);
+}
+.a-combo-search::placeholder { color: var(--tx-3); }
+.a-combo-list {
+  overflow-y: auto;
+  max-height: 264px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.a-combo-none {
+  padding: 12px 10px;
+  font-size: var(--fs-foot);
+  color: var(--tx-dim);
+  text-align: center;
+}
+.a-combo-opt {
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  font-size: var(--fs-foot);
+  color: var(--tx-1);
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.a-combo-opt:hover { background: var(--ctl-hover); }
+.a-combo-opt.on { background: var(--accent-soft); color: var(--accent-text); font-weight: 620; }
+
 /* ── 平台卡（设置页 AI 提供商）：三块并排；选中一圈强调色环，与主题卡同配方 ── */
 .a-platform-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .a-platform-tile {
@@ -1740,6 +1864,12 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .think-reset:hover { background: var(--ctl-hover); }
 /* 关闭态用中性描边（与 .chip.accent 的浅染底形成"开着 / 关着"的一眼区别） */
 .chip.think { max-width: 168px; }
+/* 胶囊内文字单行省略（档位名/模型名都可能超宽；与 .chip.model span 同一手法） */
+.chip .lbl {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 
 /* 非阻塞气泡：底部居中、实色、无阴影（「付印单」材质纪律：不发光、不模糊） */
 .a-notice-bubble {
@@ -2499,3 +2629,95 @@ html[data-nav="back"] .win { --push-x: -10px; }
   .tnode,
   .a-card { box-shadow: inset 0 0 0 1px var(--line-strong); }
 }
+
+/* ══ 开书引导（NewBookWizard）══
+   布局：步骤指示 → 书名与方式（两张方式卡）/ 两步问题网格 → 底部动作行。
+   全部复用 .field / .btn 配方，这里只管布局与步骤态。 */
+.nbw h3 { font-size: var(--fs-headline); text-align: center; }
+.nbw .field { margin-bottom: 0; } /* 网格行距由 gap 管，不再吃 .qbox 的段落底距 */
+.nbw-steps {
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin-bottom: 14px;
+}
+.nbw-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-foot);
+  color: var(--tx-dim);
+}
+.nbw-step i {
+  font-style: normal;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--tx-3);
+}
+.nbw-step.on { color: var(--tx-1); font-weight: 640; }
+.nbw-step.on i { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
+.nbw-step.done i { background: var(--accent-soft); color: var(--accent-text); box-shadow: none; }
+.nbw-step.off { opacity: 0.45; } /* 空白开书用不到的后续步骤：灰掉而不是藏起来，方式切换无跳变 */
+.nbw-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-foot);
+  font-weight: 620;
+  color: var(--tx-2);
+  margin-bottom: 10px;
+}
+.nbw-modes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 4px 0 6px;
+}
+.nbw-mode {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 13px;
+  border-radius: var(--r-md);
+  text-align: left;
+  background: var(--ctl-fill);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  color: var(--tx-2);
+}
+.nbw-mode:hover { background: var(--ctl-hover); }
+.nbw-mode.on {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--tx-1);
+}
+.nbw-mode-name { font-size: var(--fs-sub); font-weight: 660; }
+.nbw-mode-desc { font-size: var(--fs-foot); line-height: 1.6; color: var(--tx-3); }
+.nbw-mode.on .nbw-mode-desc { color: var(--tx-2); }
+.nbw-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 12px;
+}
+.nbw-grid .span2 { grid-column: 1 / -1; }
+.nbw-ta { min-height: 64px; resize: vertical; line-height: 1.6; }
+.nbw-hint {
+  font-size: var(--fs-foot);
+  color: var(--tx-dim);
+  line-height: 1.6;
+  margin: 2px 0 6px;
+}
+.nbw-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.nbw-actions-spacer { flex: 1; }

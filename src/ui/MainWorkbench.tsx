@@ -14,11 +14,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMaximized } from "./useMaximized";
 import { useDialogFocus } from "./useDialogFocus";
-import { isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
+import { FOLLOW_SPRING, isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
 import { PROJECT_DIRS, dirname, join } from "../core/dirs";
+import { isoMicros } from "../core/ids";
 import {
   chapterLabelOf,
   createProject,
@@ -61,6 +62,7 @@ import {
   listSessions,
   loadSession,
   newSession,
+  uuid,
   type SessionFile,
   type SessionListEntry,
 } from "../core/store/session";
@@ -72,6 +74,8 @@ import RecycleBin from "./RecycleBin";
 import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycle";
 import { deleteSessionsForProject } from "../core/store/session";
 import { dropCompressCache } from "../core/ai/compress";
+import NewBookWizard from "./NewBookWizard";
+import { onboardingOverrides, type OnboardingAnswers } from "../core/store/onboarding";
 
 interface OpenTab {
   /** 相对作品根路径（'\' 分隔） */
@@ -248,10 +252,21 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     resolve: (a: string[][]) => void;
   } | null>(null);
   const [qSel, setQSel] = useState<Record<number, string[]>>({});
-  const chatBottom = useRef<HTMLDivElement | null>(null);
   const chatScroll = useRef<HTMLDivElement | null>(null);
   /** 是否自动跟随到最新一条：用户往上翻时置 false，翻回底部再置 true */
   const pinned = useRef(true);
+  /**
+   * 弹簧写入守卫（流式滚动锁死的修复核心）：弹簧写 scrollTop 会触发 scroll 事件，
+   * 不区分的话 onChatScroll 会把弹簧自己写的每一帧都当成「用户滚了」——
+   * 跟随被反复取消又重算，用户的上滚紧接着被下一帧拽回底部，表现为
+   * 「流式输出时对话框定住、怎么都滑不动」。记的是**最后写入的值**而不是布尔旗：
+   * 浏览器合并派发 scroll 事件时布尔旗会张冠李戴（实测：上滚与弹簧写入合并成
+   * 一条事件，用户滚动被吞）；scroll 事件读到的 scrollTop 永远是最新值，
+   * 与弹簧最后写入值一致 = 程序写入，不一致 = 用户滚动。
+   */
+  const lastSpringWrite = useRef<number | null>(null);
+  /** 是否贴底（pinned 的 state 镜像，渲染「回到底部」悬浮钮用） */
+  const [atBottom, setAtBottom] = useState(true);
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
   /** 挂起中的 question 弹窗（停止生成时强制空选择收尾，避免弹窗残留卡住 agent 循环） */
   const pendingQuestionRef = useRef<{ items: QuestionItem[]; resolve: (v: string[][]) => void } | null>(null);
@@ -337,6 +352,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
    */
   const [thinkLevel, setThinkLevel] = useState<ThinkingLevel | null>(null);
   const [thinkOpen, setThinkOpen] = useState(false);
+  /* 档位浮层与会话/作品下拉同一条纪律：点击外部或 Esc 必须收起。
+     此前它没有挂 useDismiss —— 不点选就永远悬在输入区与快捷指令行
+     之上（用户报的"思考模式 UI 堆叠"）：浮层压住别的控件，却怎么点
+     别处都不消失。 */
+  const thinkRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(thinkOpen, thinkRef, () => setThinkOpen(false));
   const thinkSupported = bootPrefs ? thinkingSupportedFor(bootPrefs) : false;
   const thinkEffective = bootPrefs ? effectiveThinking(bootPrefs, thinkLevel) : DEFAULT_THINKING_LEVEL;
   const thinkStop = THINKING_STOPS.find((s) => s.level === thinkEffective) ?? THINKING_STOPS[2];
@@ -397,23 +418,37 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     [project, session],
   );
 
-  /** 切作品/关窗：自动保存所有脏标签；编辑态补记 edit_end（回流顺延，不在关闭时跑 AI） */
-  const autoSaveAllTabs = useCallback(async () => {
+  /**
+   * 切作品/关窗：自动保存所有脏标签；编辑态补记 edit_end（回流顺延，不在关闭时跑 AI）。
+   * 返回值 = 是否全部落盘成功（关窗守卫据此决定放不放行；调用方不关心的可以忽略）。
+   * oplog 是旁路日志：它失败不许拦住保存，更不许把关窗处理器整死（appendOplog 抛错 →
+   * preventDefault 已执行而 destroy 永远到不了，窗口关不掉）。
+   */
+  const autoSaveAllTabs = useCallback(async (): Promise<boolean> => {
     const fs = getFs();
+    let allOk = true;
     for (const t of tabs) {
-      if (t.dirty) await saveTabAs(t, "自动保存");
+      if (t.dirty) {
+        const ok = await saveTabAs(t, "自动保存");
+        if (!ok) allOk = false;
+      }
       if (t.editing && t.editBase !== null && project) {
-        const diff = diffLines(t.editBase, t.content);
-        await appendOplog(fs, project.ref.root, "edit_end", t.rel, session?.id ?? "", {
-          changedChars: diff.changedChars,
-          addedLines: diff.added.length,
-          removedLines: diff.removed.length,
-          digitsChanged: diff.digitsChanged,
-          reflowTriggered: false,
-          note: "窗口关闭或切换作品：已自动保存，回流顺延（可稍后再点一次修改/完成或让 AI 总结改稿）",
-        });
+        try {
+          const diff = diffLines(t.editBase, t.content);
+          await appendOplog(fs, project.ref.root, "edit_end", t.rel, session?.id ?? "", {
+            changedChars: diff.changedChars,
+            addedLines: diff.added.length,
+            removedLines: diff.removed.length,
+            digitsChanged: diff.digitsChanged,
+            reflowTriggered: false,
+            note: "窗口关闭或切换作品：已自动保存，回流顺延（可稍后再点一次修改/完成或让 AI 总结改稿）",
+          });
+        } catch {
+          // 日志写不进去不拦流程（正文已经保存过了）
+        }
       }
     }
+    return allOk;
   }, [tabs, project, session, saveTabAs]);
 
   /** 装配数据：载入作品（不改 prefs；启动恢复与 openProject 共用） */
@@ -576,14 +611,21 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     return () => window.removeEventListener("keydown", onKey);
   }, [saveActive]);
 
-  /** 关窗守卫：自动保存全部脏标签与编辑态（3.0 语义：不丢稿、不询问） */
+  /** 关窗守卫：自动保存全部脏标签与编辑态（3.0 语义：不丢稿、不询问）。
+      有任何一个标签写盘失败就**不销毁窗口** —— 旧实现拿到 false 也照关，
+      磁盘写失败时脏标签内容静默丢失，恰好违背"不丢稿"这条语义本身。 */
   useEffect(() => {
     let disposed = false;
     const unlistenP = getCurrentWindow().onCloseRequested(async (event) => {
       if (!tabs.some((t) => t.dirty || t.editing)) return; // 无未保存内容放行
       event.preventDefault();
-      await autoSaveAllTabs();
-      if (!disposed) await getCurrentWindow().destroy();
+      const ok = await autoSaveAllTabs();
+      if (disposed) return;
+      if (ok) {
+        await getCurrentWindow().destroy();
+      } else {
+        setStatus("有内容写入失败，窗口未关闭；请检查磁盘可写后重试（或先手动 Ctrl+S 保存）");
+      }
     });
     return () => {
       disposed = true;
@@ -591,18 +633,40 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     };
   }, [tabs, autoSaveAllTabs]);
 
-  const newProject = useCallback(async () => {
-    if (!dirs) return;
-    const name = await askText("新书名称", "输入作品名");
-    if (!name) return;
-    try {
-      const ref = await createProject(getFs(), dirs.booksRoot, name);
-      await refreshProjects();
-      await openProject(ref);
-    } catch (e) {
-      setStatus(`新建失败：${String(e)}`);
-    }
-  }, [dirs, refreshProjects, openProject, askText]);
+  /** 「新建作品」入口：打开开书引导（引导开书 / 空白开书两条路都在向导里） */
+  const [newBookOpen, setNewBookOpen] = useState(false);
+  const newProject = useCallback(() => setNewBookOpen(true), []);
+
+  /**
+   * 向导提交：建作品并打开。
+   * answers 非空时经 onboardingOverrides 把答案定向填进 01-开书定位 / 02-核心设定
+   * （只替换「待填写」行，见 onboarding.ts 的契约）；返回错误文案给向导原地展示。
+   */
+  const createBook = useCallback(
+    async (name: string, answers: OnboardingAnswers | null): Promise<string | null> => {
+      if (!dirs) return "作品目录尚未加载，请稍后再试";
+      try {
+        const ref = await createProject(
+          getFs(),
+          dirs.booksRoot,
+          name,
+          answers ? onboardingOverrides(answers) : undefined,
+        );
+        setNewBookOpen(false);
+        await refreshProjects();
+        await openProject(ref);
+        setStatus(
+          answers
+            ? `「${ref.name}」已创建：开书材料已按引导预填，可随时与 AI 继续讨论补齐`
+            : `「${ref.name}」已创建`,
+        );
+        return null;
+      } catch (e) {
+        return `新建失败：${String(e instanceof Error ? e.message : e)}`;
+      }
+    },
+    [dirs, refreshProjects, openProject],
+  );
 
   /** 回收站条目数（书下拉菜单角标）；读不到按 0，不让角标拖垮主界面 */
   const refreshRecycleCount = useCallback(async () => {
@@ -766,6 +830,11 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       while (reflowQueue.current.length > 0) {
         const task = reflowQueue.current.shift()!;
         setStatus(`回流运行中：${task.title}（报告见会话列表）`);
+        /* 每个任务独立的中止信号：「停止」的语义是"停当前这一个"。
+           旧实现整队共用 abortRef.current —— 点一次停止，aborted 永久为 true，
+           后续每个排队任务一上来就被判中止，逐个报「回流失败」整队清空。 */
+        const signal = { aborted: false };
+        abortRef.current = signal;
         const reflowSession: SessionFile = { ...newSession(project.ref.root), title: task.title };
         try {
           await sendChat({
@@ -776,7 +845,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             userText: task.prompt,
             transport,
             askQuestions,
-            signal: abortRef.current,
+            signal,
             // 回流是后台整理任务：强制关闭思考（不需要推理，也不该为此付费）
             thinking: "off",
           });
@@ -879,11 +948,25 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       setComposer("");
       const signal = { aborted: false };
       abortRef.current = signal;
+      /* 每条发言都立刻乐观回显：不等 runAgent 整轮跑完才出现用户气泡。
+         首条发言尤其关键 —— 没有它时聊天视图停在欢迎页，正在生成的回复
+         完全不可见，只有点「停止」让会话提前落盘才看得到。
+         live 会话只建一次并同时交给 sendChat：乐观展示的会话与落盘的会话
+         是同一个 id，跑完后 setSession(res.session) 用真实消息（含同文本的
+         用户消息）整体替换，不会重复、也不会"换会话"。 */
+      const live: SessionFile = session ?? newSession(project?.ref.root ?? "");
+      setSession({
+        ...live,
+        messages: [...live.messages, { id: uuid(), role: "user", text, createdAt: isoMicros() }],
+      });
+      // 用户自己发言：视野拉回最新（他正在参与对话，不该停在翻历史的位置）
+      pinned.current = true;
+      setAtBottom(true);
       try {
         const res = await sendChat({
           dirs: b.dirs,
           prefs: b.prefs,
-          session,
+          session: live,
           projectRoot: project?.ref.root ?? null,
           userText: text,
           transport,
@@ -1036,6 +1119,11 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     async (id: string) => {
       const b = currentBoot();
       if (!b) return;
+      // 与 startNewChat 同一条守卫：生成中切会话，跑完会被 setSession 拽回去
+      if (busyRef.current) {
+        setStatus("正在生成中，请先停止当前生成再切换会话");
+        return;
+      }
       const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
       if (!s) return;
       setSession(s);
@@ -1063,6 +1151,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   }, [pending, qSel]);
 
   const startNewChat = useCallback(() => {
+    /* 生成中不开新会话：本轮跑完时 sendUserMessage 会 setSession(res.session)，
+       会把用户刚从「新对话」拽回那个生成中的旧会话 —— 先停止再开。 */
+    if (busyRef.current) {
+      setStatus("正在生成中，请先停止当前生成再开新对话");
+      setSessMenu(false);
+      return;
+    }
     setSession(newSession(project?.ref.root ?? ""));
     setSessMenu(false);
     setStatus("新对话");
@@ -1072,11 +1167,17 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   // 并恢复自动跟随 —— 新会话永远应该贴底。
   useEffect(() => {
     pinned.current = true;
+    setAtBottom(true);
     const el = chatScroll.current;
     if (!el) return;
     const max = el.scrollHeight - el.clientHeight;
     if (max > 0) el.scrollTop = max;
   }, [session?.id]);
+
+  /** 弹簧写入守卫的记录回调（motion.springScrollToBottom 的 beforeWrite） */
+  const markSpringWrite = useCallback((v: number) => {
+    lastSpringWrite.current = v;
+  }, []);
 
   // 新消息/流式增量时弹簧跟随到底部。
   // 用弹簧而不是 scrollIntoView：流式内容每帧都在变长，目标位置是连续
@@ -1084,16 +1185,33 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   useEffect(() => {
     const el = chatScroll.current;
     if (!el || !pinned.current) return;
-    springScrollToBottom(el);
-  }, [session?.messages.length, streamText, streamThink, toolLog.length]);
+    springScrollToBottom(el, FOLLOW_SPRING, markSpringWrite);
+  }, [session?.messages.length, streamText, streamThink, toolLog.length, markSpringWrite]);
 
   // 用户一滚动就让位（可打断）：自己滚了就不再自动跟随，除非又回到贴底
   const onChatScroll = useCallback(() => {
     const el = chatScroll.current;
     if (!el) return;
+    // 弹簧自己的写（值对得上即跳过）：这帧不是用户在滚，别取消跟随、也别重算
+    // 贴底 —— 少了这道守卫，流式输出时弹簧写入与用户上滚交替触发本处理器，
+    // pinned 被来回翻，视图定死滚不动。
+    if (lastSpringWrite.current !== null && Math.abs(el.scrollTop - lastSpringWrite.current) < 1.5) {
+      return;
+    }
+    lastSpringWrite.current = null; // 用户接管后清掉旧值，避免后续巧合值被误判
     springScrollCancel(el);
-    pinned.current = isNearBottom(el);
+    const near = isNearBottom(el);
+    pinned.current = near;
+    setAtBottom(near);
   }, []);
+
+  /** 「回到底部」悬浮钮：重新接管跟随，并弹簧落底 */
+  const jumpToBottom = useCallback(() => {
+    const el = chatScroll.current;
+    pinned.current = true;
+    setAtBottom(true);
+    if (el) springScrollToBottom(el, FOLLOW_SPRING, markSpringWrite);
+  }, [markSpringWrite]);
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
@@ -1140,7 +1258,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     );
   }
 
-  const hasMessages = Boolean(session && session.messages.length > 0);
+  /* 聊天视图渲染条件：会话已有消息，或本轮生成在途。
+     旧判定只看 session.messages.length —— 而用户消息要等 runAgent 整轮
+     跑完才经 setSession(res.session) 入库，于是「新会话的第一条发言」
+     发出后仍停在欢迎页，正在生成的回复完全不可见，只有点「停止」让
+     会话提前落盘才看得到。把 busy 并入条件后，第一条发言发出即切到
+     聊天视图：打字指示、流式气泡、工具行全程可见。 */
+  const hasMessages = Boolean(session && session.messages.length > 0) || busy;
   const showTyping = busy && !streamText && !streamThink;
 
   /** 树节点点击 → 按路径判类打开 */
@@ -1432,6 +1556,22 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             {project
               ? `${project.chapters.length} 章 · ${project.pending.length} 待确认 · ${project.docs.length} 份资料`
               : "未选择作品"}
+            {/* 常驻回收站入口：此前回收站只藏在作品下拉菜单最底部，
+                用户不展开菜单就看不到（"没有看到回收站在哪里"）。
+                现在侧栏底部固定一个入口，与统计行同列，角标沿用 recycleItems。 */}
+            <button
+              className="foot-recycle"
+              title="打开回收站（还原或彻底删除已移入的作品）"
+              onClick={() => setRecycleOpen(true)}
+            >
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M4.4 6.6h11.2M8 6.6V5.2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.4" />
+                <path d="M6 6.6l.7 8.6a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.6" />
+                <path d="M8.6 9.4v4.4M11.4 9.4v4.4" />
+              </svg>
+              回收站
+              {recycleItems > 0 ? <span className="rb-badge">{recycleItems}</span> : null}
+            </button>
           </div>
         </aside>
 
@@ -1669,13 +1809,19 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
             ) : null}
           </div>
 
+          {/* 消息区与「回到底部」悬浮钮的定位容器（按钮钉在容器内，不随内容滚动） */}
+          <div className="chat-main">
           {hasMessages ? (
             <div
               className="chat-scroll"
               ref={chatScroll}
               onScroll={onChatScroll}
             >
-              {session!.messages.map((m) =>
+              {/* session 可能为 null：只手改稿、从没开过对话的用户触发回流时，
+                  drainReflow 只置 busy 不设会话 —— 此时 hasMessages 因 busy 成立，
+                  旧代码 `session!.messages` 直接 TypeError 卸载整棵树（白屏）。
+                  空会话就渲染空气泡区，打字指示照常工作。 */}
+              {(session?.messages ?? []).map((m) =>
                 m.role === "user" ? (
                   <div key={m.id} className="msg user">
                     <div className="bubble">{m.text}</div>
@@ -1738,7 +1884,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               ) : null}
               {chatError ? <div className="err-line">{chatError}</div> : null}
               {truncNote ? <div className="notice-line">{truncNote}</div> : null}
-              <div ref={chatBottom} />
             </div>
           ) : (
             <div className="chat-welcome">
@@ -1766,6 +1911,17 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               </div>
             </div>
           )}
+          {/* 上翻阅读历史时的回底入口：自动跟随已让位（pinned=false），
+              点它重新接管跟随；流式生成中提示「有新消息」。 */}
+          {hasMessages && !atBottom ? (
+            <button className="chat-jump surface-raised" onClick={jumpToBottom} title="回到最新消息">
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M10 4.5v11M4.5 10l5.5 5.5L15.5 10" />
+              </svg>
+              {busy ? "有新消息" : "回到底部"}
+            </button>
+          ) : null}
+          </div>
 
           <div className="chat-quick">
             <button className="chip" onClick={() => setMemoOpen(true)}>
@@ -1823,7 +1979,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               }}
             />
             <div className="comp-row">
-              <div className="think-wrap">
+              <div className="think-wrap" ref={thinkRef}>
                 <button
                   className={thinkEffective === "off" ? "chip think" : "chip think accent"}
                   title={
@@ -1840,7 +1996,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                     <path d="M6.6 15.6h6.8M7.2 17.8h5.6" />
                     <path d="M10 2.6c3 0 5.2 2 5.2 4.7 0 2-1.1 3-2.2 4.1-.7.7-1 1.3-1 2.2H8c0-.9-.3-1.5-1-2.2-1.1-1.1-2.2-2.1-2.2-4.1C4.8 4.6 7 2.6 10 2.6z" />
                   </svg>
-                  思考·{thinkStop.label}
+                  {/* 档位名包一层 span：胶囊限宽时文字单行省略，不顶破布局 */}
+                  <span className="lbl">思考·{thinkStop.label}</span>
                 </button>
                 {thinkOpen ? (
                   <div className="think-pop surface-raised" role="group" aria-label="思考档位">
@@ -2076,6 +2233,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           </div>
         </div>
       ) : null}
+
+      {/* 开书引导（新建作品）：引导开书会把答案预填进开书定位与核心设定 */}
+      <NewBookWizard open={newBookOpen} onCancel={() => setNewBookOpen(false)} onCreate={createBook} />
 
       {/* ── 三个通用对话框永远排在最后 ──
           `.qmodal` 都是 z-index:90，**同层的先后由 DOM 顺序决定**。

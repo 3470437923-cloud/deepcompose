@@ -5,7 +5,36 @@ Monitors skill sizes and outputs the appropriate energy mode for the current con
 """
 import os, sys
 
-SKILLS_DIR = os.path.expanduser("~/.workbuddy/skills")
+DEFAULT_SKILLS_DIR = os.path.join(os.path.expanduser("~"), "Documents", "skills")
+
+
+def resolve_skills_dir():
+    """Resolve the skills root that this script audits.
+
+    Order: --skills-dir <path> / --skills-dir=<path> > env DEEPCOMPOSE_SKILLS_DIR
+    > ~/Documents/skills (DeepCompose default; Documents\\skills on Windows).
+    The override matters because the app lets the user move the skills root
+    (prefs key custom_skills_dir).
+    """
+    argv = sys.argv[1:]
+    for i, arg in enumerate(argv):
+        if arg == "--skills-dir" and i + 1 < len(argv):
+            return argv[i + 1]
+        if arg.startswith("--skills-dir="):
+            return arg.split("=", 1)[1]
+    return os.environ.get("DEEPCOMPOSE_SKILLS_DIR") or DEFAULT_SKILLS_DIR
+
+
+SKILLS_DIR = resolve_skills_dir()
+
+
+def require_skills_dir():
+    """Return False (and explain the fix) when the skills root does not exist."""
+    if os.path.isdir(SKILLS_DIR):
+        return True
+    print("  [ERROR] skills directory not found: {}".format(SKILLS_DIR))
+    print("  Use --skills-dir <path> or set DEEPCOMPOSE_SKILLS_DIR.")
+    return False
 
 # Domain-specific context budgets (in KB)
 DOMAIN_BUDGETS = {
@@ -153,16 +182,36 @@ def print_instructions(mode, domain, budget):
             print("  - " + line)
 
 
+def parse_context_budget(argv):
+    """Context budget in KB (default 500) taken from the first positional argument.
+
+    Flags are skipped so both orders work, e.g.
+    `python energy_mode.py 300 --skills-dir D:\\skills`.
+    """
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--skills-dir":
+            i += 2
+            continue
+        if arg.startswith("--skills-dir="):
+            i += 1
+            continue
+        try:
+            return int(arg)
+        except ValueError:
+            i += 1
+    return 500
+
+
 def main():
     print("=== Token Optimizer V9 - Energy Mode Engine ===")
     print()
 
-    context_budget_kb = 500
-    if len(sys.argv) > 1:
-        try:
-            context_budget_kb = int(sys.argv[1])
-        except ValueError:
-            pass
+    if not require_skills_dir():
+        return
+
+    context_budget_kb = parse_context_budget(sys.argv[1:])
 
     print("  Context budget: {} KB".format(context_budget_kb))
     print()

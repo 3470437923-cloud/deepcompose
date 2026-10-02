@@ -125,17 +125,33 @@ export function isNearBottom(el: HTMLElement, slack = 48): boolean {
  * 与 scrollIntoView 的区别：
  *   · 目标每帧都在动（内容在增长），弹簧会连续追赶而不是一跳一跳
  *   · 用户滚动时调用 springScrollCancel 即让位（可打断）
+ *
+ * beforeWrite(v)：弹簧每次写 scrollTop 之前调用，参数是即将写入的值
+ * （reduced-motion 的瞬时写也会调）。用途是「程序写入守卫」—— 写 scrollTop
+ * 会触发 scroll 事件，而调用方通常把 scroll 事件当作「用户滚了」来取消跟随；
+ * 不区分的话弹簧自己写的每一帧都会把跟随取消掉、并把"是否贴底"的状态算乱
+ * （流式输出时视图被来回拽、用户反而滚不动 —— 就是少了这道守卫的症状）。
+ * 调用方记下 v，在 scroll 处理器里把「scrollTop 与最后写入值一致」的事件
+ * 判为程序写入跳过。为什么用值匹配而不是布尔旗：浏览器会把连续的 scroll
+ * 事件合并派发，布尔旗在合并时会张冠李戴 —— 用户上滚与弹簧写入合并成一条
+ * 事件时，用户滚动被误判为程序写入而忽略，弹簧继续把视图拽回底部。
  */
-export function springScrollToBottom(el: HTMLElement, config = FOLLOW_SPRING): void {
+export function springScrollToBottom(
+  el: HTMLElement,
+  config = FOLLOW_SPRING,
+  beforeWrite?: (v: number) => void,
+): void {
   const max = el.scrollHeight - el.clientHeight;
   if (max <= 0) return;
   if (prefersReducedMotion()) {
+    beforeWrite?.(max);
     el.scrollTop = max;
     return;
   }
   let spring = followers.get(el);
   if (!spring) {
     spring = new Spring(el.scrollTop, config, (v) => {
+      beforeWrite?.(v);
       el.scrollTop = v;
     });
     followers.set(el, spring);
