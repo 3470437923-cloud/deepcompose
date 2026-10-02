@@ -25,3 +25,15 @@ export async function fetchModels(
     },
   });
 }
+
+/**
+ * 模型下拉的过滤（设置页自绘组合框用）：大小写不敏感的子串匹配，
+ * 空查询返回全量。保持「输入即筛选、清空见全部」这一条最简单的规则 ——
+ * 原生 datalist 只按前缀过滤且弹层高度不受控（"下拉框显示不全"的来源），
+ * 自绘弹层才能把完整清单交给用户。
+ */
+export function filterModelOptions(options: readonly string[], query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return [...options];
+  return options.filter((m) => m.toLowerCase().includes(q));
+}

@@ -291,7 +291,8 @@ describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () =>
   it("能列出真实作品，并读到 小说资料 里的用户自建文档", async () => {
     const projects = await scanBooksRoot(fs, REAL_BOOKS);
     const names = projects.map((p) => p.name);
-    expect(names).toContain("测试书籍");
+    // 只断言长期存在的真实作品：这条用例读的是真盘，作品会被用户增删
+    // （"测试书籍"曾被断言在此，用户移入回收站后用例即红 —— 那不是回归）
     expect(names).toContain("和小熊同居后的日子");
 
     const xiong = projects.find((p) => p.name === "和小熊同居后的日子")!;

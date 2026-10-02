@@ -287,8 +287,18 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
  * 名字走 names.childNameProblem（与删除路径同一份规则）：保留设备名、冒号(ADS)、
  * 尾随空格/点、控制字符都在建目录之前挡掉，错误信息是人话而不是系统报错。
  * exists→mkdir 非原子，双开应用同时建同名作品属未定义行为（单机单实例场景可接受）。
+ *
+ * overrides：开书引导的定向填充结果（onboarding.onboardingOverrides），
+ * key = 模板文件名，value = 已把「待填写」行替换成作者答案的模板正文。
+ * 覆盖内容仍是模板格式（\n 行尾、{书名} 占位仍在），因此走同一个
+ * renderTemplate 出口 —— 磁盘格式只有一条生产线。
  */
-export async function createProject(fs: FsBridge, booksRoot: string, name: string): Promise<ProjectRef> {
+export async function createProject(
+  fs: FsBridge,
+  booksRoot: string,
+  name: string,
+  overrides?: ReadonlyMap<string, string>,
+): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
   const problem = childNameProblem(trimmed);
@@ -301,7 +311,10 @@ export async function createProject(fs: FsBridge, booksRoot: string, name: strin
   await fs.mkdir(projectChaptersDir(root));
   await fs.mkdir(projectPendingDir(root));
   for (const tpl of DOC_TEMPLATES) {
-    await fs.writeText(join(projectDocsDir(root), tpl.name), renderTemplate(tpl.content, trimmed));
+    await fs.writeText(
+      join(projectDocsDir(root), tpl.name),
+      renderTemplate(overrides?.get(tpl.name) ?? tpl.content, trimmed),
+    );
   }
   await fs.writeText(projectManifestFile(root), serializeManifest(parseManifest("")));
   const st = await fs.stat(root);

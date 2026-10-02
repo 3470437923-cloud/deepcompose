@@ -33,32 +33,47 @@
 src/core/ai/        双协议 SSE 解析(protocol) · 工具循环(agent) · 会话装配(controller)
                     提示词(prompt) · Tauri 事件桥(transport) · 上下文压缩(compress)
                     回流(reflow) · 冷读(coldread，零工具隔离) · 错误分类(errors) · 模型清单(models)
-src/core/store/     作品目录协议(project) · 14 件套模板(templates) · 操作日志+diff(oplog)
-                    清单(manifest) · 格式优先回写(markdown，回归锁) · 章号解析(chapter)
-                    写前快照(snapshot) · 会话(session) · 备忘录(memo)
+src/core/store/     作品目录协议(project) · 14 件套模板(templates) · 开书引导填充(onboarding)
+                    操作日志+diff(oplog) · 清单(manifest) · 格式优先回写(markdown，回归锁)
+                    章号解析(chapter) · 写前快照(snapshot) · 会话(session) · 备忘录(memo)
 src/core/tools/     工具 schema(spec) · 执行(exec) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
-src/ui/             主工作台(MainWorkbench) · 标题栏鲸鱼(TitlebarWhale) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
+src/ui/             主工作台(MainWorkbench) · 开书引导(NewBookWizard) · 标题栏鲸鱼(TitlebarWhale) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
-src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于)
+src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于；
+                    提供商分页含只能点选的模型选择框 ModelSelect，全屏改动走防抖自动保存)
 src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进产物）
 src-tauri/src/      sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何)
 tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
 ```
 
-> **本轮改造（B0–B9）计划新增**：`src/core/usage/`（token 统计与闲时判定）、`src/core/store/recycle.ts`（回收站）、
-> 标题栏鲸鱼与统计面板（`src/ui/`）、设置页平台预设与具名配置。落地后本节同步更新。
+> **已落地（B0–B9 全部完成，规划注记已删）**：`src/core/usage/stats|peak|persist|view.ts`（B2/B6）、
+> `src/core/ai/platforms.ts`（B1）、`src/core/ai/profiles.ts` + `platformNotice.ts`（B3）、
+> `src/core/ai/thinking.ts`（B4，思考档位模型；档位是**会话级内存值**，见 D-028）、
+> `src/core/ai/balance.ts`（余额查询）、`src/ui/TitlebarWhale.tsx` + `UsagePanel.tsx`（B6）、
+> `src/core/store/recycle.ts` + `names.ts` + `src/ui/RecycleBin.tsx`（B7：两段式删除；
+> 安全门与受限删除命令见 D-032；Rust 侧 `fs_remove_child`）、快照纪律统一（B8：先落快照再动盘，
+> 见 D-034）与备忘录分类迁移（B8，见 D-035）。
 >
-> **已落地（逐批更新）**：`src/core/usage/stats|peak|persist.ts`（B2）、`src/core/ai/platforms.ts`（B1）、
-> `src/core/ai/profiles.ts` + `platformNotice.ts`（B3）、`src/core/ai/thinking.ts`（B4，思考档位模型；
-> 档位是**会话级内存值**，见 D-028）、`src/core/ai/balance.ts`（余额查询，面板用）、
-> `src/core/usage/view.ts` + `src/ui/TitlebarWhale.tsx` + `src/ui/UsagePanel.tsx`（B6：鲸鱼游动与用量面板；
-> 几何与交互裁决见 D-031，闲置开关见 D-030）、`src/core/store/recycle.ts` + `src/core/store/names.ts`
-> + `src/ui/RecycleBin.tsx`（B7：两段式删除；安全门与受限删除命令见 D-032，名字规则单一来源见
-> 落地补注；Rust 侧新增 `fs_remove_child`）、快照纪律统一（B8：先落快照再动盘 + 覆盖前给目标
-> 记快照，见 D-034）与备忘录分类迁移（B8，见 D-035）。
+> **B10（复盘与润色批）**：主界面首条发言崩溃修复（`newId` 未定义 → `uuid()`，乐观会话与落盘会话
+> 同 id）；思考档位浮层挂 `useDismiss` + 输入区按钮行允许换行（"思考 UI 堆叠"）；设置屏模型
+> datalist 换成自绘组合框（`ModelCombo` + `filterModelOptions`，回归锁 `tests/ai/models.test.ts`）；
+> 设置屏全屏防抖自动保存（唯一落盘出口 `doSave(formRef.current)`，卸载兜底）；
+> 回收站常驻入口（侧栏底部 `.foot-recycle`，作品下拉里那份保留）；
+> 生成中禁止新建/切换会话（防跑完被 `setSession` 拽回旧会话）。
+>
+> **B11（最终复盘批）**：模型选择改**只能点选**的 `ModelSelect`（手填与已选值混用必致"当前用哪个
+> 模型靠猜"；弹层筛选只缩小列表、不改已选值，回归锁沿用 `tests/ai/models.test.ts`）；
+> 流式滚动锁死修复（弹簧写 scrollTop 触发 scroll 事件被当成用户滚动 → `springScrollToBottom`
+> 新增 beforeWrite 程序写入守卫；上翻让位并浮出「回到底部」钮，点它或自己发言重新接管跟随）；
+> 开书引导 `NewBookWizard`（三步：书名与方式 → 故事定位 → 世界与开局；答案经
+> `core/store/onboarding.ts` 只替换模板「待填写」整行填进 01/02 文档，留空保持占位，可跳过走
+> 空白开书；`createProject` 第四参 overrides 仍走同一个 `renderTemplate` 出口；
+> 回归锁 `tests/store/onboarding.test.ts`）。复审再销 8 条（KL-UI-11~18）：null 会话触发回流的
+> `session!` 白屏、关窗守卫丢稿/关不掉、「重置数据」被自动保存回滚、温度/字号越界与清零落盘、
+> usage_stats 读改写串行化、回流队列停止团灭、备忘录写盘乱序。
 
 数据流：`MainWorkbench` 只依赖 `core/*` 的纯函数 + `fsbridge`；Rust 只做三件事——
 文件原语、SSE 转发、窗口几何。**业务策略（路径分级、格式优先、快照）全部在 TS 侧且有单测**。
@@ -71,7 +86,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **390 例**、cargo **19 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+当前基线：vitest **404 例**、cargo **19 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
 
 **真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。
