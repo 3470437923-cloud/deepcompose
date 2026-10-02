@@ -11,11 +11,23 @@ import type { DirEntry, FsBridge, StatInfo } from "../../src/core/fsbridge";
 export function createNodeFs(): FsBridge {
   return {
     async readText(path) {
-      // Rust fs_read_text 用 read_to_string：非法 UTF-8 直接报错、BOM 原样保留。
-      // Node 的 readFile("utf8") 会把非法字节替换成 U+FFFD 并吞掉错误路径，
-      // 故用 fatal + ignoreBOM 的 TextDecoder 对齐两侧行为。
+      // 对齐 Rust fs_read_text 的 decode_text：UTF-8 BOM 剥离；UTF-16LE/BE BOM 解码；
+      // 严格 UTF-8；失败回退 GBK（Node 自带 full-icu，TextDecoder("gbk") 可用）。
       const buf = await fsp.readFile(path);
-      return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(buf);
+      if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
+        return new TextDecoder("utf-8").decode(buf.subarray(3));
+      }
+      if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
+        return new TextDecoder("utf-16le").decode(buf.subarray(2));
+      }
+      if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
+        return new TextDecoder("utf-16be").decode(buf.subarray(2));
+      }
+      try {
+        return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+      } catch {
+        return new TextDecoder("gbk").decode(buf);
+      }
     },
     async writeText(path, content) {
       // 对齐 Rust fs_write_text：先递归建父目录再整写
@@ -38,14 +50,20 @@ export function createNodeFs(): FsBridge {
       for (const name of names) {
         const full = nodePath.join(dir, name);
         try {
-          const st = await fsp.stat(full);
+          // lstat：看链接本身（Rust fs_list 改用 symlink_metadata 同口径）——
+          // junction/符号链接不作目录展开（isDir=false）并带 isLink 标记，
+          // 悬空链接也列出而不是静默跳过。
+          const st = await fsp.lstat(full);
+          const isLink = st.isSymbolicLink();
+          const isDir = st.isDirectory() && !isLink;
           out.push({
             name,
             rel: name, // 直接子项：相对查询目录就是文件名本身（Rust 同口径）
             path: full,
-            isDir: st.isDirectory(),
-            size: st.isDirectory() ? 0 : st.size, // 目录 size 恒 0（Rust 同口径）
+            isDir,
+            size: isDir ? 0 : st.size, // 目录 size 恒 0（Rust 同口径）
             mtimeMs: st.mtimeMs,
+            isLink,
           });
         } catch {
           // 忽略瞬时消失的项（Rust 侧 metadata() 失败同样 continue）

@@ -14,11 +14,14 @@ export interface DirEntry {
   rel: string;
   /** 绝对路径 */
   path: string;
+  /** 链接/junction 恒为 false（链接不作目录展开，与 fs_stat 同口径） */
   isDir: boolean;
   /** 字节数；目录恒为 0（Rust 侧口径） */
   size: number;
   /** 毫秒时间戳 */
   mtimeMs: number;
+  /** 是否链接 / junction（reparse point）：前端据此给标记、不递归展开 */
+  isLink: boolean;
 }
 
 /** 文件/目录的状态信息（stat 的结果形态） */
@@ -39,7 +42,8 @@ export interface StatInfo {
  *    拒绝分隔符 / `..` / 冒号(ADS) / 通配符 / 控制字符 / 保留设备名）；
  *  - rename / copy：自动创建目标父目录；copy 对目录递归复制；
  *  - stat：路径不存在返回 null（不抛）；
- *  - readText：非 UTF-8 内容抛错（Rust read_to_string 口径），BOM 原样保留。
+ *  - readText：UTF-8 BOM 剥离；UTF-16（BOM 探测）转 UTF-8；非 UTF-8 回退 GBK 解码
+ *    （中文 Windows 存量旧稿多为 GBK）；IO 错误（占用/权限/不存在）才抛错。
  */
 export interface FsBridge {
   readText(path: string): Promise<string>;
