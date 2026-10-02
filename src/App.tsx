@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import MainWorkbench from "./ui/MainWorkbench";
 import SettingsScreen from "./screens/SettingsScreen";
+import { pushEsc } from "./ui/escStack";
 
 type View = "main" | "settings";
 
@@ -29,27 +30,30 @@ export default function App() {
     setView(next);
   };
 
+  // 「Esc 返回主界面」是 escStack 的栈底：任何模态开着时它不是栈顶，
+  // 一次 Esc 只关最上层模态（等价于旧的 .qmodal 探测，但不再依赖类名约定）；
+  // 悬浮层（useDismiss/ModelSelect）在 document 层 stopPropagation，同样到不了这里。
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // 输入法组词中的 Esc 是取消组词，不是退出界面
-      if (e.isComposing) return;
-      // 有模态打开时，Esc 只关模态（由模态自行处理，不冒泡到这里生效）
-      if (document.querySelector(".qmodal, .memo-modal:not(.dock-wrap)")) return;
+    return pushEsc(() => {
       document.documentElement.dataset.nav = "back";
       setView("main");
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    });
   }, []);
 
   return (
     <div className="app-shell">
       {view === "settings" ? (
         <SettingsScreen onBack={() => go("main")} />
-      ) : (
-        <MainWorkbench onOpenSettings={() => go("settings")} />
-      )}
+      ) : null}
+      {/* N-05：主工作台**常驻挂载**——进设置只隐藏不卸载。旧实现条件渲染切屏，
+          MainWorkbench 整棵卸载，未落盘的编辑稿、进行中的生成/回流、会话级思考档位
+          全部丢失，返回后是全新挂载。display:contents 让包装 div 对布局透明
+          （.win 仍是 .app-shell 的 flex 子项），设置屏在侧时整体 display:none。
+          代价与对策：全局按键监听挂 suspended 闸；存储路径变更由 onBootReplaced
+          通知主工作台重新装配（见 MainWorkbench 的 assembleTick）。 */}
+      <div style={{ display: view === "settings" ? "none" : "contents" }}>
+        <MainWorkbench suspended={view === "settings"} onOpenSettings={() => go("settings")} />
+      </div>
     </div>
   );
 }

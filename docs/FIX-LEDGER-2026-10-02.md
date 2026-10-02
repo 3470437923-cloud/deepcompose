@@ -13,12 +13,12 @@
 | I-4 伏笔自述数量无落点 | ⬜ | |
 | I-5 isSystemEntryName 三条判定叠加 | ✅ | 批次2：收敛为 SYSTEM_ENTRY_RULES 单一规则表 |
 | I-6 附加文档无登记 | ✅ | 批次2：KNOWN_EXTRA_DOCS 登记 |
-| I-7 内容树 4 层静默截断 | ✅ | 批次2：上限升 10 层 + truncated 可见标记（UI 标记在批次3） |
+| I-7 内容树 4 层静默截断 | ✅ | 批次2：上限升 10 层 + truncated 标记；批次5 UI 接线（树节点「…已截断」标记） |
 | I-8 章节摘要模板占位与回写冲突 | ✅ | 批次2：移除模板章节占位 |
 | I-9 表格型内容无节可定位 | ⬜ | |
 | I-10 skill-creator 教不存在的工具 | ⬜ | |
 | I-11 KNOWN-LIMITS 定位矛盾 | ⬜ | |
-| I-12 无导入动作/导入校验 | ✅ | 批次2：validateProject（只读校验，UI 接线在批次3） |
+| I-12 无导入动作/导入校验 | ✅ | 批次2：validateProject（只读校验）；批次5 UI 接线（打开作品即校验，状态条汇总） |
 | A-1 审计脚本导航索引错位 | ⬜ | |
 | A-2 tests/ 不做类型检查 | ⬜ | |
 | A-3 ModelCombo 文档矛盾 | ⬜ | |
@@ -27,10 +27,10 @@
 | A-6 cdp_probe 连不上真机 | ⬜ | |
 | A-7 preview_shot 探已删选择器 | ⬜ | |
 | A-8 builtin-skills 死资产 | ⬜ | |
-| B-1 根外确认未接线 | ✅ | 批次1：guardWithConfirm + ToolContext.confirmExternal + controller 透传（UI 接线在批次3） |
+| B-1 根外确认未接线 | ✅ | 批次1：guardWithConfirm + ToolContext.confirmExternal + controller 透传；批次5 UI 接线（确认弹窗 + 会话内 allowedDirs 持续生效） |
 | B-2 package.ps1 跳过 tsc | ⬜ | |
 | B-3 会话列表/删除路径口径不同 | ✅ | 批次2：listSessions 改用 samePath（含回归测试） |
-| B-4 冷读不跟会话级思考档位 | ✅ | 批次1：IsolatedSendOptions.thinking + providerOf 传档（UI 传参在批次3） |
+| B-4 冷读不跟会话级思考档位 | ✅ | 批次1：IsolatedSendOptions.thinking + providerOf 传档；批次5 UI 传参（runColdRead 传 thinkLevel） |
 | B-5 contextLimit/reservedOutputTokens 无上界 | ✅ | 批次4：NumInput 统一钳制（context 1–4096K、reserved 1–384K、maxOutput 1–384K、toolRound 1–50） |
 | C-1 API Key 边输边发+落盘 | ✅ | 批次4：自动检测只对「未动过的 Key」放行（stableKeyRef）；半截 Key 不再发上游，手动检测不受限 |
 | C-2 SkillSection 绕过 dirty/save | ✅ | 批次4：父级 toggleSkill 统一管道（改 form+formRef 同步、立即落盘最新表单、失败重新置脏） |
@@ -38,9 +38,9 @@
 | C-4 ThemeSection flash 死代码 | ✅ | 批次4：移除从未调用的 onFlash prop（flash 展示保留） |
 | C-5 Ctrl+S 无条件 preventDefault | ✅ | 批次4：只在有保存动作的三页吞默认行为 + 补依赖数组 |
 | C-6 !boot 兜底分支不可达 | ✅ | 批次4：删除死分支；mockBackend ?fail=prefs 注释改为指向主界面启动失败屏 |
-| D-1 useDialogFocus 无 focusin 兜底 | ⬜ | |
-| D-2 MainWorkbench 状态归属三件套 | ⬜ | |
-| D-3 冗余/缺能力三件套 | ⬜ | |
+| D-1 useDialogFocus 无 focusin 兜底 | ✅ | 批次5：模态栈 + focusin 兜底 + 归还纪律（重写 useDialogFocus） |
+| D-2 MainWorkbench 状态归属三件套 | ✅ | 批次5：冷读开窗重置选项/提交校验（空选择禁提交）/continueWriting 取章号最大候选 |
+| D-3 冗余/缺能力三件套 | ✅ | 批次5：RecycleBin 删 dirs 死 prop；鲸鱼面板展开期随 ResizeObserver 重定位；向导创建期禁取消（N-23 同一裁决：关窗兜底） |
 | E-1 KeepCompose 残留五处 | ⬜ | |
 | E-2 魔数三处各写一遍 | ⬜ | |
 | E-3 审计脚本闸门语义不统一 | ⬜ | |
@@ -58,8 +58,8 @@
 | N-02 压缩缓存短路检查点不前进 | ✅ | 批次1：命中先验尾巴预算，超限以旧检查点+尾巴为源重压（含回归测试） |
 | N-03 断流丢部分正文 | ✅ | 批次1：streamError 路径保留部分消息入库 |
 | N-04 moveToRecycle 先改名后写清单 | ✅ | 批次2：先记清单后搬目录 + rename 失败回滚（含回归测试） |
-| N-05 进设置页卸载丢稿/丢生成态 | ⬜ | |
-| N-06 saveTabAs 返回值被忽略 | ⬜ | |
+| N-05 进设置页卸载丢稿/丢生成态 | ✅ | 批次5：主工作台常驻挂载（display:contents/none 切换）+ suspended 闸 + onBootReplaced 重装配通道 |
+| N-06 saveTabAs 返回值被忽略 | ✅ | 批次5：closeTab/资料换槽/toggleEditing 全部接住失败——写盘失败不销毁 tab |
 | N-07 e2e 覆写真实配置无备份 | ⬜ | |
 | N-08 fs_copy 无自复制/junction 防护 | ✅ | 批次3：canonicalize 自复制判定 + copy_dir 跳过 reparse point（含 nodeFs 同口径替身与测试） |
 | N-09 prefs_load 吞错返回 {} | ✅ | 批次3：仅 NotFound 返回空对象，其余错误上抛 + BOM 剥离 |
@@ -75,13 +75,13 @@
 
 | 条目 | 状态 | 说明 |
 |---|---|---|
-| N-17 模态叠层 Esc 关两层 | ⬜ | |
-| N-18 Dialogs Esc 无 isComposing 守卫 | ⬜ | |
-| N-19 MemoModal 挂边态 Tab 陷阱 | ⬜ | |
+| N-17 模态叠层 Esc 关两层 | ✅ | 批次5：escStack 模态栈（统一监听、只关栈顶；App 外壳返回逻辑成为栈底） |
+| N-18 Dialogs Esc 无 isComposing 守卫 | ✅ | 批次5：escStack.onEsc 统一带 isComposing 守卫 |
+| N-19 MemoModal 挂边态 Tab 陷阱 | ✅ | 批次5：useDialogFocus 挂边态不启用（open && !docked） |
 | N-20 数字输入当场 clamp 吞小数点 | ✅ | 批次4：NumInput 本地持有原始文本（"0."/"-"/空不提交），完整数字即时提交、失焦归一 |
-| N-21 UsagePanel 节流被卸载架空 | ⬜ | |
+| N-21 UsagePanel 节流被卸载架空 | ✅ | 批次5：节流时间戳提升为模块级 lastBalanceFetch，跨打开周期生效 |
 | N-22 设置卸载保存与 booted 竞态 | ✅ | 批次4：savePrefs 同步段先更新内存单例（失败回滚）+ doSave 未装配护栏 |
-| N-23 向导创建中可 Esc/遮罩取消 | ⬜ | |
+| N-23 向导创建中可 Esc/遮罩取消 | ✅ | 批次5：creating 期间 Esc/遮罩/取消键全部拦下（onCreate 在途拆向导会让结果无处落地；关窗兜底） |
 | N-24 连接检测竞态覆盖手选模型 | ✅ | 批次4：detectSeq 序号丢弃迟到响应 + ensureModel 函数式判空（闭包旧 form 不再判空） |
 | N-25 平台提示弹窗无焦点接管 | ✅ | 批次4：useDialogFocus 挂确认弹窗（移入+Tab 循环+归还），Esc 补 isComposing |
 | N-26 purgeItem 目标缺失中断清空 | ✅ | 批次2：缺失目标直接清条目 + emptyRecycle 逐条 try/catch（含回归测试） |
@@ -104,11 +104,11 @@
 | 条目 | 状态 | 说明 |
 |---|---|---|
 | N-40 叠层双 Tab 陷阱依赖注册顺序 | ⬜ | |
-| N-41 closeTab updater 副作用 | ⬜ | |
+| N-41 closeTab updater 副作用 | ✅ | 批次5：副作用移出 setState updater（先算 next 再分别 set） |
 | N-42 工具失败判定子串误标 | ⬜ | |
-| N-43 无 mtime 显示 1月1日 | ⬜ | |
-| N-44 openSession 静默吞错 | ⬜ | |
-| N-45 CSS 死规则+长作品名撑破 | ⬜ | |
+| N-43 无 mtime 显示 1月1日 | ✅ | 批次5：relTime 对 epoch 0/非有限值显示「时间未知」 |
+| N-44 openSession 静默吞错 | ✅ | 批次5：loadSession null → 状态条提示；IO 异常接住并提示 |
+| N-45 CSS 死规则+长作品名撑破 | ✅ | 批次5：memo-scope 作品名包 span（.memo-scope span 省略规则复活生效） |
 | N-46 dirs.relative 不归一 / | ✅ | 批次2：比较前归一化分隔符 |
 | N-47 ai.rs 错误体无界+锁 unwrap | ✅ | 批次3：错误体截 200 字符 + lock_map poison 容错（unwrap_or_else(into_inner)） |
 | N-48 winstate 溢出+panic=abort | ✅ | 批次3：saturating 算术 + 尺寸夹 16384 上限 |

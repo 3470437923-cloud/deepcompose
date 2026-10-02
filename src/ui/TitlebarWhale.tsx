@@ -63,6 +63,9 @@ export default function TitlebarWhale({ dirs, prefs, sessionUsage, idlePause, on
   const openTimer = useRef(0);
   const closeTimer = useRef(0);
   const lastActivity = useRef(Date.now());
+  /** open 的 ref 镜像：ResizeObserver 回调里读"此刻是否展开"（见下方 measure） */
+  const openRef = useRef(false);
+  openRef.current = open;
 
   /** 走廊测量：窗口缩放、开关簇变化、字体变化都会触发 */
   useEffect(() => {
@@ -74,11 +77,16 @@ export default function TitlebarWhale({ dirs, prefs, sessionUsage, idlePause, on
       // 鲸鱼是绝对定位的，所以量它自己的宽度（wrap 会塌成 0 宽）
       const usable = lane.clientWidth - gutter * 2 - whale.offsetWidth;
       setSpan(Math.max(0, Math.round(usable)));
+      // D-3b：面板展开期间走廊宽度变化（开合文件/会话面板、右侧开关簇增减）→
+      // 鲸鱼停点随之改变，面板锚点跟着重算 —— 否则面板留在旧位置，与鲸鱼脱开
+      if (openRef.current) measureAnchor();
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(lane);
     return () => ro.disconnect();
+    // measureAnchor 是 useCallback([])，不会造成 observer 反复重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** 闲置检测：活动只更新 ref，状态每秒才比对一次（避免每次 pointermove 重渲染） */

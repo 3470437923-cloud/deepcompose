@@ -24,6 +24,19 @@ export interface Boot {
 /** 进程级单例：启动结果 */
 let booted: Boot | null = null;
 
+/** boot 单例因**存储路径键变更**被替换时的监听者（N-05：主工作台常驻挂载后，
+ *  只有「作品根/技能根变了」这类必须重新装配的变化才通知——普通 prefs 保存
+ *  （温度、主题……）主工作台重渲染时直读单例即可，不该触发重装配）。 */
+const bootReplacedListeners = new Set<() => void>();
+
+/** 订阅「存储路径变更导致的 boot 替换」；返回退订函数 */
+export function onBootReplaced(cb: () => void): () => void {
+  bootReplacedListeners.add(cb);
+  return () => {
+    bootReplacedListeners.delete(cb);
+  };
+}
+
 /** 启动时的目录推导输入：设置里改路径后用它即时重推 dirs，不必等重启 */
 let bootInput: DirsInput | null = null;
 
@@ -98,6 +111,14 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
   } catch (e) {
     if (prev) booted = prev; // 写盘失败：内存回到保存前，与磁盘保持一致
     throw e;
+  }
+  // 存储路径键变了：通知常驻挂载的主工作台重新装配（N-05 的配套通道）
+  if (
+    prev &&
+    (prev.prefs.customNovelsDir !== prefs.customNovelsDir ||
+      prev.prefs.customSkillsDir !== prefs.customSkillsDir)
+  ) {
+    for (const cb of bootReplacedListeners) cb();
   }
 }
 

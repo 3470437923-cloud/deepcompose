@@ -14,8 +14,9 @@
  *   · 无障碍与其它对话框同一套：role="dialog" + 焦点接管（useDialogFocus）+ Esc 取消。
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
+import { pushEsc } from "./escStack";
 import { EMPTY_ONBOARDING, type OnboardingAnswers } from "../core/store/onboarding";
 
 /** 开书方式：guided = 回答引导问题后创建；blank = 直接创建空白书 */
@@ -55,15 +56,19 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
     setCreating(false);
   }, [open]);
 
-  // Esc = 取消（App 外壳见到 .qmodal 会让路，这里自己处理）
+  // Esc = 取消。N-23：创建进行中不许取消 —— onCreate 在途时把向导拆掉，
+  // createProject 的结果就无处落地（作品可能已建好而界面不知道）。
+  // 用 ref 读最新 creating（pushEsc 的闭包挂载时定格，不随渲染更新）。
+  const creatingRef = useRef(false);
+  creatingRef.current = creating;
+  const cancel = useCallback(() => {
+    if (creatingRef.current) return;
+    onCancel();
+  }, [onCancel]);
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !e.isComposing) onCancel();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onCancel]);
+    return pushEsc(cancel);
+  }, [open, cancel]);
 
   if (!open) return null;
 
@@ -91,7 +96,8 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
     <div
       className="qmodal scrim"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        // N-23：创建中遮罩点击同样不许取消（理由同 Esc）
+        if (e.target === e.currentTarget && !creating) onCancel();
       }}
     >
       <div
@@ -289,7 +295,12 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
         ) : null}
 
         <div className="nbw-actions">
-          <button className="btn btn-quiet" onClick={onCancel} disabled={creating}>
+          <button
+            className="btn btn-quiet"
+            onClick={onCancel}
+            disabled={creating}
+            title={creating ? "正在创建作品，创建完成前不可取消（若长时间无响应可关闭窗口兜底）" : undefined}
+          >
             取消
           </button>
           <span className="nbw-actions-spacer" />

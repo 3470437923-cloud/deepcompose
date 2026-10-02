@@ -11,9 +11,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState, useId } from "react";
-import type { AppDirs } from "../core/dirs";
 import { getFs } from "../core/fsbridge";
 import { useDialogFocus } from "./useDialogFocus";
+import { pushEsc } from "./escStack";
 import {
   emptyRecycle,
   formatBytes,
@@ -27,7 +27,6 @@ import {
 interface Props {
   open: boolean;
   onClose: () => void;
-  dirs: AppDirs | null;
   /** 作品根（回收站就在它下面） */
   booksRoot: string | null;
   /** 状态条提示（成功/失败都用它，和主界面同一个出口） */
@@ -49,7 +48,6 @@ interface Props {
 export default function RecycleBin({
   open,
   onClose,
-  dirs,
   booksRoot,
   onStatus,
   onChanged,
@@ -63,24 +61,21 @@ export default function RecycleBin({
   const titleId = useId();
 
   const reload = useCallback(async () => {
-    if (!dirs || !booksRoot) {
+    if (!booksRoot) {
       setItems([]);
       return;
     }
     setItems((await loadManifest(getFs(), booksRoot)).items);
-  }, [dirs, booksRoot]);
+  }, [booksRoot]);
 
   useEffect(() => {
     if (open) void reload();
   }, [open, reload]);
 
+  // escStack：叠层模态（回收站之上再开手打确认）一次 Esc 只关最上层（N-17）
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return pushEsc(onClose);
   }, [open, onClose]);
 
   useDialogFocus(open, panelRef, closeRef);

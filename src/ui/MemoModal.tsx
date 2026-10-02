@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
+import { pushEsc } from "./escStack";
 import {
   addCategory as memoAddCategory,
   DEFAULT_CATEGORY,
@@ -55,21 +56,17 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
     setEditing(null);
   }, [open, onStatus]);
 
-  // Esc 关闭（挂边态同样生效 —— 它不是"另一个页面"，只是同一块面板的另一种摆法）
+  // Esc 关闭（挂边态同样生效 —— 它不是"另一个页面"，只是同一块面板的另一种摆法）；
+  // escStack：叠层时一次 Esc 只关最上层（N-17）
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // 输入法组词中的 Esc 属于取消组词，不该顺手关掉整个面板
-      if (e.isComposing) return;
-      onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return pushEsc(onClose);
   }, [open, onClose]);
 
-  // 焦点默认落在"关闭"上：面板一打开，最需要能立刻脱身
-  useDialogFocus(open, panelRef, closeRef);
+  // 焦点默认落在"关闭"上：面板一打开，最需要能立刻脱身。
+  // N-19：挂边态**不启用**焦点陷阱 —— 挂边时它已不是模态（遮罩撤掉、主界面
+  // 可继续操作），Tab 却仍被锁在面板内循环，键盘用户回不到主界面。
+  useDialogFocus(open && !docked, panelRef, closeRef);
 
   /**
    * 逐键全量落盘的串行队列：快速连续输入时多个 saveMemos 在飞，慢盘上
@@ -183,7 +180,9 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
             <svg viewBox="0 0 20 20" className="ic">
               <path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h5.8l4.6 4.6v8.8A1.6 1.6 0 0 1 13.4 18H4.6A1.6 1.6 0 0 1 3 16.4V4.6z" />
             </svg>
-            {scopeAll ? "全部作品" : project ? project.ref.name : "未选择作品"}
+            {/* N-45：作品名必须包 span —— .memo-scope span 的省略规则（长名撑破
+                胶囊）此前命中的是裸文本节点，规则一直是死的 */}
+            <span>{scopeAll ? "全部作品" : project ? project.ref.name : "未选择作品"}</span>
             <em>▾</em>
           </button>
         </div>

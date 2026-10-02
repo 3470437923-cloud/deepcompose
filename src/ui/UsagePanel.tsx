@@ -49,12 +49,15 @@ type BalanceState =
   | { kind: "error"; message: string }
   | { kind: "idle"; snapshot: BalanceSnapshot | null };
 
+/** 余额上次拉取时刻（**模块级**，N-21）：面板随开随卸载，节流时间戳放在组件里
+ *  会被卸载清零 ——「60 秒内重复打开不再请求上游」从未跨打开周期生效过。 */
+let lastBalanceFetch = 0;
+
 export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onToggleIdlePause }: Props) {
   const [today, setToday] = useState<UsageTotals>({ ...ZERO_USAGE });
   const [requests, setRequests] = useState(0);
   const [peak, setPeak] = useState<PeakStatus | null>(null);
   const [bal, setBal] = useState<BalanceState>({ kind: "idle", snapshot: null });
-  const lastFetch = useRef(0);
 
   /** 余额查询（force = 用户点「刷新」；否则走 60s 节流）——D-019 */
   const refreshBalance = useCallback(
@@ -70,8 +73,9 @@ export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onTog
         return;
       }
       const now = Date.now();
-      if (!force && !shouldRefreshBalance(lastFetch.current, now)) return;
-      lastFetch.current = now;
+      // 节流时间戳是模块级的（见 lastBalanceFetch 声明处注释）——跨打开周期生效
+      if (!force && !shouldRefreshBalance(lastBalanceFetch, now)) return;
+      lastBalanceFetch = now;
       setBal((cur) => (cur.kind === "ok" ? cur : { kind: "loading" }));
       try {
         const info = await fetchBalance(prefs.llmBaseUrl, prefs.apiKey);
