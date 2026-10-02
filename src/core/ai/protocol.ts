@@ -489,10 +489,17 @@ export function mapAnthropicEvent(event: string | undefined, json: unknown): Str
       const msg = (o.message ?? {}) as Record<string, unknown>;
       const usage = (msg.usage ?? {}) as Record<string, unknown>;
       const ev: Extract<StreamEvent, { type: "usage" }> = { type: "usage" };
-      if (usage.input_tokens !== undefined) ev.inputTokens = num(usage.input_tokens);
+      // Anthropic 口径：input_tokens **不含**缓存读写两部分，真实输入总数
+      // = input_tokens + cache_creation + cache_read（上游按这个总量计费）。
+      // 只报 input_tokens 会让「命中 + 未命中 ≠ 输入总数」，缓存命中越多输入少计越多。
+      const cacheRead = num(usage.cache_read_input_tokens);
+      const cacheCreation = num(usage.cache_creation_input_tokens);
+      if (usage.input_tokens !== undefined) {
+        ev.inputTokens = num(usage.input_tokens) + cacheCreation + cacheRead;
+      }
       if (usage.cache_read_input_tokens !== undefined) {
-        ev.cacheHitTokens = num(usage.cache_read_input_tokens);
-        ev.cacheMissTokens = num(usage.input_tokens) + num(usage.cache_creation_input_tokens);
+        ev.cacheHitTokens = cacheRead;
+        ev.cacheMissTokens = num(usage.input_tokens) + cacheCreation;
       }
       if (ev.inputTokens !== undefined || ev.cacheHitTokens !== undefined) out.push(ev);
       break;

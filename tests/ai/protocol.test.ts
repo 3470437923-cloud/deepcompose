@@ -148,9 +148,12 @@ describe("usage 缓存字段（B5 真实响应形态）", () => {
     });
     const u = ev[0] as Extract<ReturnType<typeof mapAnthropicEvent>[number], { type: "usage" }>;
     expect(u.type).toBe("usage");
-    expect(u.inputTokens).toBe(67);
+    // Anthropic 口径：input_tokens 不含缓存读写，真实输入总数 = 67 + 0 + 512 = 579
+    // （回归锁：命中 + 未命中 必须等于输入总数，曾只报 67 导致缓存命中越多输入越少计）
+    expect(u.inputTokens).toBe(579);
     expect(u.cacheHitTokens).toBe(512);
     expect(u.cacheMissTokens).toBe(67);
+    expect(u.cacheHitTokens! + u.cacheMissTokens!).toBe(u.inputTokens);
   });
 });
 

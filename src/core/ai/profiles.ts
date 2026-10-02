@@ -19,10 +19,15 @@ import {
 } from "../prefs";
 import { platformLabel } from "./platforms";
 
-/** 由当前全局键生成一条档位（保存为新配置时用） */
+/** 由当前全局键生成一条档位（保存为新配置时用）。
+ *  思考相关字段（thinking / reasoningEffort / supportsThinking）不在全局键里，
+ *  若当前生效档位的地址与全局键一致则**继承**过来 —— 否则「保存当前配置为档位」
+ *  会把自定义端点的 supportsThinking 声明丢掉，应用该档位后思考参数静默停发。 */
 export function profileFromPrefs(prefs: Prefs, name: string): Provider {
   const trimmed = name.trim();
   const baseUrl = prefs.llmBaseUrl.trim();
+  const cur = activeProfile(prefs);
+  const inherit = cur && cur.baseUrl.trim() === baseUrl ? cur : null;
   return {
     name: trimmed,
     baseUrl,
@@ -31,6 +36,9 @@ export function profileFromPrefs(prefs: Prefs, name: string): Provider {
     useAnthropicFormat: prefs.useAnthropicFormat,
     id: deriveProfileId(trimmed, baseUrl),
     platform: platformOfUrl(baseUrl),
+    ...(inherit?.thinking !== undefined ? { thinking: inherit.thinking } : {}),
+    ...(inherit?.reasoningEffort !== undefined ? { reasoningEffort: inherit.reasoningEffort } : {}),
+    ...(inherit?.supportsThinking !== undefined ? { supportsThinking: inherit.supportsThinking } : {}),
   };
 }
 

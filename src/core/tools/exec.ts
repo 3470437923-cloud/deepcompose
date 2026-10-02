@@ -15,10 +15,17 @@
  */
 
 import type { FsBridge } from "../fsbridge";
-import { join } from "../dirs";
+import { dirname, join } from "../dirs";
 import { createProject } from "../store/project";
+import { dominantEol, joinLines, splitLines } from "../store/markdown";
 import { contentHash, recordSnapshot, type PreviousType, type SnapshotOperation } from "../store/snapshot";
-import { guardPath, reportPath, type GuardRoots } from "./pathGuard";
+import {
+  NEEDS_CONFIRMATION_PREFIX,
+  guardPath,
+  reportPath,
+  type GuardRoots,
+  type ResolvedPath,
+} from "./pathGuard";
 
 /** read 分页：单次最多返回的行数（与 spec.ts 的 limit 描述一致） */
 export const MAX_READ_LINES = 2000;
@@ -60,6 +67,12 @@ export interface ToolContext {
   snapshot?: boolean;
   /** question 工具的界面回调 */
   askQuestions?: (questions: QuestionItem[]) => Promise<string[][]>;
+  /**
+   * 根外路径的用户确认通道（B-1「根外必须用户确认」的接线）：
+   * 返回 true 时把目标（或其父目录）并入 roots.allowedDirs，会话内持续生效；
+   * 未装配该回调时维持旧行为 —— 根外一律拒绝。
+   */
+  confirmExternal?: (absPath: string) => Promise<boolean>;
   /** skill_lookup 的技能读取 */
   lookupSkill?: (nameOrId: string) => Promise<SkillHit | null>;
 }
@@ -105,6 +118,55 @@ function utf8Bytes(s: string): number {
 }
 
 /**
+ * guardPath + 根外用户确认（B-1 的接线点）。
+ * 命中「需确认」且装配了 confirmExternal 时询问用户：
+ *  - 批准 → 授权目录（目标本身是目录授权其本身，否则授权父目录）并入
+ *    roots.allowedDirs（按引用生效，同一会话后续调用不再重复询问）；
+ *  - 拒绝 → 回报「用户未授权」文案（与 NEEDS_CONFIRMATION_PREFIX 区分：
+ *    前缀文案保留给「确认通道未装配」的场景，回归锁不动）。
+ */
+async function guardWithConfirm(
+  ctx: ToolContext,
+  pathArg: string,
+): Promise<{ ok: true; resolved: ResolvedPath } | { ok: false; message: string }> {
+  const g = guardPath(pathArg, ctx.roots);
+  if (g.ok) return { ok: true, resolved: g.resolved };
+  const message = g.message ?? "";
+  if (!message.startsWith(NEEDS_CONFIRMATION_PREFIX) || !ctx.confirmExternal) {
+    return { ok: false, message };
+  }
+  const granted = await ctx.confirmExternal(g.resolved.abs);
+  if (!granted) return { ok: false, message: `用户未授权访问该路径: ${g.resolved.abs}` };
+  let dir = g.resolved.abs;
+  try {
+    const st = await ctx.fs.stat(g.resolved.abs);
+    if (!st || !st.isDir) dir = dirname(g.resolved.abs);
+  } catch {
+    dir = dirname(g.resolved.abs);
+  }
+  (ctx.roots.allowedDirs ??= []).push(dir);
+  const g2 = guardPath(pathArg, ctx.roots);
+  if (!g2.ok) return { ok: false, message: g2.message ?? "" };
+  return { ok: true, resolved: g2.resolved };
+}
+
+/**
+ * EOL 容错匹配（与 store/markdown.ts findWithEolTolerance 同口径）：
+ * file_read 分页结果统一以 '\n' 连接，模型拿读到的内容构造多行 old_text 时，
+ * 与 CRLF 落盘的原文对不上 —— 先按原文找，找不到再把待查文本的 EOL 归一化再找。
+ * 返回实际命中的针文本；找不到返回 null。
+ */
+function findNeedleWithEolTolerance(src: string, needle: string, eol: string): string | null {
+  if (needle === "") return null;
+  if (src.includes(needle)) return needle;
+  const normalized = needle.replace(/\r\n|\r|\n/g, eol);
+  if (normalized !== needle && src.includes(normalized)) return normalized;
+  const asLf = needle.replace(/\r\n|\r/g, "\n");
+  if (asLf !== needle && src.includes(asLf)) return asLf;
+  return null;
+}
+
+/**
  * 落一条快照（保持既有格式：一条记录同时带写前内容与写后哈希）。
  * previousType 缺省按 exists 推导为 file/none；**目录操作须显式传 "directory"**
  * （契约 PreviousType 含该枚举；目录的 previousContent 恒为 null）。
@@ -146,8 +208,8 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
   if (pathArg === undefined) return err("path is required");
   if (operation !== "read" && operation !== "list") return err("Unknown operation: " + operation);
 
-  const g = guardPath(pathArg, ctx.roots);
-  if (!g.ok) return err(g.message!);
+  const g = await guardWithConfirm(ctx, pathArg);
+  if (!g.ok) return err(g.message);
   const { abs } = g.resolved;
   const reported = reportPath(g.resolved);
 
@@ -219,8 +281,8 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
     if (pos === "after_line" && int(a, "after_line") === undefined) return err("Invalid after_line number");
   }
 
-  const g = guardPath(pathArg, ctx.roots);
-  if (!g.ok) return err(g.message!);
+  const g = await guardWithConfirm(ctx, pathArg);
+  if (!g.ok) return err(g.message);
   const { abs } = g.resolved;
   const reported = slashPath(reportPath(g.resolved));
 
@@ -245,13 +307,18 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
     }
     case "replace": {
       const oldText = str(a, "old_text") ?? "";
-      const newText = a.new_text === undefined ? "" : String(a.new_text);
+      const newTextRaw = a.new_text === undefined ? "" : String(a.new_text);
       const replaceAll = bool(a, "replace_all", false);
       const src = previous ?? "";
-      if (!src.includes(oldText)) return err(`Text not found: ${oldText}`);
+      const eol = src.includes("\r\n") ? "\r\n" : "\n";
+      // EOL 容错：模型按 file_read 的 '\n' 归一化内容构造多行 old_text 时也能命中 CRLF 原文
+      const needle = findNeedleWithEolTolerance(src, oldText, eol);
+      if (needle === null) return err(`Text not found: ${oldText}`);
+      // 替换文本统一为文件主导 EOL，避免在 CRLF 文件里掺入 LF 行（单行文本不含 EOL，不受影响）
+      const newText = newTextRaw.replace(/\r\n|\r|\n/g, eol);
       // new_text 一律按字面量处理：String.replace 的字符串替换会展开 $&/$'/$` 等模式，
       // 用 split/join 与函数式替换规避（正文里出现 "$&" 不该被替换成匹配文本）
-      next = replaceAll ? src.split(oldText).join(newText) : src.replace(oldText, () => newText);
+      next = replaceAll ? src.split(needle).join(newText) : src.replace(needle, () => newText);
       extra = { replace_all: replaceAll };
       break;
     }
@@ -259,34 +326,53 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
       const pos = str(a, "position") ?? "end";
       const text = String(a.new_text ?? a.content ?? "");
       const src = previous ?? "";
-      // 沿用文件既有换行风格（检测到 CRLF 用 CRLF，否则 LF），避免插入把整文件换行搅乱
-      const eol = src.includes("\r\n") ? "\r\n" : "\n";
-      const lines = src === "" ? [] : src.split(/\r\n|\r|\n/);
+      extra = { position: pos };
+      if (src === "" || text === "") {
+        // 空文件等价于写入；空插入等价于不动（既有语义：不产生多余空行）
+        next = src === "" ? text : src;
+        break;
+      }
+      // 行级编辑按「行数组 + 原样 EOL」工作（与 markdown.ts 同一硬约束）：
+      // 除插入点外其余字节逐字节不变，混合 EOL 文件不会被静默归一
+      const doc = splitLines(src);
+      const eol = dominantEol(doc);
+      const ins = splitLines(text.replace(/\r\n|\r|\n/g, eol));
       if (pos === "start") {
-        next = text + (text.endsWith(eol) || text === "" ? "" : eol) + src;
+        // 插入块不以 EOL 结尾时补一个，防止与原有首行粘连成同一行
+        if (ins.eols[ins.eols.length - 1] === "") ins.eols[ins.eols.length - 1] = eol;
+        doc.lines.splice(0, 0, ...ins.lines);
+        doc.eols.splice(0, 0, ...ins.eols);
       } else if (pos === "end") {
-        next = src + (src === "" || src.endsWith("\n") ? "" : eol) + text;
+        // 原文件末行无 EOL 时先补，保证插入内容另起一行
+        if (doc.eols[doc.eols.length - 1] === "") doc.eols[doc.eols.length - 1] = eol;
+        doc.lines.push(...ins.lines);
+        doc.eols.push(...ins.eols);
       } else {
         // after_line 为 1-based：after=0 表示插到首行前，after=行数 表示插到末尾
         const after = int(a, "after_line")!;
-        if (after < 0 || after > lines.length) return err("Invalid after_line number");
-        const head = lines.slice(0, after).join(eol);
-        const tail = lines.slice(after).join(eol);
-        next = head + (head === "" ? "" : eol) + text + (tail === "" ? "" : eol + tail);
+        if (after < 0 || after > doc.lines.length) return err("Invalid after_line number");
+        if (after === doc.lines.length && doc.eols[after - 1] === "") doc.eols[after - 1] = eol;
+        if (after < doc.lines.length && ins.eols[ins.eols.length - 1] === "") ins.eols[ins.eols.length - 1] = eol;
+        doc.lines.splice(after, 0, ...ins.lines);
+        doc.eols.splice(after, 0, ...ins.eols);
       }
-      extra = { position: pos };
+      next = joinLines(doc);
       break;
     }
     case "delete_lines": {
       const start = int(a, "start_line")!;
       const end = int(a, "end_line")!;
       const src = previous ?? "";
-      const eol = src.includes("\r\n") ? "\r\n" : "\n";
-      const lines = src.split(/\r\n|\r|\n/);
-      if (start < 1 || end < start || start > lines.length) return err("Invalid line range");
-      // 闭区间 [start, end]，end 越界时截到文件尾；重拼时保持原换行风格
-      const removed = lines.slice(start - 1, Math.min(end, lines.length));
-      next = [...lines.slice(0, start - 1), ...lines.slice(Math.min(end, lines.length))].join(eol);
+      // 行级删除同样保留每行原始 EOL：未触碰的行逐字节不变
+      const doc = splitLines(src);
+      const total = doc.lines.length;
+      if (start < 1 || end < start || start > total) return err("Invalid line range");
+      // 闭区间 [start, end]，end 越界时截到文件尾
+      const upto = Math.min(end, total);
+      const removed = doc.lines.slice(start - 1, upto);
+      doc.lines.splice(start - 1, upto - (start - 1));
+      doc.eols.splice(start - 1, upto - (start - 1));
+      next = joinLines(doc);
       extra = { deleted_lines: removed.length };
       break;
     }
@@ -316,8 +402,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
   const pathArg = str(a, "path");
   if (pathArg === undefined) return err("path is required");
 
-  const g = guardPath(pathArg, ctx.roots);
-  if (!g.ok) return err(g.message!);
+  const g = await guardWithConfirm(ctx, pathArg);
+  if (!g.ok) return err(g.message);
   const { abs } = g.resolved;
 
   switch (operation) {
@@ -327,8 +413,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       const dirArg = str(a, "directory");
       // directory 同样必须过授权判定：否则可以拿它绕过 path 的分级授权，
       // 逐文件读出根外目录里的 md/txt 内容
-      const gDir = dirArg ? guardPath(dirArg, ctx.roots) : null;
-      if (gDir && !gDir.ok) return err(gDir.message!);
+      const gDir = dirArg ? await guardWithConfirm(ctx, dirArg) : null;
+      if (gDir && !gDir.ok) return err(gDir.message);
       const start = gDir ? gDir.resolved : g.resolved;
       // 结果 file 字段的相对基准：项目内 → 相对项目根（'\' 分隔，与实测样本一致）；
       // 项目外 → 绝对路径。不能用 reportPath：它把项目根回报成 "."，会拼出 ".\xxx" 前缀。
@@ -336,18 +422,34 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       const results: { file: string; matches: { line: number; content: string }[] }[] = [];
       let filesFound = 0;
 
-      // 递归扫 md/txt：跳过 '.' 开头的系统目录；每文件最多报 50 条命中（防止大文件刷爆结果）
-      const walk = async (dir: string, rel: string): Promise<void> => {
-        const entries = await ctx.fs.list(dir);
+      // 递归扫 md/txt：跳过 '.' 开头的系统目录；每文件最多报 50 条命中（防止大文件刷爆结果）。
+      // 单个文件/目录不可读（非 UTF-8、权限、占用）只跳过不整单失败；
+      // 深度上限防 junction/符号链接成环（对照 buildContentTree 的 maxDepth 防护）。
+      const MAX_SEARCH_DEPTH = 16;
+      let filesSkipped = 0;
+      const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
+        if (depth > MAX_SEARCH_DEPTH) return;
+        let entries;
+        try {
+          entries = await ctx.fs.list(dir);
+        } catch {
+          return; // 目录不可读：跳过该子树，不让整次搜索失败
+        }
         for (const e of entries) {
           const childRel = rel === "" ? e.name : join(rel, e.name);
           if (e.isDir) {
             if (e.name.startsWith(".")) continue;
-            await walk(e.path, childRel);
+            await walk(e.path, childRel, depth + 1);
             continue;
           }
           if (!/\.(md|txt)$/i.test(e.name)) continue;
-          const text = await ctx.fs.readText(e.path);
+          let text: string;
+          try {
+            text = await ctx.fs.readText(e.path);
+          } catch {
+            filesSkipped++; // 单文件读不出（如 GBK 旧稿）不影响其余文件的搜索结果
+            continue;
+          }
           const lines = text.split(/\r\n|\r|\n/);
           const matches: { line: number; content: string }[] = [];
           lines.forEach((l, i) => {
@@ -359,8 +461,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
           }
         }
       };
-      await walk(start.abs, startRel);
-      return ok({ success: true, search_text: needle, results, files_found: filesFound });
+      await walk(start.abs, startRel, 0);
+      return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped });
     }
     case "delete": {
       const st = await ctx.fs.stat(abs);
@@ -381,8 +483,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
     case "copy": {
       const newPathArg = str(a, "new_path");
       if (!newPathArg) return err(`new_path is required for ${operation} operation`);
-      const g2 = guardPath(newPathArg, ctx.roots);
-      if (!g2.ok) return err(g2.message!);
+      const g2 = await guardWithConfirm(ctx, newPathArg);
+      if (!g2.ok) return err(g2.message);
       const srcSt = await ctx.fs.stat(abs);
       if (srcSt === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
       const srcText = srcSt.isDir ? null : await ctx.fs.readText(abs);

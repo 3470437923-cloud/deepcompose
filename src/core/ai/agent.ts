@@ -347,6 +347,12 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
 
     if (streamError !== null) {
       const msg = streamError as string;
+      // 断流前已收到的部分正文/思考保留入库（与中止路径同一纪律：
+      // 网络中断不是丢弃已生成内容的理由；空回合不产生空消息）
+      const partial = acc.message();
+      if (partial.text !== "" || partial.thinking !== undefined || partial.toolCalls !== undefined) {
+        added.push(partial);
+      }
       emit({ type: "error", message: msg, detail: httpStatus === null ? undefined : `HTTP ${httpStatus}` });
       return { added, error: msg, usage, truncated };
     }

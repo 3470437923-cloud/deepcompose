@@ -90,10 +90,16 @@ export function effectiveThinking(prefs: Prefs, session: ThinkingLevel | null): 
  * 而参数是跟着地址走的：发错了就是 422（KL-DF-07 `[待实测]`）。
  * 非官方地址只有在"当前正在用的那条档位显式声明 supportsThinking"时才放行。
  */
+/** baseUrl 比较口径：忽略尾随 '/' 与大小写（用户手改地址多一个斜杠不该让思考参数静默停发） */
+function sameBaseUrl(a: string, b: string): boolean {
+  const norm = (u: string) => u.trim().replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}
+
 export function thinkingSupportedFor(prefs: Prefs): boolean {
   if (platformOfUrl(prefs.llmBaseUrl) === "deepseek") return true;
   const p = activeProfile(prefs);
-  return p?.supportsThinking === true && p.baseUrl === prefs.llmBaseUrl;
+  return p?.supportsThinking === true && sameBaseUrl(p.baseUrl, prefs.llmBaseUrl);
 }
 
 /** 强制关闭形态（回流 / 上下文压缩这类后台任务用：它们不需要思考，也不该为此付费） */

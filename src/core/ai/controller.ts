@@ -78,6 +78,13 @@ export interface SendOptions {
   onEvent?: (e: AgentEvent) => void;
   /** question 工具的界面回调（弹窗提问 → 用户选择 → resolve 答案） */
   askQuestions?: (questions: QuestionItem[]) => Promise<string[][]>;
+  /**
+   * 会话内已授权的额外目录（B-1 确认机制的落点）：**按引用传入**——
+   * 用户在工具执行期间批准的新目录会 push 进这个数组，同一会话后续请求持续生效。
+   */
+  allowedDirs?: string[];
+  /** 根外路径的用户确认通道（B-1）：装配后「根外必须用户确认」真正生效；未装配时根外一律拒绝 */
+  confirmExternal?: (absPath: string) => Promise<boolean>;
   signal?: { aborted: boolean };
   /**
    * 会话级临时思考档位（D-011，只存内存）；`null`/省略 = 跟随配置默认。
@@ -158,11 +165,14 @@ export async function send(opts: SendOptions): Promise<SendResult> {
         projectRoot: opts.projectRoot,
         skillsDir: opts.dirs.skillsDir,
         booksRoot: opts.dirs.booksRoot,
+        // 按引用透传：工具执行期间批准的根外目录要持续生效到会话结束
+        allowedDirs: opts.allowedDirs,
       },
       booksRoot: opts.dirs.booksRoot,
       snapshotsDir: opts.dirs.snapshotsDir,
       sessionId: session.id,
       askQuestions: opts.askQuestions,
+      confirmExternal: opts.confirmExternal,
       lookupSkill: (name) => lookupSkill(fs, opts.prefs.skillList, name),
     },
   });
@@ -215,6 +225,11 @@ export interface IsolatedSendOptions {
   transport: StreamTransport;
   onEvent?: (e: AgentEvent) => void;
   signal?: { aborted: boolean };
+  /**
+   * 会话级临时思考档位（D-014：冷读跟随用户开关）；`null`/省略 = 跟随配置默认。
+   * 旧实现不传会话级档位，用户在主界面关掉思考后冷读仍按配置默认开思考。
+   */
+  thinking?: ThinkingLevel | null;
 }
 
 /**
@@ -225,7 +240,7 @@ export interface IsolatedSendOptions {
  */
 export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResult> {
   const fs = getFs();
-  const cfg = providerOf(opts.prefs);
+  const cfg = providerOf(opts.prefs, opts.thinking ?? null);
 
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
