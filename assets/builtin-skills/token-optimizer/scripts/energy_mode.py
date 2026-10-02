@@ -70,7 +70,11 @@ DOMAIN_BUDGETS = {
     },
 }
 
-ECO_THRESHOLD = 50.0
+# N-37: bands must match SKILL.md section 3.2 and cache_check.py triggers:
+# ECO < 40% remaining, EFFICIENT 40-70%, NORMAL > 70%. The old 50.0 contradicted
+# both documented sources (a 45%-remaining context reported "eco" here but
+# "efficient/L2" everywhere else).
+ECO_THRESHOLD = 40.0
 EFFICIENT_THRESHOLD = 70.0
 
 

@@ -250,7 +250,9 @@ def main():
         print("  CACHE LEVEL     WHEN                        ACTION")
         print("  L1 (shallow)    Chapter 1-5, new arc start  Full text + all chars")
         print("  L2 (moderate)   Chapter 6-30                 Chapter summaries + active chars")
-        print("  L3 (deep)       Chapter 30+, long arcs       Scene summaries only")
+        # N-37: "Chapter 31+" matches SKILL.md section 6 and novel_audit.py;
+        # the old "30+" overlapped chapter 30 with the L2 band (6-30)
+        print("  L3 (deep)       Chapter 31+, long arcs       Scene summaries only")
     elif dominant == "coding":
         print("  Coding Cache Strategy:")
         print("    1. Prefix: fixed imports + constants at top")

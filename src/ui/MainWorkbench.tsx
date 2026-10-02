@@ -26,6 +26,7 @@ import {
   createProject,
   kindForRel,
   loadProject,
+  readProjectStatus,
   scanBooksRoot,
   validateProject,
   type ContentNode,
@@ -60,6 +61,7 @@ import {
 } from "../core/ai/coldread";
 import type { AgentEvent } from "../core/ai/agent";
 import type { QuestionItem } from "../core/tools/exec";
+import { isToolErrorResult } from "../core/tools/exec";
 import {
   listSessions,
   loadSession,
@@ -70,6 +72,7 @@ import {
 } from "../core/store/session";
 import { recordSnapshot } from "../core/store/snapshot";
 import { scanSkills, mergeSkillList } from "../core/skills/scan";
+import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
 import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
 import RecycleBin from "./RecycleBin";
@@ -495,16 +498,26 @@ export default function MainWorkbench({
       setTabs([]);
       setActiveRel(null);
       setTreeFolders(defaultTreeFolders(data.tree));
-      setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
+      // I-3：状态条直接显示"写作进度"（读 00-项目状态.md 的头部字段），
+      // 不再只报文件计数 —— 应用自己就能回答"现在到哪一步了"。
+      let statusNote = "";
+      try {
+        const st = await readProjectStatus(fs, ref.root);
+        if (st && (st.progress || st.chapter)) {
+          statusNote = ` · 进度：${st.progress || "未记录"}（当前章节：${st.chapter || "未记录"}）`;
+        }
+      } catch {
+        /* 状态读取失败不影响打开 */
+      }
+      const baseStatus = `${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料${statusNote}`;
+      setStatus(baseStatus);
       // I-12 UI 接线：打开即校验（外部放进作品根的内容第一次有了"看一看"的入口）。
       // 校验只读不判（见 validateProject 注释）；失败不阻断打开，状态条汇总即可。
       try {
         const issues = await validateProject(fs, ref.root);
         if (issues.length > 0) {
           const worst = issues.find((i) => i.level === "error") ?? issues[0];
-          setStatus(
-            `${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料 · 结构校验 ${issues.length} 项提示（${worst.message}）`,
-          );
+          setStatus(`${baseStatus} · 结构校验 ${issues.length} 项提示（${worst.message}）`);
         }
       } catch {
         /* 校验本身出错不打扰打开 */
@@ -542,6 +555,13 @@ export default function MainWorkbench({
         }
         // 技能扫描（只读）：skill_list 为空或目录有变化时刷新
         try {
+          // A-8：先释放内置技能资产（只补缺失、不覆盖用户副本；见 skills/builtin.ts），
+          // 首次启动即可看到 5 个内置技能；释放失败不阻断扫描（有多少用多少）
+          try {
+            await releaseBuiltinSkills(fs, b.dirs.skillsDir);
+          } catch {
+            /* 释放失败不阻断启动 */
+          }
           const scanned = await scanSkills(fs, b.dirs.skillsDir);
           if (scanned.length > 0) {
             const { skillList, activeSkillIds } = mergeSkillList(b.prefs.skillList, scanned, b.prefs.activeSkillIds);
@@ -869,7 +889,8 @@ export default function MainWorkbench({
         setToolLog((l) => {
           const next = [...l];
           const i = next.findIndex((x) => x.name === e.call.name && x.status === "run");
-          const bad = (e.call.result ?? "").includes('"error"');
+          // N-42：失败判定走契约结构（isToolErrorResult），不再子串嗅探
+          const bad = isToolErrorResult(e.call.result);
           if (i >= 0) next[i] = { name: e.call.name, status: bad ? "bad" : "ok" };
           return next;
         });
@@ -1944,7 +1965,8 @@ export default function MainWorkbench({
                     <div className="who">DeepCompose</div>
                     {m.thinking ? <div className="think">{m.thinking}</div> : null}
                     {(m.toolCalls ?? []).map((t) => {
-                      const bad = (t.result ?? "").includes('"error"');
+                      // N-42：失败判定走契约结构（isToolErrorResult），不再子串嗅探
+                      const bad = isToolErrorResult(t.result);
                       return (
                         <div key={t.callId} className="tool-line">
                           <svg viewBox="0 0 20 20" className="ic ic-14">

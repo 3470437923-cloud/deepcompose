@@ -29,6 +29,8 @@ export const CAST_DOC = "人物库.md";
 export const SUMMARY_DOC = "章节摘要.md";
 /** 五份追踪表共用前缀（追踪-伏笔/角色状态/时间线/资源与权限/废弃设定） */
 export const TRACK_PREFIX = "追踪-";
+/** 伏笔追踪表名（I-4：自述统计与条目数核对读的就是这份） */
+export const FORESHADOW_DOC = `${TRACK_PREFIX}伏笔.md`;
 
 /**
  * 14 件套模板（README 契约：00-项目状态 … 追踪-废弃设定，共 14 份，缺一不可）。
@@ -277,6 +279,12 @@ export const DOC_TEMPLATES: DocTemplate[] = [
   {
     name: `${TRACK_PREFIX}伏笔.md`,
     content: `# 追踪-伏笔
+## 伏笔统计（自述口径：必须与下方条目数一致，应用会核对）
+- 开放：待填写
+- 已回收：待填写
+- 废弃：待填写
+- 合计：待填写
+
 ## F001（模板，新伏笔复制本条目）
 - 内容与涉及对象：待填写
 - 首次出现章节：待填写
@@ -286,6 +294,7 @@ export const DOC_TEMPLATES: DocTemplate[] = [
 - 来源与最近更新章节：待填写
 
 尚未兑现的伏笔始终保留在可检索的当前记录中。
+统计行是**自述**，只有与条目数一致才有意义：写数字前先数一遍条目，别凭印象填。
 `,
   },
   {

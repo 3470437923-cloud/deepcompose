@@ -27,12 +27,12 @@
 | 操作日志 | 每个用户操作（打开/编辑/保存/采用/冷读/回流…）落盘 `writerd_oplog\log.jsonl`，既是学习原料也可追溯 |
 | AI 对话 | 流式正文与思考渲染、工具调用行内展示、**停止生成（真中断上游连接）**、会话按日分组；回流跑在后台专属会话，不打断当前对话 |
 | 工具调用 | `file_read` / `file_write` / `file_manage` / `create_project` / `question` / `skill_lookup`；写入前自动落快照 |
-| 技能系统 | `SKILL.md` 三级渐进加载；首次扫描只默认开启内置白名单（novel-writer / skill-creator） |
+| 技能系统 | `SKILL.md` 三级渐进加载；内置技能（5 个：novel-writer / novel-deslop / novel-structure-quality-coordinator / skill-creator / token-optimizer）随应用发布，首次启动自动释放到技能目录（只补缺失、不覆盖用户改过的副本，见 `docs/DECISIONS.md` D-037），首次扫描默认全部开启 |
 | 上下文压缩 | 超阈值把旧对话压成摘要，只影响发给模型的请求序列，**不删聊天记录** |
 | 备忘录 | 单文件分类备忘录，可挂边常显；分类删除时条目迁入「默认」（不丢条目） |
 | 作品删除 | **两段式**：先「移入回收站」（可还原，同时删除该作品的会话），再「彻底删除」/「清空回收站」；四道安全门按结构保证（见 `docs/DECISIONS.md` D-001–D-003、D-032） |
 | 用量与余额 | 标题栏鲸鱼 + 面板：今日 token 汇总、本次会话累计、闲时/忙时倒计时、账户余额；统计数据落 `usage_stats.json`（只加不减，90 天滚动） |
-| 设置 | AI 提供商（**DeepSeek 官方 / 硅基流动 / 自定义**，Base URL 内置可改；每个「名称 + URL + Key」可具名保存并一键切换；OpenAI / Anthropic 双协议、模型清单检测 + 手填）、思考档位、参数、Skill 开关、三套主题 + 强调色 + 字号、**存储位置更改/打开**、数据概览、关于（名称版本取自产物） |
+| 设置 | AI 提供商（**DeepSeek 官方 / 硅基流动 / 自定义**，Base URL 内置可改；每个「名称 + URL + Key」可具名保存并一键切换；OpenAI / Anthropic 双协议、模型清单检测 + **只能点选**的模型选择框 `ModelSelect`，不支持手填）、思考档位、参数、Skill 开关、三套主题 + 强调色 + 字号、**存储位置更改/打开**、数据概览、关于（名称版本取自产物） |
 
 ## 快速开始
 

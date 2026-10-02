@@ -124,3 +124,48 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 4. 每批只做一件事；跨多文件的重构拆成可独立验收的小批。
 5. 修掉某条已知边界时，同步更新 `docs/KNOWN-LIMITS.md` 的「处置」列并留下回归锁（销项规则见该文件 §6）；
    改动涉及用户拍板的裁决时，先在 `docs/DECISIONS.md` 追加条目再动代码。
+
+## 9. 工具清单（tools/ 全量入口）
+
+前面 §2–§5 只讲了主链路工具；这里是**全量索引**，新加脚本必须补进本节（E-4：曾有 10 个脚本
+没有任何文档入口，下一个接手的人只能读源码猜用法）。
+
+### 9.1 交付与验收链路（§2–§5 已详述，这里只列入口）
+
+| 脚本 | 作用 |
+|---|---|
+| `package.ps1` | 打包：tsc 类型闸门 → vite build → cargo build --release → 复制 exe → 刷新快捷方式 |
+| `capture.ps1` | 真机截屏取证到 `shots/`（`SetForegroundWindow` 后等 0.5–1s，否则 WebView2 白图） |
+| `preview_shot.py` / `preview_diag.py` | 预览沙箱三主题截图 + 几何断言 / 页面异常原文 |
+| `mock_provider.py` + `e2e_chat.ps1` / `e2e_live.ps1` | 本地 mock 提供商端到端 / 真实配置直连端到端 |
+| `ds_probe.py` | 真实 Key 的 DeepSeek 接口探针（用法见 `AGENTS.md` §3；只读本机 Key，绝不打印） |
+
+### 9.2 审计类脚本（退出码统一口径，可当判据）
+
+**统一口径（E-3）**：`0` = 通过｜`1` = 有问题（脚本会逐条列出）｜`2` = 判不了（前提缺失/参数坏/
+基线丢失）。**不允许"有问题也 exit 0"**，也不允许把"判不了"当通过。
+
+| 脚本 | 作用 | 用法 | 退出码 |
+|---|---|---|---|
+| `_a11y_check.py` | 无障碍降级断言（prefers-* 分支真被命中）+ 整屏扁平度审计（零玻璃/零渐变/零滤镜） | `python tools/_a11y_check.py` | 0 / 1 |
+| `_contrast_audit.py` | 按 WCAG 2.1 实测真实元素文字与其实际底色的对比度（报告写 `shots/`） | `python tools/_contrast_audit.py` | 0 / 1 |
+| `_style_audit.py` | 运行时「裸奔元素」审计：`el.matches()` 遍历全部规则，一个都不命中的元素即无样式落点 | `python tools/_style_audit.py --flows none,chat,memo,theme,params` | 0 / 1 / 2（未知 flow 名） |
+| `_css_coverage.py` | 类名覆盖：`git HEAD` 旧 CSS × `src/**/*.tsx` className × 当前 CSS 三方对比 | `python tools/_css_coverage.py`（需 git 可用） | 0 / 1 / 2（基线丢失：旧 CSS 已不在 HEAD，属重构窗口期一次性工具） |
+
+这四个共同前提：**vite dev server（5183）+ 无头 Edge CDP（9223）已启动**（启动命令见 §4），
+`preview.html` + `src/preview/mockBackend.ts` 提供预置数据；`_a11y_check` / `_contrast_audit` /
+`_style_audit` 都复用 `_shot_flow.py` 的 `CDP` / `FLOWS` / `run_flow`（改它签名会同时波及三者）。
+
+### 9.3 取证与交互类脚本
+
+| 脚本 | 作用 | 用法与前提 |
+|---|---|---|
+| `_shot_flow.py` | 按交互流程截图（气泡/思考块/工具行/备忘录/输入聚焦）；同时是上面三个审计脚本的公共库 | `python tools/_shot_flow.py --out shots/_tmp --label chat --themes dsblue --flows chat`；FLOWS 的选择器钉死 mockBackend 预置文案，改预置数据会让流程 miss |
+| `_compare_sheet.py` | 把 before/after 两套截图拼成并排对比图（`shots/compare/*.png`） | 先用 `preview_shot.py --label before/after` 各产一套；`pip install pillow`；**输入缺文件是"跳过"不是"报错"，产出变少不等于验收全过** |
+| `cdp_probe.py` | 物理屏幕关闭/会话锁定时仍可做 UI 交互验证（`eval` / `click` / `shot` / `alive`） | 应用须带 `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"` 启动（发布版刻意不开调试口）；`pip install websocket-client` |
+| `uiwalk.ps1` | 脚本化 UI 走查：`click\|x,y` / `keys\|text` / `cap\|out.png` / `wait\|ms` 步骤串 | `.\tools\uiwalk.ps1 -Steps "wait\|2000;click\|640,400;cap\|shots\w1.png"`；坐标相对窗口左上角，跑动中移动/缩放窗口会让坐标失效；跑挂也只会清掉自己启动的进程 |
+| `probe_window.ps1` | 真机窗口几何记忆（T0–T5 六个用例：默认居中 / 缩放后记住 / 最大化恢复 / 离屏回收） | 默认钉打包产物 `release\DeepCompose.exe`；会改写 `%APPDATA%\com.writerd\writerD\window_state.json`（**冻结契约路径，别改名**） |
+| `probe_win_style.ps1` | 实测无边框窗口能否拖边缩放（`WS_THICKFRAME`）与最大化是否真的改变尺寸 | 需要真实交互桌面会话；锁定/无头会话的测量无意义 |
+
+> **进程纪律（N-16）**：以上会启动 exe 的脚本，**只允许停"与自己 -Exe 同路径"的实例**，
+> 一律不得按进程名强杀 —— 用户可能同时开着别的 checkout / 安装副本，按名字强杀等于删用户的后台程序。

@@ -7,7 +7,8 @@
  *   - 未启用工具：`未启用，web_search 工具当前不可用（调用会被拒绝），请勿声称具备该能力或尝试调用`（terminal / rank_data_query 同样处理）
  * 系统提示词本体：**自写、语义等价**，见 prefs.DEFAULT_SYSTEM_PROMPT。
  *
- * 装配顺序（buildSystemPrompt）：本体 → 项目路径块 → 未启用工具声明 → 技能清单块。
+ * 装配顺序（buildSystemPrompt）：本体 → 项目路径块 → 未启用工具声明 → 技能清单块
+ * → 技能根路径块（I-10）。
  * 冷读（sendIsolated）不走本模块——隔离系统提示词由 coldread.ts 独立给出。
  */
 
@@ -49,6 +50,11 @@ export interface PromptInput {
   activeSkillIds: string[];
   /** 当前真正注册给模型的工具名 */
   enabledTools: string[];
+  /** 技能根绝对路径（`prefs.custom_skills_dir` 或默认 `Documents\skills`）。
+   *  I-10：技能根是三个授权根之一，根内写入无需确认，但系统提示词此前从没告诉
+   *  模型技能根在哪 —— skill-creator 让模型"直接创建技能目录"就成了空话。
+   *  传空串/缺省时不注入该块（预览替身与旧调用方保持原输出）。 */
+  skillsDir?: string;
 }
 
 /** 装配最终系统提示词 */
@@ -70,6 +76,12 @@ export function buildSystemPrompt(input: PromptInput): string {
   // 技能清单块（无技能时为空串，不注入空块）
   const block = availableSkillsBlock(input.skills, input.activeSkillIds);
   if (block !== "") out += "\n\n" + block;
+
+  // 技能根路径块（I-10，additive）：技能与作品分别属于不同授权根，只给项目根
+  // 模型无从知道技能该写到哪；skill_lookup 的目录说明也只讲"相对本目录"。
+  if (input.skillsDir) {
+    out += `\n\n技能目录（全部技能的根目录，可用 file_write 直接创建/修改，写入无需确认）："${input.skillsDir}"`;
+  }
 
   return out;
 }

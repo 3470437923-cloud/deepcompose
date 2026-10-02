@@ -36,13 +36,16 @@ def require_skills_dir():
     print("  Use --skills-dir <path> or set DEEPCOMPOSE_SKILLS_DIR.")
     return False
 
-# Thresholds (in bytes)
+# Thresholds (in bytes). N-38: bands and labels must match SKILL.md section 2.1:
+#   < 15KB OK | 15-25KB NOTE | 25-35KB WARN | 35-50KB CRIT | 50-100KB EMERG | > 100KB BLOAT
+# The old table was shifted one band down (15-25KB reported "OK", >=100KB reported
+# "EMERG", BLOAT missing entirely) -- docs and tool disagreed on every size.
 THRESHOLDS = [
-    (15360,   "OK",     "Healthy"),
-    (25600,   "NOTE",   "Check if reducible"),
-    (35840,   "WARN",   "Run slim-down"),
-    (51200,   "CRIT",   "Must slim or split"),
-    (102400,  "EMERG",  "Split or retire immediately"),
+    (15360,   "NOTE",   "Check if reducible"),
+    (25600,   "WARN",   "Run slim-down"),
+    (35840,   "CRIT",   "Must slim or split"),
+    (51200,   "EMERG",  "Split or retire immediately"),
+    (102400,  "BLOAT",  "Force split"),
 ]
 
 # Density markers - patterns indicating philosophical/non-actionable prose
@@ -193,11 +196,11 @@ def main():
             levels[lv] = []
         levels[lv].append(s)
 
-    for lv in ["EMERG", "CRIT", "WARN", "NOTE", "OK"]:
+    for lv in ["BLOAT", "EMERG", "CRIT", "WARN", "NOTE", "OK"]:
         if lv not in levels:
             continue
         items = levels[lv]
-        icon = {"EMERG": "!!", "CRIT": "!!", "WARN": "! ", "NOTE": "~ ", "OK": "  "}.get(lv, "  ")
+        icon = {"BLOAT": "!!", "EMERG": "!!", "CRIT": "!!", "WARN": "! ", "NOTE": "~ ", "OK": "  "}.get(lv, "  ")
         print("  [{}] {} ({} skills):".format(lv, icon, len(items)))
         for name, md_sz, ref_sz, sc_sz, ast_sz, total, hidden, _, density, fluff, _ in items:
             hidden_flag = ""
@@ -230,13 +233,15 @@ def main():
     print("  --- Triage Recommendations ---")
     print()
 
+    bloat = levels.get("BLOAT", [])
     emerg = levels.get("EMERG", [])
     crit = levels.get("CRIT", [])
     warn = levels.get("WARN", [])
 
-    if emerg:
-        print("  TOP PRIORITY - Immediate Action ({} skills):".format(len(emerg)))
-        for name, _, _, _, _, total, hidden, _, _, _, _ in emerg:
+    top = bloat + emerg
+    if top:
+        print("  TOP PRIORITY - Immediate Action ({} skills):".format(len(top)))
+        for name, _, _, _, _, total, hidden, _, _, _, _ in top:
             total_kb = total / 1024
             action = "SPLIT into sub-skills" if total_kb > 80 else "SLIM by 50%"
             if hidden > 51200:
@@ -263,9 +268,9 @@ def main():
             print("    ... and {} more".format(len(warn) - 5))
         print()
 
-    # Overall health score
+    # Overall health score (N-38: BLOAT counts as unhealthy too)
     total_skills = len(skills)
-    unhealthy = len(emerg) + len(crit)
+    unhealthy = len(levels.get("BLOAT", [])) + len(emerg) + len(crit)
     health_pct = (total_skills - unhealthy) / total_skills * 100 if total_skills > 0 else 100
 
     print("  Overall health: {:.0f}% skills healthy ({}/{} unhealthy)".format(

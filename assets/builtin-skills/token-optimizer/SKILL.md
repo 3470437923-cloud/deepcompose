@@ -102,7 +102,7 @@ python scripts/skill_size_check.py
 - 每个 Skill 的 MD / references / scripts / assets 分项大小
 - 隐藏权重标记（references > 10KB 时标注 HIDDEN）
 - 内容密度分析（可执行行占比，检测哲学性/非操作性内容）
-- 分层 triage 建议（EMERG -> CRIT -> WARN -> NOTE -> OK）
+- 分层 triage 建议（BLOAT -> EMERG -> CRIT -> WARN -> NOTE -> OK，与 2.1 阈值表同一套等级）
 
 ### 2.3 Skill 精简四步流程
 
@@ -243,22 +243,23 @@ Chapter 31+      L3 (deep)      场景摘要，最小角色信息
 
 ---
 
-## 七、与 self-improvement 协同
+## 七、审计发现的沉淀（本应用内可落地的做法）
 
-本技能专注 Token 效率优化，以下职责委托给 [self-improvement](~/.workbuddy/skills/self-improving-agent/SKILL.md) 技能：
+**本技能只做 Token 效率优化，不依赖任何外部技能**：应用内置的技能只有 novel-writer /
+novel-deslop / novel-structure-quality-coordinator / skill-creator / token-optimizer 五个，
+需要别的能力时用 `skill_lookup` 看当前实际有哪些（不要按记忆里的名字去调）。
 
-| 触发事件 | 本技能动作 | self-improvement 动作 |
-|----------|-----------|----------------------|
-| 命令执行失败 | 检查是否因 Token 截断导致 | 记录到 ERRORS.md（ERR-XXX） |
-| 用户纠正错误 | 检查浪费模式是否触发 | 记录到 LEARNINGS.md（LRN-XXX） |
-| 发现优化模式 | 执行优化并记录效果 | 提炼为规则，提升到 MEMORY.md |
-| 周期性复盘 | 输出 Token 消耗趋势报表 | 执行全系统复盘并归档 |
+审计结论要沉淀时，落到本应用**真实存在**的位置：
 
-**协同指令**：
-```
-# 执行完整审计（本技能 + self-improvement）
-触发"Token审计" -> 审计完成后 -> 触发"自我进化"，将发现沉淀到 LEARNINGS.md
-```
+| 触发事件 | 本技能动作 | 沉淀落点（用 file_write） |
+|----------|-----------|--------------------------|
+| 命令/脚本执行失败 | 检查是否因 Token 截断或上下文超限导致 | 作品内 `小说资料/00-项目状态.md`（阶段性结论）或直接汇报给用户 |
+| 用户纠正浪费模式 | 复核是哪一类浪费模式被触发 | 作品内 `小说资料/06-写作规则.md`（经用户确认后追加，见 novel-writer 的个人文风流程） |
+| 发现可复用的优化模式 | 执行优化并记录前后对比 | 汇报给用户，由用户决定是否写进写作规则；**不自行改用户的规则文档** |
+| 周期性复盘 | 输出 Token 消耗趋势报表（`token_audit.py`） | 报表直接贴给用户；长期档案由用户自己保管 |
+
+**报告纪律**：本技能的脚本只读不写（不碰作品文件）。要让结论变成长期规则，
+必须走 novel-writer 的「个人文风晋升」流程（`question` 逐条确认后写进 06-写作规则）。
 
 ---
 
@@ -268,7 +269,7 @@ Chapter 31+      L3 (deep)      场景摘要，最小角色信息
 
 | 指标 | 健康 | 警告 | 危险 |
 |------|------|------|------|
-| Skill 文件大小 | < 25KB | 25-35KB | > 35KB |
+| Skill 文件大小 | < 15KB（OK） | 15-35KB（NOTE/WARN） | > 35KB（CRIT/EMERG/BLOAT） |
 | 输出冗余占比 | < 15% | 15-25% | > 25% |
 | 缓存命中率 | > 60% | 40-60% | < 40% |
 | 单轮 Token 消耗 | < 基线 | 基线-1.5x | > 1.5x 基线 |

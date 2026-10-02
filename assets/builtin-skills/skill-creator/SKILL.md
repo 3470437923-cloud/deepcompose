@@ -95,8 +95,9 @@ description: 技能描述，说明何时使用。要覆盖触发场景和关键�
 
 **编写要点：**
 
-- **名称**：英文小写 + 连字符，如 `novel-reviewer`、`chapter-outliner`
+- **名称**：英文小写 + 连字符，如 `novel-reviewer`、`chapter-outliner`；**必须与技能目录名一致**（应用把目录名当技能 id，`skill_lookup` 按 `name` 精确匹配）
 - **描述要贪婪**：AI 容易不触发技能（欠触发），描述要主动覆盖相关场景和同义词。好例子：`当用户想要生成周报、写工作汇报、整理本周进度、总结项目进展时使用此技能，即使用户只说"帮我写个报告"也应触发。`
+- **应用只读 `name` 与 `description` 两个字段**：`triggers` / `version` / `agent_created` 这类扩展字段会被扫描器忽略（不会进可用技能清单），写了不报错但也不起作用——需要触发的关键词请写进 `description`
 - **解释原因**：告诉 AI 为什么要这样做，比堆砌 MUST/ALWAYS/NEVER 更有效。比如"检查格式是因为下游系统会解析，格式错误会导致解析失败"，而不是"必须检查格式"
 - **给示例**：示例比抽象描述更有帮助
 - **用祈使句**：直接说"读取文件"、"输出结果"
@@ -137,54 +138,41 @@ description: 技能描述，说明何时使用。要覆盖触发场景和关键�
 - SKILL.md 的核心流程
 - 包含的配套文件列表
 
-用户确认后，使用 **create_skill** 工具保存：
+用户确认后，用 **file_write** 把技能写进技能目录（系统提示词末尾给出了技能根的绝对路径，
+路径形如 `...\skills`；技能目录是独立授权根，根内写入不需要用户确认）：
 
 ```
-工具名: create_skill
-参数:
-{
-  "name": "my-skill",
-  "description": "技能描述，说明何时使用",
-  "content": "完整的 SKILL.md 内容，包括 frontmatter (---) 和正文",
-  "references": {
-    "scripts/helper.py": "脚本文件的完整内容",
-    "references/规则.md": "规则文件的完整内容",
-    "assets/report-template.html": "输出模板的完整内容"
-  }
-}
+# 1) 主文件（file_write，operation: "write"）
+path:    <技能根绝对路径>\my-skill\SKILL.md
+content: 完整的 SKILL.md 内容（必须以 --- frontmatter 开头，含 name 与 description）
+
+# 2) 配套文件（逐个写；父目录不存在时 file_write 会自动创建）
+path:    <技能根绝对路径>\my-skill\scripts\helper.py
+path:    <技能根绝对路径>\my-skill\references\规则.md
+content: 对应文件的完整内容
 ```
 
 **注意**：
-- content 参数必须以 `---` 开头
-- references 是可选的；键必须是相对于 Skill 根目录的完整路径（含 `scripts/`、`references/`、`assets/` 前缀）
-- 兼容旧写法：裸文件名按扩展名自动分到 scripts/ 或 references/，新技能应显式写完整路径
+- 写完后用 `file_read`（`operation: "list"`）复核一遍目录内容，确认文件都落盘了
+- 目录名与 frontmatter 里的 `name` 必须一致，否则 `skill_lookup` 按名字找不到它
+- **新建或修改的技能要重启应用才会出现在 Available Skills 里**（技能清单在启动装配时扫描一次）
+- 别往作品目录里写技能：技能只认技能根
 
 ## 修改现有技能
 
 当用户要修改现有技能时：
-1. 用 **skill_lookup** 读取当前技能的完整内容
+1. 用 **skill_lookup** 读取当前技能的完整内容（它同时给出该技能目录下的文件清单）
 2. 了解用户想改什么
-3. 提出修改建议，用户确认后用 **update_skill** 更新
+3. 要改配套文件时，用 **file_read** 先读出来（`path` 用技能目录里的绝对路径）
+4. 提出修改建议，用户确认后用 **file_write** 写回：
+   - 局部改正文：`operation: "replace"`（只替换指定片段，保留用户其它写法）
+   - 整份重写：`operation: "write"`（改动很大时才用，会覆盖全文）
+5. 用 `file_read` 复核改动结果，并提醒用户重启应用后生效
 
-```
-工具名: update_skill
-参数:
-{
-  "skill_name": "my-skill（与 Available Skills 中显示的一致）",
-  "content": "新的完整 SKILL.md 内容（包括 frontmatter 和正文）"
-}
-```
-
-只更新某个配套文件：
-```json
-{
-  "skill_name": "my-skill",
-  "reference_name": "scripts/helper.py",
-  "reference_content": "脚本的新内容"
-}
-```
-
-内置技能修改时会自动克隆为用户副本。
+**内置技能**（novel-writer / novel-deslop / novel-structure-quality-coordinator / skill-creator /
+token-optimizer）随应用发布，首次启动自动释放到技能目录。释放只补缺失、**绝不覆盖已存在的
+技能目录**——所以你改过的内置技能不会被应用升级覆盖。要恢复出厂版本，需要自己删掉那个技能
+目录再重启应用（应用会重新释放一份）。
 
 ## References
 

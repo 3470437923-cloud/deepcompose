@@ -125,6 +125,8 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     skills: opts.prefs.skillList,
     activeSkillIds: opts.prefs.activeSkillIds,
     enabledTools: ENABLED_TOOLS,
+    // I-10：技能根绝对路径随提示词下发（技能目录是独立授权根，模型自己推不出来）
+    skillsDir: opts.dirs.skillsDir,
   });
 
   // 上下文自动压缩：只影响发给 AI 的请求序列，会话记录保持完整
