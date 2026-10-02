@@ -214,7 +214,6 @@ export async function moveToRecycle(
 
   const sizeBytes = await dirSize(fs, opts.originalPath);
   await fs.mkdir(recycleRoot(booksRoot));
-  await fs.rename(opts.originalPath, dest);
 
   const item: RecycleItem = {
     id,
@@ -223,9 +222,24 @@ export async function moveToRecycle(
     movedAt: (opts.when ?? new Date()).toISOString(),
     sizeBytes,
   };
+  // 顺序纪律：**先记清单再搬目录**。反过来（先 rename 后 saveManifest）在清单写失败时，
+  // 作品目录已经躺在回收站里但两套列表（左栏/回收站界面）都看不到它 —— 用户视角等于丢稿。
   const manifest = await loadManifest(fs, booksRoot);
   manifest.items = [item, ...manifest.items.filter((i) => i.id !== id)];
   await saveManifest(fs, booksRoot, manifest);
+  try {
+    await fs.rename(opts.originalPath, dest);
+  } catch (e) {
+    // 搬移失败：回滚刚记的清单条目（清单与磁盘不得各说各话），再把原始错误抛给调用方
+    try {
+      const rollback = await loadManifest(fs, booksRoot);
+      rollback.items = rollback.items.filter((i) => i.id !== id);
+      await saveManifest(fs, booksRoot, rollback);
+    } catch {
+      // 回滚失败不掩盖原始的 rename 错误
+    }
+    throw e;
+  }
   return item;
 }
 
@@ -279,7 +293,14 @@ export async function purgeItem(
   if (!item) return { ok: false, reason: "回收站条目不存在" };
   const target = itemPath(booksRoot, id);
   const st = await fs.stat(target);
-  const problem = checkPurgeTarget({ booksRoot, target, isLink: st?.isLink ?? false });
+  if (st === null) {
+    // 目录已不在（用户手工删过）：无需删除动作，直接清条目
+    // （与 restoreFromRecycle 对缺失目录的自愈同口径；removeChild 对缺失目标的行为不做假设）
+    manifest.items = manifest.items.filter((i) => i.id !== id);
+    await saveManifest(fs, booksRoot, manifest);
+    return { ok: true, item };
+  }
+  const problem = checkPurgeTarget({ booksRoot, target, isLink: st.isLink ?? false });
   if (problem) return { ok: false, reason: problem };
 
   // 受限删除：父目录 + 单个路径段（Rust 侧还会再校验一次名字）
@@ -301,9 +322,14 @@ export async function emptyRecycle(
   let removed = 0;
   const failed: { id: string; reason: string }[] = [];
   for (const item of [...manifest.items]) {
-    const r = await purgeItem(fs, booksRoot, item.id);
-    if (r.ok) removed += 1;
-    else failed.push({ id: item.id, reason: r.reason });
+    try {
+      const r = await purgeItem(fs, booksRoot, item.id);
+      if (r.ok) removed += 1;
+      else failed.push({ id: item.id, reason: r.reason });
+    } catch (e) {
+      // 一条失败不阻断其余条目（含 purgeItem 内部抛出的路径：磁盘错误、占用等）
+      failed.push({ id: item.id, reason: String(e instanceof Error ? e.message : e) });
+    }
   }
   return { removed, failed };
 }

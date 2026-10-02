@@ -17,7 +17,9 @@ import {
   listPending,
   listProcessed,
   loadProject,
+  projectExists,
   scanBooksRoot,
+  validateProject,
 } from "../../src/core/store/project";
 import { DOC_TEMPLATES, renderTemplate } from "../../src/core/store/templates";
 import { compareChapterFiles, parseChapterName, parseCnNumber } from "../../src/core/store/chapter";
@@ -266,6 +268,46 @@ describe("候选区与通用内容树", () => {
     expect(data.tree.length).toBeGreaterThan(0);
     expect(data.pending.length).toBe(3);
     expect(data.processed.length).toBe(1);
+  });
+
+  it("buildContentTree：超深目录打 truncated 标记而非静默消失（I-7 回归锁）", async () => {
+    const r = root();
+    // 造 5 层嵌套：a\b\c\d\e\x.md，用 maxDepth=3 构建
+    await fsp.mkdir(path.join(r, "a", "b", "c", "d", "e"), { recursive: true });
+    await fsp.writeFile(path.join(r, "a", "b", "c", "d", "e", "x.md"), "深\r\n", "utf8");
+    const tree = await buildContentTree(fs, r, 3);
+    const a = tree.find((n) => n.name === "a")!;
+    const b = a.children.find((n) => n.name === "b")!;
+    const c = b.children.find((n) => n.name === "c")!;
+    // 第 3 层被截断：children 为空但带 truncated 标记（修复前：静默消失、无任何痕迹）
+    expect(c.children).toEqual([]);
+    expect(c.truncated).toBe(true);
+    await fsp.rm(path.join(r, "a"), { recursive: true, force: true });
+  });
+
+  it("validateProject：新建作品无 error/warn；缺清单 → manifest-missing 警告（I-12）", async () => {
+    const ref = await createProject(fs, booksRoot, "校验样本");
+    const ok = await validateProject(fs, ref.root);
+    expect(ok.filter((i) => i.level !== "info")).toEqual([]);
+
+    // 手工建的"半受管"作品：有内容目录但没清单
+    const half = path.join(booksRoot, "半受管样本");
+    await fsp.mkdir(path.join(half, "章节内容"), { recursive: true });
+    await fsp.writeFile(path.join(half, "章节内容", "第1章.md"), "一\r\n第3章跳号\r\n", "utf8");
+    await fsp.writeFile(path.join(half, "章节内容", "第3章.md"), "三\r\n", "utf8");
+    const issues = await validateProject(fs, half);
+    expect(issues.some((i) => i.check === "manifest-missing" && i.level === "warn")).toBe(true);
+    expect(issues.some((i) => i.check === "dir-missing")).toBe(true); // 缺 小说资料/待确认
+    expect(issues.some((i) => i.check === "chapter-gap")).toBe(true); // 1 → 3 断档
+    await fsp.rm(half, { recursive: true, force: true });
+  });
+
+  it("projectExists：清单缺失但有内容目录 → 也算受管（I-1 回归锁：判据与可见性统一）", async () => {
+    const half = path.join(booksRoot, "半受管样本2");
+    await fsp.mkdir(path.join(half, "小说资料"), { recursive: true });
+    expect(await projectExists(fs, half)).toBe(true);
+    expect(await projectExists(fs, path.join(booksRoot, "不存在"))).toBe(false);
+    await fsp.rm(half, { recursive: true, force: true });
   });
 
   it("kindForRel 按路径判类；chapterLabelOf 提取章号标签", () => {

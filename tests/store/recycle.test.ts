@@ -188,6 +188,33 @@ describe("移入 → 还原 / 彻底删除（真盘往返）", () => {
     expect(await fs.exists(dir)).toBe(true);
   });
 
+  it("移入：清单写失败 → 作品目录原封不动（N-04 回归锁：先改名后写清单会让作品消失）", async () => {
+    const dir = await makeBook("星海拾梦");
+    // 造一个"只对回收站清单写失败"的桥
+    const failing = {
+      ...fs,
+      async writeText(p: string, c: string): Promise<void> {
+        if (p.endsWith("recycle_manifest.json")) throw new Error("磁盘被占用");
+        return fs.writeText(p, c);
+      },
+    };
+    await expect(
+      moveToRecycle(failing, root, { name: "星海拾梦", originalPath: dir, id: "id_fail" }),
+    ).rejects.toThrow(/磁盘被占用/);
+    // 顺序纪律（先记清单后搬目录）：清单失败时目录必须还在原位
+    expect(await fs.exists(dir)).toBe(true);
+    expect(await fs.exists(itemPath(root, "id_fail"))).toBe(false);
+  });
+
+  it("彻底删除：条目目录已被手工删掉 → 直接清条目成功返回（N-26）", async () => {
+    const dir = await makeBook("星海拾梦");
+    const item = await moveToRecycle(fs, root, { name: "星海拾梦", originalPath: dir, id: "id_gone" });
+    await fsp.rm(itemPath(root, item.id), { recursive: true, force: true });
+    const r = await purgeItem(fs, root, "id_gone");
+    expect(r.ok).toBe(true);
+    expect(await recycleCount(fs, root)).toBe(0);
+  });
+
   it("还原：搬回原位、清单清空；原位置已占用时**不覆盖**", async () => {
     const dir = await makeBook("星海拾梦");
     const item = await moveToRecycle(fs, root, { name: "星海拾梦", originalPath: dir, id: "id_1" });
