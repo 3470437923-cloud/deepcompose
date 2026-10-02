@@ -4,7 +4,9 @@
  * 三个授权根：projectRoot / skillsDir / booksRoot —— 根内及子目录**直读**，
  * 根外必须用户确认。判定用归一化路径，**I/O 保留调用方大小写**。
  *
- * 逐字文案：
+ * 确认机制（B-1）：由 exec.ts 的 guardWithConfirm 接线 —— ToolContext.confirmExternal
+ * 装配时，根外路径弹窗询问用户，批准后并入 allowedDirs（会话内持续生效）；
+ * 未装配（测试/预览替身）时根外一律拒绝，文案保持逐字前缀：
  *   `路径在项目/skill 目录外，需用户确认，但确认机制未启用: `
  */
 

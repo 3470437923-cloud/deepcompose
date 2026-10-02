@@ -223,6 +223,58 @@ describe("file_write", () => {
     ).toBe('{"error":"content is required for append operation"}');
     expect(await fs.exists(path.join(root, "章节内容", "坏null.md"))).toBe(false);
   });
+
+  it("replace：多行 old_text 用 LF 也能命中 CRLF 原文（回归锁：读回路归一化导致必炸）", async () => {
+    // file_read 分页结果统一以 '\n' 连接，模型拿它构造多行 old_text 时与 CRLF 原文对不上
+    await fsp.writeFile(path.join(root, "章节内容", "第6章.md"), "第一段\r\n第二段\r\n第三段\r\n", "utf8");
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_write", {
+        operation: "replace",
+        path: "章节内容/第6章.md",
+        old_text: "第一段\n第二段",
+        new_text: "改一\n改二",
+      }),
+    );
+    expect(r.success).toBe(true);
+    // 替换文本统一为文件主导 EOL：不得在 CRLF 文件里掺入 LF 行
+    expect(await fsp.readFile(path.join(root, "章节内容", "第6章.md"), "utf8")).toBe("改一\r\n改二\r\n第三段\r\n");
+  });
+
+  it("delete_lines：CRLF/LF 混用文件未触碰的行逐字节不变（回归锁：曾被单一 EOL 重拼归一）", async () => {
+    await fsp.writeFile(path.join(root, "章节内容", "第7章.md"), "一\r\n二\n三\r\n四\n", "utf8");
+    await executeTool(ctx(), "file_write", {
+      operation: "delete_lines",
+      path: "章节内容/第7章.md",
+      start_line: 2,
+      end_line: 2,
+    });
+    // 删第二行（LF 行），其余行的原始 EOL（含混合）必须逐字节保留
+    expect(await fsp.readFile(path.join(root, "章节内容", "第7章.md"), "utf8")).toBe("一\r\n三\r\n四\n");
+  });
+
+  it("insert：start 不再造出 \\n\\r\\n 交界（回归锁：曾凭空多出空行）", async () => {
+    await fsp.writeFile(path.join(root, "章节内容", "第8章.md"), "原首行\r\n次行\r\n", "utf8");
+    await executeTool(ctx(), "file_write", {
+      operation: "insert",
+      path: "章节内容/第8章.md",
+      position: "start",
+      new_text: "新首行\n",
+    });
+    // 插入文本归一化为文件主导 EOL（CRLF），交界处不得出现 \n\r\n
+    expect(await fsp.readFile(path.join(root, "章节内容", "第8章.md"), "utf8")).toBe("新首行\r\n原首行\r\n次行\r\n");
+  });
+
+  it("search：单个非 UTF-8 文件不拖垮整次搜索，并计入 files_skipped", async () => {
+    // GBK 编码的旧稿：nodeFs.readText 按 UTF-8 解码会抛（与 Rust read_to_string 同口径）
+    await fsp.writeFile(path.join(root, "小说资料", "旧稿.md"), Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0x0a]));
+    const r = JSON.parse(
+      await executeTool(ctx(), "file_manage", { operation: "search", path: ".", search_text: "世界观" }),
+    );
+    expect(r.success).toBe(true);
+    expect(r.files_found).toBeGreaterThan(0);
+    expect(r.files_skipped).toBeGreaterThanOrEqual(1);
+    await fsp.rm(path.join(root, "小说资料", "旧稿.md"));
+  });
 });
 
 describe("file_manage", () => {

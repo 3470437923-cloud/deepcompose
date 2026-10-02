@@ -163,7 +163,10 @@ describe("maybeCompress", () => {
 
   it("同一会话缓存复用：第二次不再发摘要请求", async () => {
     __clearCompressCache();
-    const big = Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "user", "字".repeat(3000)));
+    // 真实形态：user/assistant 交替的小消息 —— 总量超预算，但摘要块 + 尾巴仍在预算内
+    const big = Array.from({ length: 40 }, (_, i) =>
+      msg(`m${i}`, i % 2 === 0 ? "user" : "assistant", "字".repeat(300)),
+    );
     let calls = 0;
     const counting: StreamTransport = {
       async stream(req, handlers) {
@@ -183,11 +186,49 @@ describe("maybeCompress", () => {
     const first = await maybeCompress(opts);
     expect(first).not.toBeNull();
     expect(calls).toBe(1);
-    // 第二次：命中会话级缓存（upToId 仍在序列里），传输层零调用、块逐字复用
+    // 第二次：命中会话级缓存（upToId 仍在序列里且检查点+尾巴仍在预算内），
+    // 传输层零调用、块逐字复用
     const second = await maybeCompress(opts);
     expect(second).not.toBeNull();
     expect(calls).toBe(1);
     expect(second!.block).toBe(first!.block);
+  });
+
+  it("缓存命中但尾巴再次超预算 → 推进检查点（回归锁：旧实现短路后请求体无限膨胀）", async () => {
+    __clearCompressCache();
+    const big = Array.from({ length: 8 }, (_, i) =>
+      msg(`m${i}`, i % 2 === 0 ? "user" : "assistant", "字".repeat(3000)),
+    );
+    let calls = 0;
+    const counting: StreamTransport = {
+      async stream(req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"摘要"}}]}');
+        handlers.onLine("data: [DONE]");
+      },
+    };
+    const opts = {
+      cfg,
+      transport: counting as StreamTransport,
+      messages: big,
+      contextLimit: 10_000,
+      reservedOutputTokens: 1_000,
+      sessionId: "s5",
+    };
+    const first = await maybeCompress(opts);
+    expect(first).not.toBeNull();
+    expect(calls).toBe(1);
+    // 会话继续增长：追加大量新消息，让「旧检查点 + 尾巴」再次超出预算
+    const grown = [...big, ...Array.from({ length: 6 }, (_, i) => msg(`n${i}`, "assistant", "长".repeat(3000)))];
+    const second = await maybeCompress({ ...opts, messages: grown });
+    expect(second).not.toBeNull();
+    // 必须重跑摘要推进检查点，而不是复用旧检查点 + 无限变长的尾巴
+    expect(calls).toBe(2);
+    // 新请求序列的头条仍是检查点，且其后的保留段不含被压掉的旧消息
+    expect(second!.requestMessages[0].id.startsWith(CHECKPOINT_PREFIX)).toBe(true);
+    expect(second!.requestMessages.some((m) => m.id === "m0")).toBe(false);
+    // 最新消息绝不丢
+    expect(second!.requestMessages[second!.requestMessages.length - 1].id).toBe("n5");
   });
 
   it("旧检查点存在 → 摘要请求附 §6.3 合并规则", async () => {

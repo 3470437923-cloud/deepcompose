@@ -30,7 +30,13 @@ export type ProviderPlatform = "deepseek" | "siliconflow" | "custom";
 /** 思考强度：底层只有 low / high / max 三档真语义（别名映射见 docs/DECISIONS.md 附录 A §2） */
 export type ReasoningEffort = "low" | "high" | "max";
 
-/** 思考内容回传策略：auto = 按平台 + 是否带工具自动决定（官方规则见附录 A §5） */
+/**
+ * 思考内容回传策略（**仅兼容保留，引擎不读**，D-012 B5 实测后裁决）：
+ * 本软件一律不回传历史 reasoning_content —— 官方不强求（带 tools 缺省回传实测 200），
+ * 不回传更省 token 且不改写历史前缀（前缀缓存按完整匹配命中）。
+ * 字段仅为旧配置的 round-trip 不丢数据而保留；auto 的旧语义（按平台 + 是否带工具
+ * 自动决定）已作废。
+ */
 export type ReasoningReplay = "auto" | "always" | "never";
 
 /**
@@ -53,7 +59,7 @@ export interface Provider {
   thinking?: boolean;
   /** 思考强度档位（D-010：关闭 / 低 / 高 / 最高） */
   reasoningEffort?: ReasoningEffort;
-  /** 回传策略覆盖（D-012 默认 auto = 按平台与是否带工具自动决定） */
+  /** 回传策略覆盖（**仅兼容保留，引擎不读**：D-012 B5 实测裁决一律不回传，字段只为 round-trip） */
   reasoningReplay?: ReasoningReplay;
   /** 自定义端点显式声明「支持 thinking 参数」（内置预设不需要，D-007） */
   supportsThinking?: boolean;

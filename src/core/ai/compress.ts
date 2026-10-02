@@ -245,26 +245,43 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
   const total = estimateMessageTokens(opts.messages);
   if (total <= budget) return null;
 
-  // 缓存命中：upToId 仍在消息序列里 → 直接复用摘要块，不再发摘要请求。
-  // 请求序列 = [检查点块] + upToId 之后的全部消息（最新消息必然保留）
+  // 压缩的源序列：默认是完整会话；缓存命中时是「旧检查点 + upToId 之后的尾巴」
+  let source = opts.messages;
+  let cachedBlock: string | null = null;
+
+  // 缓存命中：upToId 仍在消息序列里 → 先复用摘要块构造「检查点 + 尾巴」。
+  // 关键：命中不能无条件短路 —— 会话消息只增不减，尾巴会持续变长，
+  // 若它已再次超出预算，必须以「旧检查点 + 尾巴」为源重跑切分、推进检查点，
+  // 否则首轮压缩之后请求体重新无限膨胀（旧实现在此短路）。
+
   const cached = cache.get(opts.sessionId);
-  if (cached && opts.messages.some((m) => m.id === cached.upToId)) {
-    touchCache(opts.sessionId); // 命中即"最近用过"，别被 LRU 先淘汰
+  if (cached) {
     const idx = opts.messages.findIndex((m) => m.id === cached.upToId);
-    const checkpoint: ChatMessage = {
-      id: CHECKPOINT_PREFIX + opts.sessionId,
-      role: "user",
-      text: cached.block,
-      createdAt: isoMicros(),
-    };
-    return {
-      requestMessages: [checkpoint, ...opts.messages.slice(idx + 1)],
-      block: cached.block,
-    };
+    if (idx >= 0) {
+      touchCache(opts.sessionId); // 命中即"最近用过"，别被 LRU 先淘汰
+      const checkpoint: ChatMessage = {
+        id: CHECKPOINT_PREFIX + opts.sessionId,
+        role: "user",
+        text: cached.block,
+        createdAt: isoMicros(),
+      };
+      const tail = opts.messages.slice(idx + 1);
+      if (estimateMessageTokens([checkpoint, ...tail]) <= budget) {
+        // 尾巴仍在预算内：直接复用，不再发摘要请求
+        return { requestMessages: [checkpoint, ...tail], block: cached.block };
+      }
+      // 尾巴再次超限：以该序列为源继续压缩（旧检查点走合并规则进新摘要）
+      source = [checkpoint, ...tail];
+      cachedBlock = cached.block;
+    }
   }
 
-  const split = splitMessages(opts.messages, budget);
-  if (!split || split.compress.length === 0) return null;
+  const split = splitMessages(source, budget);
+  if (!split || split.compress.length === 0) {
+    // 拆不动时，缓存命中至少按「旧检查点 + 尾巴」发送（回退完整上下文只会更超预算）
+    if (cachedBlock !== null) return { requestMessages: source, block: cachedBlock };
+    return null;
+  }
 
   const transcript = transcriptOf(split.compress);
   // 旧检查点合并规则：压缩段开头已是检查点时附上
@@ -282,8 +299,11 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
     return null;
   }
 
-  // 压缩区间内的用户原话逐字保留（写作要求/承诺不因摘要失真）
-  const verbatim = split.compress.filter((m) => m.role === "user").map((m) => m.text ?? "");
+  // 压缩区间内的用户原话逐字保留（写作要求/承诺不因摘要失真）；
+  // 旧检查点是 user 角色的伪消息，不能当"用户原话"再逐字保留一遍（会把旧摘要整份复制进块里）
+  const verbatim = split.compress
+    .filter((m) => m.role === "user" && !m.id.startsWith(CHECKPOINT_PREFIX))
+    .map((m) => m.text ?? "");
   const block = assembleBlock(summary, verbatim);
   const upTo = split.compress[split.compress.length - 1];
   putCache(opts.sessionId, { upToId: upTo.id, block });
@@ -296,7 +316,7 @@ export async function maybeCompress(opts: CompressOptions): Promise<CompressResu
     createdAt: isoMicros(),
   };
   return {
-    requestMessages: [checkpoint, ...opts.messages.slice(split.compress.length)],
+    requestMessages: [checkpoint, ...split.keep],
     block,
   };
 }
