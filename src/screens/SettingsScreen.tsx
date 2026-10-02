@@ -19,6 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useMaximized } from "../ui/useMaximized";
+import { useDialogFocus } from "../ui/useDialogFocus";
 import logo from "../assets/logo.png";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
@@ -81,6 +82,70 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * 数字输入（N-20 / B-5）：本地持有原始文本，"0."、"1."、结尾 "-" 这类输入
+ * 中间态不被当场 clamp 吞掉（受控 value 立即回写会把小数点顶掉，用户再敲
+ * 数字就落到错误基数上）。文本一旦构成完整数字就**即时提交**（防抖自动保存
+ * 依赖「变更即时生效」，不能等失焦）；失焦时强制归一（clamp + 回显合法值，
+ * 空/非法回退当前值）。B-5：min/max 同时作为提交钳制与 spinner 边界，
+ * 所有数字字段从此都有上界。
+ *
+ * unit：显示值 = 真实值 / unit，提交值 = 数字 × unit（K 单位字段用 1000）。
+ * round：false 允许小数（温度）；true 四舍五入（其余字段均为整数语义）。
+ */
+function NumInput({
+  value,
+  min,
+  max,
+  step,
+  unit = 1,
+  round = true,
+  className = "a-form-input a-num",
+  onCommit,
+  ariaLabel,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  unit?: number;
+  round?: boolean;
+  className?: string;
+  onCommit: (n: number) => void;
+  ariaLabel?: string;
+}) {
+  // null = 跟随 value 回显；非 null = 用户正在输入（本地文本优先）
+  const [text, setText] = useState<string | null>(null);
+  const shown = text ?? String(value / unit);
+  const commit = (raw: string) => {
+    const v = numGuard(raw);
+    if (v === null) return;
+    onCommit(clamp(round ? Math.round(v) : v, min, max) * unit);
+  };
+  return (
+    <input
+      className={className}
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      aria-label={ariaLabel}
+      value={shown}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setText(raw);
+        // 中间态不提交：空串（number 输入的 badInput 也回 ""）、结尾小数点、孤立负号
+        if (raw === "" || raw.endsWith(".") || raw === "-") return;
+        commit(raw);
+      }}
+      onBlur={() => {
+        if (text !== null && text !== "") commit(text);
+        setText(null);
+      }}
+    />
+  );
+}
+
 interface Props {
   onBack: () => void;
 }
@@ -102,39 +167,12 @@ export default function SettingsScreen({ onBack }: Props) {
   const [flash, setFlash] = useState(""); // 各分页的操作即时反馈（不落盘）
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const win = getCurrentWindow();
-  // 必须在 `if (!boot)` 提前返回**之前**调用（hooks 规则）
   const maxed = useMaximized();
 
-  // 兜底：boot 失败时显示「配置未加载」。
-  // 注意根元素必须与下方正常路径一致（.win#screenA）——.win 是 .app-shell 的 flex
-  // 子项（flex:1），中间多一层无样式的包装 div 会让它高度塌成内容高度。
-  // 该分支目前不可达：boot 失败时 MainWorkbench 会渲染自己的「启动失败」屏且不暴露齿轮入口。
-  if (!boot) {
-    return (
-      <div className="win" id="screenA">
-        <div
-          className="titlebar"
-          onMouseDown={(e) => {
-            // 标题栏空白处按住拖动（tbtn 按钮除外）；Tauri 的 drag-region 属性在本构建未生效，改用显式 API
-            if (e.button !== 0) return;
-            const el = e.target as HTMLElement;
-            if (el.closest("button")) return;
-            void win.startDragging();
-          }}
-          onDoubleClick={(e) => {
-            if ((e.target as HTMLElement).closest("button")) return;
-            void win.toggleMaximize();
-          }}
-        >
-          <div className="brand">
-            <div className="brand-mark app-mark"><img src={logo} alt="" /></div>
-            <div className="brand-name">DeepCompose</div>
-          </div>
-        </div>
-        <div style={{ padding: 40, color: "var(--tx-3)" }}>配置未加载，请重启应用。</div>
-      </div>
-    );
-  }
+  // C-6：原先这里有 `if (!boot)` 的「配置未加载」兜底屏，但该分支按其自身注释
+  // 即不可达 —— boot 失败时 MainWorkbench 渲染自己的「启动失败」屏且不暴露齿轮
+  // 入口，设置屏永远拿得到装配结果。死分支已删；`boot?.prefs` 在 form 初始化处
+  // 本就是 null 安全的，各分节对 dirs 也都有 `boot?.dirs` 判空。
 
   /* ── 自动保存（修复"API 设置疑似不自动保存 / 有时保存错误"）──
      纪律：update/patch 只标脏，落盘走唯一出口 doSave(formRef.current) ——
@@ -152,6 +190,9 @@ export default function SettingsScreen({ onBack }: Props) {
 
   /** 唯一落盘出口：immediate=true 为手动「保存」/Ctrl+S，否则为防抖自动保存 */
   const doSave = useCallback(async (immediate: boolean) => {
+    // N-22 附带护栏：boot 未装配（正常流程到不了这里）时不落盘 ——
+    // form 会是 `{} as Prefs` 的残缺表单，写出去等于把真实配置清成默认值
+    if (!currentBoot()) return;
     setSaving(true);
     try {
       await savePrefs(formRef.current);
@@ -194,6 +235,44 @@ export default function SettingsScreen({ onBack }: Props) {
     setForm((prev) => ({ ...prev, ...p }));
     setDirty(true);
     setSaveMsg("");
+  }, []);
+
+  /**
+   * 连接检测拉到清单后的「首次便利选择」：当前确实未选模型时才填第一个。
+   * 必须走函数式更新读最新 form —— 检测请求在途时用户可能已手选模型，
+   * detect 的闭包里那份旧 form 拿来做判空会把手选值覆盖掉（N-24）。
+   */
+  const ensureModel = useCallback((m: string) => {
+    if (formRef.current.model?.trim()) return;
+    setForm((prev) => (prev.model?.trim() ? prev : { ...prev, model: m }));
+    dirtyRef.current = true; // 立即置位：防抖/卸载兜底读的都是 dirtyRef
+    setDirty(true);
+    setSaveMsg("");
+  }, []);
+
+  /**
+   * Skill 开关（C-2）：走统一管道 —— 改 form、立即落盘**同步算好的最新表单**。
+   * 开关是有"即时生效"预期的操作，不等 900ms 防抖；这里直接以 formRef 为源
+   * 计算下一份表单并同步写回 formRef（不能等下一轮渲染，否则紧随其后的落盘
+   * 会拿到旧值）。失败则重新置脏，交给防抖管道重试。
+   */
+  const toggleSkill = useCallback(async (id: string) => {
+    const cur = formRef.current.activeSkillIds ?? [];
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id];
+    const nextForm: Prefs = { ...formRef.current, activeSkillIds: next };
+    formRef.current = nextForm;
+    setForm(nextForm);
+    setSaveMsg("");
+    try {
+      await savePrefs(nextForm);
+      dirtyRef.current = false;
+      setDirty(false);
+      setFlash("");
+    } catch (e) {
+      dirtyRef.current = true;
+      setDirty(true);
+      setFlash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
+    }
   }, []);
 
   const handleSave = async () => {
@@ -252,17 +331,21 @@ export default function SettingsScreen({ onBack }: Props) {
     setSaveMsg("");
   };
 
-  // Ctrl+S 保存（既有实现参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）
+  // Ctrl+S 保存（既有实现参数页口径：参数保存后立即生效，也可以按 Ctrl+S 保存）。
+  // preventDefault 只在确有「保存」动作的分页执行：Skill/数据/关于三页没有保存语义，
+  // 无条件吞掉会让 Ctrl+S 在那里"静默失灵"（C-5）。依赖数组补齐，不再每渲染重挂监听。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        if (section === "provider" || section === "params" || section === "theme") void handleSave();
+        if (section === "provider" || section === "params" || section === "theme") {
+          e.preventDefault();
+          void doSave(true);
+        }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  });
+  }, [section, doSave]);
 
   const askConfirm = useCallback(
     (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) =>
@@ -431,18 +514,14 @@ export default function SettingsScreen({ onBack }: Props) {
                 update={update}
                 patch={patch}
                 askConfirm={askConfirm}
+                ensureModel={ensureModel}
                 saving={saving}
                 saveMsg={saveMsg}
                 onSave={handleSave}
               />
             )}
             {section === "skill" && (
-              <SkillSection
-                form={form}
-                flash={flash}
-                onFlash={setFlash}
-                onActiveChange={(ids) => setForm((p) => ({ ...p, activeSkillIds: ids }))}
-              />
+              <SkillSection form={form} flash={flash} onToggle={(id) => void toggleSkill(id)} />
             )}
             {section === "params" && (
               <ParamsSection form={form} update={update} saving={saving} saveMsg={saveMsg} onSave={handleSave} />
@@ -452,7 +531,6 @@ export default function SettingsScreen({ onBack }: Props) {
                 form={form}
                 update={update}
                 flash={flash}
-                onFlash={setFlash}
                 onThemeMode={applyThemeMode}
                 onAccent={applyAccent}
                 saving={saving}
@@ -495,6 +573,7 @@ function ProviderSection({
   update,
   patch,
   askConfirm,
+  ensureModel,
   saving,
   saveMsg,
   onSave,
@@ -503,6 +582,8 @@ function ProviderSection({
   update: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
   patch: (p: Partial<Prefs>) => void;
   askConfirm: (title: string, body?: string, opts?: { danger?: boolean; confirmLabel?: string }) => Promise<boolean>;
+  /** 检测拉到清单后的首次便利选择（函数式判空，见父级注释） */
+  ensureModel: (m: string) => void;
   saving: boolean;
   saveMsg: string;
   onSave: () => void;
@@ -525,6 +606,12 @@ function ProviderSection({
   const [notice, setNotice] = useState<PlatformNotice | null>(null);
   const [pendingPlatform, setPendingPlatform] = useState<ProviderPlatform | null>(null);
   const [dontAskAgain, setDontAskAgain] = useState(false);
+  /** 连接检测的请求序号：只认最新一次，旧响应迟到即丢弃 */
+  const detectSeq = useRef(0);
+  // N-25：确认弹窗形态的平台提示要接管焦点（移入 + Tab 循环 + 关闭归还），
+  // 否则焦点还留在触发按钮上，Tab 会走进遮罩背后的表单
+  const noticePanelRef = useRef<HTMLDivElement | null>(null);
+  useDialogFocus(notice?.kind === "dialog", noticePanelRef);
 
   // 提示生命周期：气泡 2.5–3s 自动消失（D-022）；确认弹窗等用户选择，Esc 视为"保留当前选择"
   useEffect(() => {
@@ -534,7 +621,8 @@ function ProviderSection({
       return () => clearTimeout(t);
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closeNotice();
+      // isComposing：输入法组词的 Esc 不算"取消"（与 Dialogs 同口径）
+      if (e.key === "Escape" && !e.isComposing) closeNotice();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -548,27 +636,36 @@ function ProviderSection({
       setConnMsg("请先填写接口地址与 API Key");
       return;
     }
+    // 请求序号（N-24）：慢的旧响应迟到时不许覆盖新状态与手选模型
+    const seq = ++detectSeq.current;
     setConn("testing");
     setConnMsg("");
     try {
       const list = await fetchModels(form.llmBaseUrl.trim(), form.apiKey.trim(), form.useAnthropicFormat);
+      if (seq !== detectSeq.current) return;
       setModels(list);
       setConn(list.length > 0 ? "ok" : "error");
       setConnMsg(list.length > 0 ? `连接正常，获取到 ${list.length} 个模型` : "连接正常，但端点未返回模型清单");
-      // 首次配置便利：当前未选模型时自动选第一个
-      if (list.length > 0 && !form.model?.trim()) update("model", list[0]);
+      // 首次配置便利：当前未选模型时自动选第一个（函数式判空，见 ensureModel 注释）
+      if (list.length > 0) ensureModel(list[0]);
     } catch (e) {
+      if (seq !== detectSeq.current) return;
       setConn("error");
       setConnMsg(String(e instanceof Error ? e.message : e));
     }
   };
 
-  // 端点信息变化时重置检测结果；两者齐全时自动检测一次
+  // 端点信息变化时重置检测结果；两者齐全时自动检测一次。
+  // C-1 收口：自动检测只对「未动过的 Key」放行 —— 键入中的半截 Key 不发往上游
+  //（手动「检测连接」不受限）。stableKey 在挂载时定格，Key 的任何变化都视为
+  // "正在编辑/刚换过"，之后由用户显式点检测；地址/协议变化仍自动复检（那才是
+  // 这条自动路径的本意：换了端点提醒你确认连通性）。
+  const stableKeyRef = useRef(form.apiKey);
   useEffect(() => {
     setConn("idle");
     setConnMsg("");
     setModels([]);
-    if (form.llmBaseUrl?.trim() && form.apiKey?.trim()) {
+    if (form.apiKey === stableKeyRef.current && form.llmBaseUrl?.trim() && form.apiKey?.trim()) {
       const t = setTimeout(() => void detect(), 600);
       return () => clearTimeout(t);
     }
@@ -784,25 +881,18 @@ function ProviderSection({
         <div className="a-form-row a-form-row-inline">
           <div className="a-form-col">
             <label className="a-form-label">温度</label>
-            <input
-              className="a-form-input"
-              type="number"
+            {/* 旧实现 `parseFloat(v) || 0.8`：输入 0 或清空都会被弹回 0.8。
+                NumInput：空串/非法中间态不提交；越界值**当场**夹回 [0,2] —— 只等
+                onBlur 夹取的话，900ms 防抖自动保存会抢先把非法温度落盘（之后每次
+                生成请求都带非法 temperature，全部报错）。 */}
+            <NumInput
+              value={form.temperature}
               min={0}
               max={2}
               step={0.1}
-              value={form.temperature}
-              /* 旧实现 `parseFloat(v) || 0.8`：输入 0 或清空都会被弹回 0.8。
-                 这里忽略空串/非法中间态；越界值**当场**夹回 [0,2] —— 只等 onBlur
-                 夹取的话，900ms 防抖自动保存会抢先把非法温度落盘（之后每次
-                 生成请求都带非法 temperature，全部报错）。 */
-              onChange={(e) => {
-                const v = numGuard(e.target.value);
-                if (v !== null) update("temperature", clamp(v, 0, 2));
-              }}
-              onBlur={(e) => {
-                const v = numGuard(e.target.value);
-                update("temperature", v === null ? clamp(form.temperature, 0, 2) : clamp(v, 0, 2));
-              }}
+              round={false}
+              ariaLabel="温度"
+              onCommit={(n) => update("temperature", n)}
             />
             {platformSupportsThinking(current) ? (
               <div className="a-form-row-note">思考模式下温度不生效（官方规则）。</div>
@@ -926,7 +1016,14 @@ function ProviderSection({
             if (e.target === e.currentTarget) closeNotice();
           }}
         >
-          <div className="qbox surface-raised sheet" role="dialog" aria-modal="true" aria-labelledby="kc-platform-notice">
+          <div
+            ref={noticePanelRef}
+            className="qbox surface-raised sheet"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="kc-platform-notice"
+            tabIndex={-1}
+          >
             <h3 id="kc-platform-notice">换成第三方 API？</h3>
             <p className="confirm-body">{notice.text}</p>
             <label className="a-check-row">
@@ -952,14 +1049,12 @@ function ProviderSection({
 function SkillSection({
   form,
   flash,
-  onFlash,
-  onActiveChange,
+  onToggle,
 }: {
   form: Prefs;
   flash: string;
-  onFlash: (s: string) => void;
-  /** 开关变化同步回父级 form —— 否则之后任何一次 savePrefs(form) 会把开关状态回滚 */
-  onActiveChange: (ids: string[]) => void;
+  /** 开关切换：父级统一管道（改 form + 立即落盘最新表单，见 toggleSkill 注释） */
+  onToggle: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [onlyOn, setOnlyOn] = useState(false);
@@ -980,56 +1075,11 @@ function SkillSection({
   const custom = skills.filter((s) => !s.isBuiltIn && match(s));
   const onCount = skills.filter((s) => active.includes(s.id)).length;
 
-  const toggle = async (id: string) => {
-    const next = active.includes(id) ? active.filter((x) => x !== id) : [...active, id];
-    setActive(next);
-    onActiveChange(next);
-    try {
-      await savePrefs({ ...form, activeSkillIds: next });
-      onFlash("");
-    } catch (e) {
-      onFlash(`保存失败：${e instanceof Error ? e.message : String(e)}`);
-    }
+  // 开关：本地即时回显 + 父级统一管道（C-2：不再自走 savePrefs 绕过 dirty/save）
+  const toggle = (id: string) => {
+    setActive((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    onToggle(id);
   };
-
-  const Row = ({ s }: { s: Prefs["skillList"][number] }) => {
-    const on = active.includes(s.id);
-    return (
-      <div className="a-skill-row">
-        <div className="a-skill-ava">{s.name.slice(0, 1).toUpperCase()}</div>
-        <div className="a-skill-main">
-          <div className="a-skill-name">{s.name}</div>
-          <div className="a-skill-desc">{s.description || "（无描述）"}</div>
-        </div>
-        <button
-          className={on ? "a-switch on" : "a-switch"}
-          title={on ? "点击停用" : "点击启用"}
-          onClick={() => void toggle(s.id)}
-        >
-          <i />
-        </button>
-      </div>
-    );
-  };
-
-  const GroupHead = ({ label, n, which }: { label: string; n: number; which: "builtin" | "custom" }) => (
-    <div className="a-group-head" onClick={() => setCollapsed((c) => ({ ...c, [which]: !c[which] }))}>
-      <span>
-        {label} <em>{n}</em>
-      </span>
-      <svg
-        viewBox="0 0 12 12"
-        className={collapsed[which] ? "caret" : "caret open"}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M3 4.5L6 7.5l3-3" />
-      </svg>
-    </div>
-  );
 
   return (
     <div className="a-settings-panel">
@@ -1057,14 +1107,28 @@ function SkillSection({
 
       {builtin.length > 0 ? (
         <>
-          <GroupHead label="内置" n={builtin.length} which="builtin" />
-          {!collapsed.builtin && builtin.map((s) => <Row key={s.id} s={s} />)}
+          <SkillGroupHead
+            label="内置"
+            n={builtin.length}
+            collapsed={collapsed.builtin}
+            onToggle={() => setCollapsed((c) => ({ ...c, builtin: !c.builtin }))}
+          />
+          {!collapsed.builtin && builtin.map((s) => (
+            <SkillRow key={s.id} s={s} on={active.includes(s.id)} onToggle={toggle} />
+          ))}
         </>
       ) : null}
       {custom.length > 0 ? (
         <>
-          <GroupHead label="自定义" n={custom.length} which="custom" />
-          {!collapsed.custom && custom.map((s) => <Row key={s.id} s={s} />)}
+          <SkillGroupHead
+            label="自定义"
+            n={custom.length}
+            collapsed={collapsed.custom}
+            onToggle={() => setCollapsed((c) => ({ ...c, custom: !c.custom }))}
+          />
+          {!collapsed.custom && custom.map((s) => (
+            <SkillRow key={s.id} s={s} on={active.includes(s.id)} onToggle={toggle} />
+          ))}
         </>
       ) : null}
       {skills.length === 0 ? (
@@ -1072,6 +1136,70 @@ function SkillSection({
           技能清单为空。内置技能位于 Documents\skills\，首次扫描后将出现在这里。
         </div>
       ) : null}
+    </div>
+  );
+}
+
+/* C-3：Row / GroupHead 提为模块级组件 —— 原先定义在 SkillSection 体内，
+   每次渲染都是新的组件身份，搜索框每敲一个字整组技能行 unmount/remount
+   （本地 state 丢失 + 全量 DOM 重建）。 */
+
+/** 单条技能行：头像 + 名称/描述 + 启用开关 */
+function SkillRow({
+  s,
+  on,
+  onToggle,
+}: {
+  s: Prefs["skillList"][number];
+  on: boolean;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="a-skill-row">
+      <div className="a-skill-ava">{s.name.slice(0, 1).toUpperCase()}</div>
+      <div className="a-skill-main">
+        <div className="a-skill-name">{s.name}</div>
+        <div className="a-skill-desc">{s.description || "（无描述）"}</div>
+      </div>
+      <button
+        className={on ? "a-switch on" : "a-switch"}
+        title={on ? "点击停用" : "点击启用"}
+        onClick={() => onToggle(s.id)}
+      >
+        <i />
+      </button>
+    </div>
+  );
+}
+
+/** 分组头：标题 + 计数 + 折叠开关 */
+function SkillGroupHead({
+  label,
+  n,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  n: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="a-group-head" onClick={onToggle}>
+      <span>
+        {label} <em>{n}</em>
+      </span>
+      <svg
+        viewBox="0 0 12 12"
+        className={collapsed ? "caret" : "caret open"}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M3 4.5L6 7.5l3-3" />
+      </svg>
     </div>
   );
 }
@@ -1151,19 +1279,13 @@ function ParamsSection({
               <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
             </svg>
           </span>
-          <input
-            className="a-form-input a-num"
-            type="number"
+          <NumInput
+            value={form.contextLimit}
             min={1}
-            value={Math.round(form.contextLimit / 1000)}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              if (v !== null) update("contextLimit", Math.max(1, Math.round(v)) * 1000);
-            }}
-            onBlur={(e) => {
-              const v = numGuard(e.target.value);
-              update("contextLimit", (v === null ? Math.round(form.contextLimit / 1000) : Math.max(1, Math.round(v))) * 1000);
-            }}
+            max={4096}
+            unit={1000}
+            ariaLabel="上下文窗口（K）"
+            onCommit={(n) => update("contextLimit", n)}
           />
         </div>
         <div className="a-card-row">
@@ -1175,19 +1297,13 @@ function ParamsSection({
               <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
             </svg>
           </span>
-          <input
-            className="a-form-input a-num"
-            type="number"
+          <NumInput
+            value={form.reservedOutputTokens}
             min={1}
-            value={Math.round(form.reservedOutputTokens / 1000)}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              if (v !== null) update("reservedOutputTokens", Math.max(1, Math.round(v)) * 1000);
-            }}
-            onBlur={(e) => {
-              const v = numGuard(e.target.value);
-              update("reservedOutputTokens", (v === null ? Math.round(form.reservedOutputTokens / 1000) : Math.max(1, Math.round(v))) * 1000);
-            }}
+            max={384}
+            unit={1000}
+            ariaLabel="输出预留（K）"
+            onCommit={(n) => update("reservedOutputTokens", n)}
           />
         </div>
       </div>
@@ -1205,39 +1321,24 @@ function ParamsSection({
               <path d="M7.9 7.8a2.1 2.1 0 1 1 2.9 1.95c-.55.24-.8.6-.8 1.2" />
             </svg>
           </span>
-          <input
-            className="a-form-input a-num"
-            type="number"
+          <NumInput
+            value={form.maxOutputTokens}
             min={1}
+            // 上限 384K = DeepSeek 官方最大输出（DECISIONS D-024），原值 200K 会挡住用户用满
             max={384}
-            value={Math.round(form.maxOutputTokens / 1000)}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              // 上限 384K = DeepSeek 官方最大输出（DECISIONS D-024），原值 200K 会挡住用户用满
-              if (v !== null) update("maxOutputTokens", clamp(Math.round(v), 1, 384) * 1000);
-            }}
-            onBlur={(e) => {
-              const v = numGuard(e.target.value);
-              update("maxOutputTokens", clamp(v === null ? Math.round(form.maxOutputTokens / 1000) : Math.round(v), 1, 384) * 1000);
-            }}
+            unit={1000}
+            ariaLabel="一次回复上限（K）"
+            onCommit={(n) => update("maxOutputTokens", n)}
           />
         </div>
         <div className="a-card-row">
           <span>工具调用轮次上限</span>
-          <input
-            className="a-form-input a-num"
-            type="number"
+          <NumInput
+            value={form.toolRoundLimit}
             min={1}
             max={50}
-            value={form.toolRoundLimit}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              if (v !== null) update("toolRoundLimit", clamp(Math.round(v), 1, 50));
-            }}
-            onBlur={(e) => {
-              const v = numGuard(e.target.value);
-              update("toolRoundLimit", clamp(v === null ? form.toolRoundLimit : Math.round(v), 1, 50));
-            }}
+            ariaLabel="工具调用轮次上限"
+            onCommit={(n) => update("toolRoundLimit", n)}
           />
         </div>
       </div>
@@ -1260,7 +1361,6 @@ function ThemeSection({
   form,
   update,
   flash,
-  onFlash,
   onThemeMode,
   onAccent,
   saving,
@@ -1270,7 +1370,6 @@ function ThemeSection({
   form: Prefs;
   update: <K extends keyof Prefs>(key: K, value: Prefs[K]) => void;
   flash: string;
-  onFlash: (s: string) => void;
   onThemeMode: (mode: ThemeMode) => void;
   onAccent: (argb: number) => void;
   saving: boolean;
@@ -1353,32 +1452,24 @@ function ThemeSection({
             主界面 --chat-fs/--editor-fs 变 0，聊天区与编辑器文字全部消失。 */}
         <div className="a-card-row">
           <span>对话字号</span>
-          <input
-            className="field a-num"
-            type="number"
+          <NumInput
+            value={form.chatFontSize}
             min={11}
             max={24}
-            step={1}
-            value={Math.round(form.chatFontSize)}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              if (v !== null) update("chatFontSize", clamp(Math.round(v), 11, 24));
-            }}
+            className="field a-num"
+            ariaLabel="对话字号"
+            onCommit={(n) => update("chatFontSize", n)}
           />
         </div>
         <div className="a-card-row">
           <span>编辑器字号</span>
-          <input
-            className="field a-num"
-            type="number"
+          <NumInput
+            value={form.editorFontSize}
             min={11}
             max={28}
-            step={1}
-            value={Math.round(form.editorFontSize)}
-            onChange={(e) => {
-              const v = numGuard(e.target.value);
-              if (v !== null) update("editorFontSize", clamp(Math.round(v), 11, 28));
-            }}
+            className="field a-num"
+            ariaLabel="编辑器字号"
+            onCommit={(n) => update("editorFontSize", n)}
           />
         </div>
         <div className="a-form-actions">
