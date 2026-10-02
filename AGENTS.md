@@ -47,7 +47,8 @@ src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进
 src-tauri/src/      sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何)
 tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
-                    审计类：_a11y_check / _contrast_audit / _style_audit / _css_coverage（退出码统一 0 通过 / 1 有问题 / 2 判不了）
+                    审计类：_a11y_check / _contrast_audit / _style_audit / _css_coverage
+                    （退出码统一：0 通过 / 1 有问题 / 2 **判不了**——含基线丢失、媒体态无法建立、一条都没量到）
                     真机类：_shot_flow.py(截图流程+CDP 公共库) · _compare_sheet.py · cdp_probe.py · uiwalk.ps1 · probe_window.ps1 · probe_win_style.ps1
                     **全量清单与用法见 docs/DEVELOPMENT.md §9**（新加脚本必须补进那一节）
 ```
@@ -62,7 +63,8 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 >
 > **B10（复盘与润色批）**：主界面首条发言崩溃修复（`newId` 未定义 → `uuid()`，乐观会话与落盘会话
 > 同 id）；思考档位浮层挂 `useDismiss` + 输入区按钮行允许换行（"思考 UI 堆叠"）；设置屏模型
-> datalist 换成自绘组合框（`ModelCombo` + `filterModelOptions`，回归锁 `tests/ai/models.test.ts`）；
+> datalist 换成自绘组合框（B11 起为**只能点选**的 `ModelSelect` + `filterModelOptions`，回归锁
+> `tests/ai/models.test.ts`；B10 那版叫 `ModelCombo` 且可手填，**现码中不存在** —— 见 KNOWN-LIMITS KL-UI-03/08）；
 > 设置屏全屏防抖自动保存（唯一落盘出口 `doSave(formRef.current)`，卸载兜底）；
 > 回收站常驻入口（侧栏底部 `.foot-recycle`，作品下拉里那份保留）；
 > 生成中禁止新建/切换会话（防跑完被 `setSession` 拽回旧会话）。
@@ -89,8 +91,11 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线：vitest **404 例**、cargo **19 例**、`tsc` 干净。已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
-本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`。
+当前基线（B12 批次8 实测）：vitest **456 例 / 34 文件**、cargo **19 例**、`tsc` 干净。
+基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
+已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
+本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`；
+B12 全量修复进度见 `docs/FIX-LEDGER-2026-10-02.md`。
 
 **真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。
 它只读本机 prefs 里的 Key（`%APPDATA%\com.writerd\writerD\shared_preferences.json`），**绝不打印 Key**
@@ -130,7 +135,7 @@ cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会�
 ## 6. 交付流程
 
 ```powershell
-npm.cmd run package     # vite build → cargo build --release → release\DeepCompose.exe → 桌面快捷方式 DeepCompose.lnk
+npm.cmd run package     # tsc --noEmit 类型闸门 → vite build → cargo build --release → release\DeepCompose.exe → 桌面快捷方式 DeepCompose.lnk
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1   # 真机截屏取证到 shots\
 ```
 

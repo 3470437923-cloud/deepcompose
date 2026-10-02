@@ -46,6 +46,9 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
 
+  // B12-8：`project` 也是依赖 —— 挂边态下 `open` 恒为 true，切换作品不会重跑本 effect，
+  // 于是列表还显示旧作品的条目，而"新建"已经按新作品作用域落库：看到的和写进的两回事。
+  const projectRoot = project?.ref.root ?? "";
   useEffect(() => {
     if (!open) return;
     const b = currentBoot();
@@ -54,7 +57,7 @@ export default function MemoModal({ open, onClose, project, onStatus, askText }:
       .then(setData)
       .catch((e) => onStatus(`备忘录读取失败：${String(e)}`));
     setEditing(null);
-  }, [open, onStatus]);
+  }, [open, projectRoot, onStatus]);
 
   // Esc 关闭（挂边态同样生效 —— 它不是"另一个页面"，只是同一块面板的另一种摆法）；
   // escStack：叠层时一次 Esc 只关最上层（N-17）

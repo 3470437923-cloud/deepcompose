@@ -78,6 +78,7 @@ if ($exePath) {
     Start-Sleep -Milliseconds 500
 }
 $proc = Start-Process $Exe -PassThru
+try {
 Start-Sleep -Seconds $WaitSec
 $proc.Refresh()
 if ($proc.HasExited) { Write-Output "FAIL exited: $($proc.ExitCode)"; exit 1 }
@@ -124,6 +125,9 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-# N-16: stop only the process we started (see note above)
-if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+} finally {
+    # N-16 + B12-8: stop only the process we started (see note above), and do it on
+    # the exception path too -- capture/COM/SendKeys failures used to leak the app.
+    if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+}
 Write-Output "CLOSED"

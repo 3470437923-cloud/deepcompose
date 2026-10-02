@@ -254,6 +254,11 @@ function abortedToolResult(): string {
   return JSON.stringify({ error: "已中止，工具未执行" });
 }
 
+/** 断流时给未执行工具调用回填的结果（B12-8：与中止路径同形态，措辞区分原因） */
+function streamErrorToolResult(): string {
+  return JSON.stringify({ error: "流中断，工具未执行" });
+}
+
 /**
  * 跑一轮对话（自动处理工具调用循环）。
  *
@@ -350,6 +355,12 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       // 断流前已收到的部分正文/思考保留入库（与中止路径同一纪律：
       // 网络中断不是丢弃已生成内容的理由；空回合不产生空消息）
       const partial = acc.message();
+      // B12-8（断流路径补回填）：本回合的 toolCalls 一个都没执行过 —— 必须像中止路径
+      // 那样给它们回填结果说明。否则下一轮请求序列化时 `result ?? ""` 会把它变成
+      // "工具成功返回空字符串"，模型可能据此声称"已写入/已改好"，而磁盘上什么都没发生。
+      for (const c of partial.toolCalls ?? []) {
+        if (c.result === undefined) c.result = streamErrorToolResult();
+      }
       if (partial.text !== "" || partial.thinking !== undefined || partial.toolCalls !== undefined) {
         added.push(partial);
       }
@@ -407,12 +418,12 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
     }
   }
 
-  // 轮次耗尽：最后一轮的工具已执行并回填，但不再开新回合让模型总结
-  emit({
-    type: "error",
-    message: `工具调用轮次超过上限（${maxRounds}），已停止`,
-  });
-  return { added, error: `超过工具轮次上限 ${maxRounds}`, usage, truncated };
+  // 轮次耗尽：最后一轮的工具已执行并回填，但不再开新回合让模型总结。
+  // B12-8：同一失败只保留**一份**文案 —— 旧实现 emit 与 return.error 各写一句，
+  // 界面按事件先后覆盖 chatError，用户看到的措辞会漂；RunResult.error 的契约是"逐字文案"。
+  const roundsExceeded = `工具调用轮次超过上限（${maxRounds}），已停止`;
+  emit({ type: "error", message: roundsExceeded });
+  return { added, error: roundsExceeded, usage, truncated };
 }
 
 /** 供界面兜底：没有可用配置时给出逐字错误 */

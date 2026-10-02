@@ -43,7 +43,7 @@ npm.cmd run tauri:dev           # 完整桌面端调试
 
 npm.cmd run typecheck           # tsc --noEmit
 npm.cmd test                    # vitest run
-npm.cmd run package             # 打包：vite build → cargo build --release → 复制 → 刷新桌面快捷方式
+npm.cmd run package             # 打包：tsc 类型闸门 → vite build → cargo build --release → 复制 → 刷新桌面快捷方式
 ```
 
 更细的构建、验收与环境坑见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；

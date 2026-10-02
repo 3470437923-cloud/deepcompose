@@ -304,9 +304,23 @@ export async function purgeItem(
   if (problem) return { ok: false, reason: problem };
 
   // 受限删除：父目录 + 单个路径段（Rust 侧还会再校验一次名字）
-  await fs.removeChild(recycleRoot(booksRoot), id, true);
+  // B12-8：与 moveToRecycle 同一顺序纪律 —— **先写清单再动盘**。反过来（先删目录后写清单）
+  // 一旦清单写失败，回收站里就留下一条"目录已不在、点彻底删除永远失败"的幽灵条目。
+  const kept = manifest.items;
   manifest.items = manifest.items.filter((i) => i.id !== id);
   await saveManifest(fs, booksRoot, manifest);
+  try {
+    await fs.removeChild(recycleRoot(booksRoot), id, true);
+  } catch (e) {
+    // 删除失败：把条目放回清单（清单与磁盘不得各说各话），原始错误照抛给调用方
+    manifest.items = kept;
+    try {
+      await saveManifest(fs, booksRoot, manifest);
+    } catch {
+      // 回滚失败不掩盖原始的删除错误
+    }
+    throw e;
+  }
   return { ok: true, item };
 }
 

@@ -579,6 +579,47 @@ async function createProjectTool(ctx: ToolContext, a: Args): Promise<string> {
 }
 
 /**
+ * question 参数的逐项归一（B12 批次8）。
+ *
+ * `spec.ts` 把 `options` 声明为 required，但工具参数是模型生成的自由文本，漏 `options`、
+ * 给 `null`、给标量都会来。旧实现只做"是数组且非空"的集合级校验就 `raw as QuestionItem[]`
+ * 裸透传，于是漏 options 的那一题会让界面在渲染期 `q.options.map` 抛 TypeError ——
+ * 全树没有 ErrorBoundary，直接白屏；更糟的是弹窗的「提交」按钮要求**每题都选中**
+ * （MainWorkbench 的 `disabled={… length === 0}`），这类题会让弹窗永久卡住无法提交。
+ *
+ * 归一规则：非对象项丢弃；`question` 非字符串按空串；`options` 非数组按空数组；
+ * option 只保留 label 为非空字符串的项（description 只接受字符串）；
+ * **没有可选项的题整体丢弃**（宁可少问一题，也不给用户一个点不动的问题）。
+ * 全部题目都被丢弃时由调用方回报参数错误，不静默弹一个空窗。
+ */
+export function normalizeQuestions(raw: unknown[]): QuestionItem[] {
+  const out: QuestionItem[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) continue;
+    const o = item as Record<string, unknown>;
+    const optionsRaw = Array.isArray(o.options) ? o.options : [];
+    const options: QuestionOption[] = [];
+    for (const opt of optionsRaw) {
+      if (typeof opt !== "object" || opt === null || Array.isArray(opt)) continue;
+      const oo = opt as Record<string, unknown>;
+      if (typeof oo.label !== "string" || oo.label.trim() === "") continue;
+      options.push(
+        typeof oo.description === "string"
+          ? { label: oo.label, description: oo.description }
+          : { label: oo.label },
+      );
+    }
+    if (options.length === 0) continue; // 点不动的问题不进弹窗
+    out.push({
+      question: typeof o.question === "string" ? o.question : "",
+      options,
+      multi_select: o.multi_select === true,
+    });
+  }
+  return out;
+}
+
+/**
  * question：把问题交给界面回调等待用户作答，结果保持既有格式
  * {output:"User has answered your questions: …", answers:[…]}。
  * 多选答案以「、」连接；某题空答（未选/跳过）时该题的 "=…" 为空串，answers 里不出现。
@@ -586,7 +627,10 @@ async function createProjectTool(ctx: ToolContext, a: Args): Promise<string> {
 async function questionTool(ctx: ToolContext, a: Args): Promise<string> {
   const raw = a.questions;
   if (!Array.isArray(raw) || raw.length === 0) return err("questions is required and must not be empty");
-  const questions = raw as QuestionItem[];
+  const questions = normalizeQuestions(raw);
+  if (questions.length === 0) {
+    return err("every question needs a non-empty options array (label required)");
+  }
   if (!ctx.askQuestions) {
     return err("当前没有可用的提问通道（界面未就绪），请直接继续创作");
   }

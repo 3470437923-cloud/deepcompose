@@ -7,12 +7,14 @@
  * 落盘的 messages 始终是完整原始记录（会话文件不删任何消息）。
  *
  * 落盘时机：runAgent 返回后一次性 saveSession（正常/出错/中止都会落盘，
- * 因为 runAgent 保证不 reject 且 added 始终含本轮新消息）；saveSession 自身
- * 失败（磁盘错误）会向上抛，由界面兜底提示。
+ * 因为 runAgent 保证不 reject 且 added 始终含本轮新消息）。**配置缺失**的早退路径
+ * 同样把用户消息落盘（B12-8：否则界面乐观气泡被返回值替换后，刚敲的字两处皆无）。
+ * saveSession 自身失败（磁盘错误）**折算成 SendResult.error**（带 usage 与截断标记），
+ * 不让 promise reject —— reject 会把用量回执与截断提示一起丢掉。
  */
 
 import type { AppDirs } from "../dirs";
-import { getFs } from "../fsbridge";
+import { getFs, type FsBridge } from "../fsbridge";
 import type { Prefs } from "../prefs";
 import { lookupSkill } from "../skills/registry";
 import type { QuestionItem } from "../tools/exec";
@@ -27,6 +29,7 @@ import {
   newSession,
   saveSession,
   titleFromText,
+  uuid,
   type SessionFile,
 } from "../store/session";
 import { isoMicros } from "../ids";
@@ -36,6 +39,42 @@ import { choiceOfLevel, effectiveThinking, thinkingSupportedFor, type ThinkingLe
 
 /** 当前注册给模型的工具（web_search/terminal/rank_data_query 尚未实现，故不在其中） */
 export const ENABLED_TOOLS = IMPLEMENTED_TOOLS.map((t) => t.name);
+
+/** token 统计落盘（usage_stats.json，D-023）。统计是**旁路**：写失败不阻断对话主流程。 */
+async function recordUsageSafe(fs: FsBridge, usageStatsFile: string, usage: UsageTotals): Promise<void> {
+  try {
+    await recordUsage(fs, usageStatsFile, usage);
+  } catch {
+    // 静默：统计文件损坏/拒绝写入都不阻断对话
+  }
+}
+
+/**
+ * 把本轮用户消息并进会话并派生标题（B12-8：正常路径与「配置缺失」早退路径共用）。
+ * 消息 id 用 store/session 的 uuid，与界面乐观气泡同一形态。
+ */
+function withUserMessage(
+  session: SessionFile,
+  userText: string,
+  projectRoot: string | null,
+): SessionFile {
+  const messages: ChatMessage[] = [
+    ...session.messages,
+    { id: uuid(), role: "user", text: userText, createdAt: isoMicros() },
+  ];
+  const firstUser = messages.find((m) => m.role === "user");
+  const title =
+    session.title.startsWith("New Chat") && firstUser
+      ? titleFromText(firstUser.text) || session.title
+      : session.title;
+  return {
+    ...session,
+    title,
+    projectPath: session.projectPath || projectRoot || "",
+    updatedAt: isoMicros(),
+    messages,
+  };
+}
 
 /**
  * 从用户配置装配供应商参数；三要素（baseUrl/apiKey/model）缺一即返回 null，
@@ -115,8 +154,18 @@ export async function send(opts: SendOptions): Promise<SendResult> {
 
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
+    // B12-8：配置缺失也要把用户消息落盘。界面先做了乐观气泡，随后用返回值整体替换会话
+    // （MainWorkbench 的 `setSession(res.session)`）—— 早退时不落盘，用户刚敲的整段
+    // prompt 会同时在屏幕上和磁盘上蒸发，只剩一行错误提示。与 runAgent 的纪律一致：
+    // 失败的回合也要把用户输入留在会话里。
+    const withUser = withUserMessage(session, opts.userText, opts.projectRoot);
+    try {
+      await saveSession(fs, opts.dirs.sessionsDir, withUser);
+    } catch {
+      // 落盘失败不掩盖"配置缺失"这条用户真正要知道的原因
+    }
     opts.onEvent?.({ type: "error", message });
-    return { session, error: message, usage: { ...ZERO_USAGE }, truncated: false };
+    return { session: withUser, error: message, usage: { ...ZERO_USAGE }, truncated: false };
   }
 
   const systemPrompt = buildSystemPrompt({
@@ -196,14 +245,19 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     messages,
   };
 
-  await saveSession(fs, opts.dirs.sessionsDir, next);
+  try {
+    await saveSession(fs, opts.dirs.sessionsDir, next);
+  } catch (e) {
+    // B12-8：落盘失败折算成 SendResult（带已算出的 usage 与截断标记），不让整个 promise
+    // reject —— reject 会让调用方连 token 用量和截断提示一起丢掉，只剩一行 "Error: …"。
+    const msg = `会话落盘失败：${e instanceof Error ? e.message : String(e)}`;
+    opts.onEvent?.({ type: "error", message: msg });
+    await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
+    return { session: next, error: msg, usage: result.usage, truncated: result.truncated };
+  }
 
   // token 统计落盘（usage_stats.json，D-023）。统计是旁路：写失败不影响对话主流程。
-  try {
-    await recordUsage(fs, opts.dirs.usageStatsFile, result.usage);
-  } catch {
-    // 静默：统计文件损坏/拒绝写入都不阻断对话
-  }
+  await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
 
   return { session: next, error: result.error, usage: result.usage, truncated: result.truncated };
 }
@@ -246,8 +300,16 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
 
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
+    // B12-8：与 send() 同一条纪律 —— 会话要落盘。冷读的提问虽由程序生成，
+    // 但会话索引里留着它，用户才能在列表里看到这次没跑成的冷读。
+    const withUser = withUserMessage(opts.session, opts.userText, null);
+    try {
+      await saveSession(fs, opts.dirs.sessionsDir, withUser);
+    } catch {
+      // 落盘失败不掩盖"配置缺失"这条用户真正要知道的原因
+    }
     opts.onEvent?.({ type: "error", message });
-    return { session: opts.session, error: message, usage: { ...ZERO_USAGE }, truncated: false };
+    return { session: withUser, error: message, usage: { ...ZERO_USAGE }, truncated: false };
   }
 
   const result = await runAgent({
@@ -277,12 +339,16 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
     updatedAt: isoMicros(),
     messages,
   };
-  await saveSession(fs, opts.dirs.sessionsDir, next);
-  // 冷读同样消耗 token，一并计入统计（旁路，失败静默）
   try {
-    await recordUsage(fs, opts.dirs.usageStatsFile, result.usage);
-  } catch {
-    // 同上
+    await saveSession(fs, opts.dirs.sessionsDir, next);
+  } catch (e) {
+    // B12-8：同 send() —— 落盘失败折算成结果，不让 promise reject 掉用量回执
+    const msg = `会话落盘失败：${e instanceof Error ? e.message : String(e)}`;
+    opts.onEvent?.({ type: "error", message: msg });
+    await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
+    return { session: next, error: msg, usage: result.usage, truncated: result.truncated };
   }
+  // 冷读同样消耗 token，一并计入统计（旁路，失败静默）
+  await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
   return { session: next, error: result.error, usage: result.usage, truncated: result.truncated };
 }

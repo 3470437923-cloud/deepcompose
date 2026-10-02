@@ -305,7 +305,18 @@ def main():
             sum(1 for s in novel_skills if s["char_bloat"])))
 
     if not actions:
-        actions.append("Novel skills are well-optimized - monitor for inflation drift")
+        # B12-8: "0 action items" must not mean "well optimized" while the summary
+        # above still reports detected risks (measured: "Inflation risks detected: 5"
+        # printed together with "Novel skills are well-optimized"). Below-threshold
+        # findings are reported as such instead of being declared clean.
+        detected = all_inflation + all_formulas + all_bloat
+        if detected > 0:
+            actions.append(
+                "Below action threshold ({} inflation / {} formulas / {} bloat) - "
+                "monitor and re-check after the next revision".format(
+                    all_inflation, all_formulas, all_bloat))
+        else:
+            actions.append("Novel skills are well-optimized - monitor for inflation drift")
 
     for i, action in enumerate(actions):
         print("  {}. {}".format(i + 1, action))

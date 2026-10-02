@@ -244,15 +244,41 @@ def main():
                 time.sleep(0.6)
             probe = json.loads(c.eval(PROBE))
             row["probe"] = probe
+            # B12-8：探针结果必须**真的参与判定** —— 旧实现只把 probe 打印出来，
+            # 文档承诺的"几何断言"从未生效（重新长出渐变/玻璃/横向溢出时退出码照样 0）。
+            problems = []
+            if not probe.get("hasAppShell"):
+                problems.append("app-shell 缺失（页面没起来）")
+            if probe.get("theme") != theme:
+                problems.append("主题未生效：theme=%s（期望 %s）" % (probe.get("theme"), theme))
+            if probe.get("backdropBlur"):
+                problems.append("出现 backdrop-filter：%d 处" % probe["backdropBlur"])
+            if probe.get("gradients"):
+                problems.append("出现渐变：%d 处" % probe["gradients"])
+            if probe.get("filterBlur"):
+                problems.append("出现 filter:blur()：%d 处" % probe["filterBlur"])
+            if probe.get("overflowX"):
+                problems.append("横向溢出（scrollW %s > clientW %s）"
+                                % (probe.get("docScrollW"), probe.get("docClientW")))
+            if probe.get("overflowY"):
+                problems.append("纵向溢出（scrollH %s > clientH %s）"
+                                % (probe.get("docScrollH"), probe.get("docClientH")))
+            if probe.get("legacyWrap"):
+                problems.append("出现旧体系包裹层（.fitter/.win-frame）")
+            if problems:
+                row["problems"] = problems
+                report["failures"].append(row)
             if (w, h) in shot_sizes:
                 path = os.path.join(outdir, "%s-%s-%dx%d.png" % (label, theme, w, h))
                 row["shot"] = path
                 row["shotBytes"] = c.shot(path)
             report["runs"].append(row)
-            print("%-7s %-9s -ok  blur=%d grad=%d filt=%d ovX=%s ovY=%s gap=%s winH=%s accent=%s"
-                  % (theme, "%dx%d" % (w, h), probe["backdropBlur"], probe["gradients"],
-                     probe["filterBlur"], probe["overflowX"], probe["overflowY"], probe["bottomGap"],
-                     (probe.get("winRect") or {}).get("h"), probe["accent"]))
+            print("%-7s %-9s %s  blur=%d grad=%d filt=%d ovX=%s ovY=%s gap=%s winH=%s accent=%s"
+                  % (theme, "%dx%d" % (w, h), "FAIL" if problems else "-ok ", probe["backdropBlur"],
+                     probe["gradients"], probe["filterBlur"], probe["overflowX"], probe["overflowY"],
+                     probe["bottomGap"], (probe.get("winRect") or {}).get("h"), probe["accent"]))
+            for p in problems:
+                print("        ! %s" % p)
 
     with open(os.path.join(outdir, "probe-report.json"), "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)

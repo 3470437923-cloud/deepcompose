@@ -2335,13 +2335,14 @@ export default function MainWorkbench({
                   {q.question}
                   {q.multi_select ? "（可多选）" : ""}
                 </h3>
-                {q.options.map((o) => {
+                {/* B12 批次8：exec.ts 已逐项归一，这里再兜一层 —— 渲染期抛错会整树白屏 */}
+                {(q.options ?? []).map((o) => {
                   const on = (qSel[qi] ?? []).includes(o.label);
                   return (
                     <button
                       key={o.label}
                       className={on ? "qopt on" : "qopt"}
-                      ref={qi === 0 && o === q.options[0] ? pendFirstRef : undefined}
+                      ref={qi === 0 && o === (q.options ?? [])[0] ? pendFirstRef : undefined}
                       onClick={() =>
                         setQSel((s) => {
                           const cur = s[qi] ?? [];

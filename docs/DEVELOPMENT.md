@@ -34,8 +34,10 @@ cargo test --lib                            # 期望全绿
 npm.cmd run package
 ```
 
-`tools/package.ps1` 的动作顺序：杀掉运行中的 `deepcompose` 进程（否则 cargo 无法替换 exe，
-`failed to remove deepcompose.exe`，os error 5）→ `vite build` → `cargo build --release` →
+`tools/package.ps1` 的动作顺序：杀掉**本仓库构建产物**里正在运行的 `deepcompose` 进程（cargo 产物与
+`release\` 交付副本都算；否则 cargo 无法替换 exe，`failed to remove deepcompose.exe`，os error 5，
+且第 4 步覆盖 `release\DeepCompose.exe` 会报 "being used by another process"）→
+**`tsc --noEmit` 类型闸门（B-2）** → `vite build` → `cargo build --release` →
 复制 exe 到 `release\DeepCompose.exe` → 删除旧 `writerD.lnk` 与 `KeepCompose.lnk` → 刷新桌面快捷方式 `DeepCompose.lnk`。
 脚本根目录从自身位置推导（不硬编码盘符路径）。cargo 缓存热时约 2 分钟；**删掉 `target` 后的 release 冷编译实测 3 分 37 秒**（改动项目目录名之后必须走这条路）。
 
@@ -147,9 +149,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 
 | 脚本 | 作用 | 用法 | 退出码 |
 |---|---|---|---|
-| `_a11y_check.py` | 无障碍降级断言（prefers-* 分支真被命中）+ 整屏扁平度审计（零玻璃/零渐变/零滤镜） | `python tools/_a11y_check.py` | 0 / 1 |
-| `_contrast_audit.py` | 按 WCAG 2.1 实测真实元素文字与其实际底色的对比度（报告写 `shots/`） | `python tools/_contrast_audit.py` | 0 / 1 |
-| `_style_audit.py` | 运行时「裸奔元素」审计：`el.matches()` 遍历全部规则，一个都不命中的元素即无样式落点 | `python tools/_style_audit.py --flows none,chat,memo,theme,params` | 0 / 1 / 2（未知 flow 名） |
+| `_a11y_check.py` | 无障碍降级断言（prefers-* 分支真被命中）+ 整屏扁平度审计（零玻璃/零渐变/零滤镜）+ 过渡存活 | `python tools/_a11y_check.py` | 0 / 1 / 2（媒体态无法建立、探针一个都没落到元素上） |
+| `_contrast_audit.py` | 按 WCAG 2.1 实测真实元素文字与其实际底色的对比度（报告写 `shots/`） | `python tools/_contrast_audit.py` | 0 / 1 / 2（一条都没量到） |
+| `_style_audit.py` | 运行时「裸奔元素」审计：`el.matches()` 遍历全部规则，一个都不命中的元素即无样式落点 | `python tools/_style_audit.py`（默认含 about；要收窄用 `--flows none,chat,memo,theme,params,about`） | 0 / 1 / 2（未知 flow 名、一条都没量到） |
 | `_css_coverage.py` | 类名覆盖：`git HEAD` 旧 CSS × `src/**/*.tsx` className × 当前 CSS 三方对比 | `python tools/_css_coverage.py`（需 git 可用） | 0 / 1 / 2（基线丢失：旧 CSS 已不在 HEAD，属重构窗口期一次性工具） |
 
 这四个共同前提：**vite dev server（5183）+ 无头 Edge CDP（9223）已启动**（启动命令见 §4），
@@ -161,7 +163,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | 脚本 | 作用 | 用法与前提 |
 |---|---|---|
 | `_shot_flow.py` | 按交互流程截图（气泡/思考块/工具行/备忘录/输入聚焦）；同时是上面三个审计脚本的公共库 | `python tools/_shot_flow.py --out shots/_tmp --label chat --themes dsblue --flows chat`；FLOWS 的选择器钉死 mockBackend 预置文案，改预置数据会让流程 miss |
-| `_compare_sheet.py` | 把 before/after 两套截图拼成并排对比图（`shots/compare/*.png`） | 先用 `preview_shot.py --label before/after` 各产一套；`pip install pillow`；**输入缺文件是"跳过"不是"报错"，产出变少不等于验收全过** |
+| `_compare_sheet.py` | 把 before/after 两套截图拼成并排对比图（`shots/compare/*.png`） | **必须指定输出目录**：`preview_shot.py --label before --out shots\preview-before` 与 `--label after --out shots\preview-after`（默认 `--out shots\preview` 与对比脚本要读的两个目录不同名，照抄会 0 张图且不报错）；`pip install pillow`；**输入缺文件是"跳过"不是"报错"，产出变少不等于验收全过** |
 | `cdp_probe.py` | 物理屏幕关闭/会话锁定时仍可做 UI 交互验证（`eval` / `click` / `shot` / `alive`） | 应用须带 `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"` 启动（发布版刻意不开调试口）；`pip install websocket-client` |
 | `uiwalk.ps1` | 脚本化 UI 走查：`click\|x,y` / `keys\|text` / `cap\|out.png` / `wait\|ms` 步骤串 | `.\tools\uiwalk.ps1 -Steps "wait\|2000;click\|640,400;cap\|shots\w1.png"`；坐标相对窗口左上角，跑动中移动/缩放窗口会让坐标失效；跑挂也只会清掉自己启动的进程 |
 | `probe_window.ps1` | 真机窗口几何记忆（T0–T5 六个用例：默认居中 / 缩放后记住 / 最大化恢复 / 离屏回收） | 默认钉打包产物 `release\DeepCompose.exe`；会改写 `%APPDATA%\com.writerd\writerD\window_state.json`（**冻结契约路径，别改名**） |

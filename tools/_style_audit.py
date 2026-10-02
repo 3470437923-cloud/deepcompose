@@ -106,8 +106,15 @@ def main():
         print("可用 flow 名: %s" % ", ".join(sorted(FLOWS)))
         return 2
 
-    c = CDP(args.port)
+    try:
+        c = CDP(args.port)
+    except Exception as e:
+        # B12-8：连不上 CDP = 判不了（2），不是"有问题"（1）更不是崩栈 —— 三脚本同口径
+        print("判不了：连不上 CDP 端口 %d —— 先起 vite 5183 + 无头 Edge 9223（见 docs/DEVELOPMENT.md §4）" % args.port)
+        print("  原因：%s" % e)
+        return 2
     all_bare = {}
+    measured = 0
     for theme in themes:
         for flow in flows:
             c.cmd(
@@ -125,6 +132,7 @@ def main():
             if not raw:
                 print("FAIL %s/%s 审计无输出" % (theme, flow))
                 continue
+            measured += 1
             d = json.loads(raw)
             for b in d["bare"]:
                 all_bare.setdefault(b, []).append("%s/%s" % (theme, flow))
@@ -141,6 +149,11 @@ def main():
         print("  %-46s 出现在: %s" % (sel, ", ".join(locs[:6]) + (" …" if len(locs) > 6 else "")))
     # E-3：与 _a11y_check/_contrast_audit 同口径 —— 有问题必须以非零退出，
     # 否则并列的"审计闸门"里它永远全绿
+    # B12-8：**一次都没测到**（vite 没起 / CDP 连到空白页）时必须是 2（判不了），
+    # 不能因为 all_bare 为空就报"全清" —— 那正是"判不了当通过"。
+    if measured == 0:
+        print("  判不了：没有任何一轮真正测到 DOM（检查 vite 5183 与无头 Edge 9223）")
+        return 2
     return 1 if all_bare else 0
 
 

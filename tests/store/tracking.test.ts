@@ -83,4 +83,17 @@ describe("countForeshadowing", () => {
     expect(c.open).toBe(0);
     expect(c.unclassified).toBe(1);
   });
+
+  it("B12-8：标题里含「统计」二字的条目/附录不再劫持统计模式", () => {
+    // 条目标题带「统计」字样：其 `- 状态` 必须照常计数
+    const entry = countForeshadowing("## F001\n- 状态：开放\n\n## F010 统计口径待定\n- 状态：已回收\n");
+    expect(entry.open).toBe(1);
+    expect(entry.collected).toBe(1);
+    expect(entry.declared).toEqual({});
+
+    // 普通「统计说明」节里的字段不当自述（旧实现在这里会把 - 状态 吃掉）
+    const appendix = countForeshadowing("## 统计说明\n- 状态：开放\n- 已回收：99\n\n## F001\n- 状态：开放\n");
+    expect(appendix.declared).toEqual({});
+    expect(appendix.open).toBe(1);
+  });
 });

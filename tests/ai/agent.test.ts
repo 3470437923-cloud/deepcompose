@@ -301,6 +301,25 @@ describe("错误路径", () => {
     expect(res.error).toBe("connection reset by peer");
   });
 
+  it("B12-8：断流时已解析出的工具调用要回填「未执行」（否则下一轮被序列化成空串=形似成功）", async () => {
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        // 工具调用的 id/name/arguments 都齐了，流在回填结果前断掉
+        for (const l of toolCallScript("c1", "file_write", '{"operation":"write","path":"a.md","content":"x"}')) {
+          handlers.onLine(l);
+        }
+        handlers.onError("socket hang up");
+      },
+    };
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBe("socket hang up");
+    const withCalls = res.added.find((m) => (m.toolCalls ?? []).length > 0);
+    expect(withCalls).toBeTruthy();
+    const call = withCalls!.toolCalls![0];
+    expect(call.result).toBeDefined();
+    expect(JSON.parse(call.result!)).toEqual({ error: "流中断，工具未执行" });
+  });
+
   it("传输层自身抛异常 → 折算为错误结果，用户消息不丢", async () => {
     // runAgent 的全函数契约：不 reject；异常折算进 RunResult.error，added 仍含用户消息
     const transport: StreamTransport = {
@@ -319,7 +338,9 @@ describe("错误路径", () => {
     const opts = baseOpts(transport, () => {});
     opts.maxToolRounds = 3;
     const res = await runAgent(opts);
-    expect(res.error).toContain("超过工具轮次上限");
+    // B12-8：轮次上限的失败文案**只有一份** —— emit 与 RunResult.error 同源
+    // （旧实现各写一句，界面按事件先后覆盖 chatError，用户看到的措辞会漂）
+    expect(res.error).toBe("工具调用轮次超过上限（3），已停止");
   });
 });
 
