@@ -1,10 +1,11 @@
 # Build DeepCompose end to end and refresh the delivery artifacts.
 #
 # Purpose : one-shot release pipeline:
-#             1) vite build            -> dist/
-#             2) cargo build --release -> src-tauri\target\release\deepcompose.exe
-#             3) copy                  -> release\DeepCompose.exe
-#             4) refresh the desktop shortcut (DeepCompose.lnk)
+#             1) tsc --noEmit (type gate, B-2)
+#             2) vite build            -> dist/
+#             3) cargo build --release -> src-tauri\target\release\deepcompose.exe
+#             4) copy                  -> release\DeepCompose.exe
+#             5) refresh the desktop shortcut (DeepCompose.lnk)
 # Usage   : .\tools\package.ps1 [-SkipBuild]
 #           -SkipBuild re-copies and re-links from the existing build output.
 #           The repo root is derived from this script's own location, so the
@@ -34,31 +35,44 @@ $oldLnks = @(
 )
 
 # The linker cannot replace a running exe; kill leftovers from earlier captures.
-$running = Get-Process -Name deepcompose -ErrorAction SilentlyContinue
-if ($running) {
-    Write-Output ("[0/4] stopping {0} running deepcompose process(es)" -f $running.Count)
+# N-16: only stop processes running THIS repo's build output -- killing by name
+# would also close instances the user has open from another checkout / install.
+$running = @()
+if (Test-Path $exe) {
+    $targetPath = (Get-Item $exe).FullName
+    $running = @(Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -eq $targetPath })
+}
+if ($running.Count -gt 0) {
+    Write-Output ("[0/5] stopping {0} running deepcompose process(es) from this build" -f $running.Count)
     $running | Stop-Process -Force
     Start-Sleep -Seconds 2
 }
 
 if (-not $SkipBuild) {
-    Write-Output "[1/4] vite build"
+    # B-2: the packaging path must pass the type gate first -- calling vite
+    # directly skips tsc, so type errors only surface on a manual npm run build.
+    Write-Output "[1/5] tsc --noEmit (type gate)"
     Push-Location $root
-    & (Join-Path $root "node_modules\.bin\vite.cmd") build
-    if ($LASTEXITCODE -ne 0) { throw "vite build failed" }
+    & (Join-Path $root "node_modules\.bin\tsc.cmd") --noEmit
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "tsc --noEmit failed" }
 
-    Write-Output "[2/4] cargo build --release"
+    Write-Output "[2/5] vite build"
+    & (Join-Path $root "node_modules\.bin\vite.cmd") build
+    if ($LASTEXITCODE -ne 0) { Pop-Location; throw "vite build failed" }
+
+    Write-Output "[3/5] cargo build --release"
     Push-Location (Join-Path $root "src-tauri")
     $env:CARGO_BUILD_JOBS = "4"
     cargo build --release
-    if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+    if ($LASTEXITCODE -ne 0) { Pop-Location; Pop-Location; throw "cargo build failed" }
     Pop-Location
     Pop-Location
 }
 
 if (-not (Test-Path $exe)) { throw "missing $exe" }
 
-Write-Output "[3/4] copy -> $dst"
+Write-Output "[4/5] copy -> $dst"
 New-Item -ItemType Directory -Force -Path $rel | Out-Null
 Copy-Item $exe $dst -Force
 
@@ -70,7 +84,7 @@ foreach ($old in $oldLnks) {
     }
 }
 
-Write-Output "[4/4] shortcut -> $lnk"
+Write-Output "[5/5] shortcut -> $lnk"
 $sh = New-Object -ComObject WScript.Shell
 $s = $sh.CreateShortcut($lnk)
 $s.TargetPath = $dst

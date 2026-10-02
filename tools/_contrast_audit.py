@@ -212,10 +212,13 @@ def main():
 
     def prep_settings_b(cc):
         # 进设置 → 数据分节。只看不点：那是危险操作。
+        # A-1：数据是第 5 项（provider/skill/params/theme/data/about）——
+        # 旧序号 6 点到"关于"，.a-btn-danger 不在该页，三主题全 SKIP，
+        # 危险色对比度从未被真实测量。
         cc.eval("(() => { const b = document.querySelector('.wbtn');"
                 " if (b) { b.click(); return 1; } return 0; })()")
         time.sleep(0.8)
-        cc.eval("(() => { const n = document.querySelector('.a-nav-item:nth-of-type(6)');"
+        cc.eval("(() => { const n = document.querySelector('.a-nav-item:nth-of-type(5)');"
                 " if (n) { n.click(); return 1; } return 0; })()")
         time.sleep(0.8)
 

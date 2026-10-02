@@ -30,6 +30,11 @@ param(
 $ErrorActionPreference = "Stop"
 Add-Type -AssemblyName System.Drawing
 
+# E-2: Legacy default accent (violet). 0xFF7C6AFF == 4286343935, same value as
+# LEGACY_DEFAULT_ACCENT in SettingsScreen.tsx -- both sides must change together;
+# at least each side now spells the number exactly once.
+$LEGACY_DEFAULT_ACCENT = 4286343935
+
 $sig = @'
 using System;
 using System.Text;
@@ -87,7 +92,7 @@ $prefs = @{
     "flutter.reserved_output_tokens"= 16000
     "flutter.auto_clear_context"    = $true
     "flutter.is_dark_mode"          = $true
-    "flutter.custom_accent_color"   = 4286343935
+    "flutter.custom_accent_color"   = $LEGACY_DEFAULT_ACCENT
     "flutter.novel_projects"        = ""
     "flutter.current_novel_project" = ""
 }
@@ -95,16 +100,39 @@ $prefs = @{
 # Set-Content -Encoding UTF8 on PowerShell 5.1 writes a BOM. The app tolerates
 # it, but the test tooling should still emit a clean file so BOM trouble never
 # gets mixed up with product trouble - strip the BOM when present.
+# N-53: the old $bytes[3..($bytes.Length-1)] reversed into range [3,2] when the
+# file was exactly 3 bytes (BOM only), writing an out-of-bounds null + 0xBF dirty
+# file. Copy by length instead; a 3-byte file now yields a correct empty file.
 $bytes = [System.IO.File]::ReadAllBytes($prefsFile)
 if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-    [System.IO.File]::WriteAllBytes($prefsFile, $bytes[3..($bytes.Length - 1)])
+    $body = New-Object byte[] ($bytes.Length - 3)
+    if ($body.Length -gt 0) { [Array]::Copy($bytes, 3, $body, 0, $body.Length) }
+    [System.IO.File]::WriteAllBytes($prefsFile, $body)
     Write-Output "PREFS BOM stripped"
 }
 Write-Output "PREFS -> $prefsFile"
 
+# N-07: back up the real prefs BEFORE overwriting. The old implementation rewrote
+# the user's live prefs into mock provider settings (key lost, endpoint pointed at
+# 127.0.0.1:8899) and never restored them. The backup is restored in `finally`
+# unconditionally (success / failure / mid-run exception alike).
+$backup = "$prefsFile.e2e-backup"
+if (Test-Path $prefsFile) {
+    Copy-Item $prefsFile $backup -Force
+    Write-Output "PREFS backed up -> $backup"
+}
+
+try {
+
 # 2) launch
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+# N-16: only clear leftovers running THIS script's -Exe path; never kill by name
+$exePath = if (Test-Path $Exe) { (Get-Item $Exe).FullName } else { $null }
+if ($exePath) {
+    Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -eq $exePath } |
+        Stop-Process -Force
+    Start-Sleep -Milliseconds 500
+}
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds $WaitSec
 $proc.Refresh()
@@ -157,5 +185,13 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+} finally {
+    # N-16/N-07: stop only the process we started; always restore user prefs
+    if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+    if (Test-Path $backup) {
+        Copy-Item $backup $prefsFile -Force
+        Remove-Item $backup -Force
+        Write-Output "PREFS restored from backup"
+    }
+}
 Write-Output "CLOSED"

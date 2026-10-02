@@ -112,6 +112,18 @@ class Diag:
             "}))()"
         )
 
+    def print_log(self):
+        print("---- page log (%d entries) ----" % len(self.log))
+        for entry in self.log:
+            if entry["kind"] == "exception":
+                print("[EXCEPTION] %s" % entry.get("text"))
+                print("   desc: %s" % str(entry.get("desc"))[:1200])
+                print("   at %s:%s:%s" % (entry.get("url"), entry.get("line"), entry.get("col")))
+                for fr in entry.get("stack") or []:
+                    print("   in %s (%s:%s)" % (fr.get("functionName"), fr.get("url"), fr.get("lineNumber")))
+            else:
+                print("[%s] %s" % (entry["kind"], str(entry["text"])[:1200]))
+
 
 def main():
     ap = argparse.ArgumentParser()
@@ -137,12 +149,20 @@ def main():
     ready = False
     while time.time() < deadline:
         time.sleep(0.3)
-        if d.eval("!!document.querySelector('.app-shell')"):
+        # N-36：eval() 在页面抛异常/导航中会返回 {"__exception": ...} 字典，
+        # 它是真值 —— 旧判断把它当 READY，异常页被报成"就绪"。只认布尔 True。
+        if d.eval("!!document.querySelector('.app-shell')") is True:
             ready = True
             break
     d.drain(1.0)
     print("READY %s" % ready)
     print("BEFORE %s" % d.snap())
+    if not ready:
+        # 页面 25 秒都没起来：诊断报告已输出（console/exception 段在后面），
+        # 但退出码必须说明这不是一次正常诊断
+        print("(page never became ready; see page log below)")
+        d.print_log()
+        return 1
 
     if args.click:
         print("CLICK %s -> %s" % (args.click, d.eval(
@@ -166,16 +186,7 @@ def main():
     if args.eval:
         print("EVAL %s" % d.eval(args.eval))
 
-    print("---- page log (%d entries) ----" % len(d.log))
-    for entry in d.log:
-        if entry["kind"] == "exception":
-            print("[EXCEPTION] %s" % entry.get("text"))
-            print("   desc: %s" % str(entry.get("desc"))[:1200])
-            print("   at %s:%s:%s" % (entry.get("url"), entry.get("line"), entry.get("col")))
-            for fr in entry.get("stack") or []:
-                print("   in %s (%s:%s)" % (fr.get("functionName"), fr.get("url"), fr.get("lineNumber")))
-        else:
-            print("[%s] %s" % (entry["kind"], str(entry["text"])[:1200]))
+    d.print_log()
     return 0
 
 

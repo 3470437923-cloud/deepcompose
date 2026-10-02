@@ -52,10 +52,11 @@ FLOWS = {
         (".wbtn", 0.6),
         (".a-nav-item:nth-of-type(3)", 0.6),
     ],
-    # 设置 → 关于（看 hero 与版本行）
+    # 设置 → 关于（看 hero 与版本行）。A-1：about 是第 6 项，旧序号 7
+    # 不匹配任何导航项，所有 about 截图静默停在 provider 页。
     "about": [
         (".wbtn", 0.6),
-        (".a-nav-item:nth-of-type(7)", 0.6),
+        (".a-nav-item:nth-of-type(6)", 0.6),
     ],
     # 真实发一条 → 等流式生成跑起来（看 .streaming 的边缘光晕与三点指示）
     "stream": [

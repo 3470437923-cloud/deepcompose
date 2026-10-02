@@ -165,12 +165,16 @@ def flat_checks(c, base_url):
     print("\n===== 扁平度审计（默认状态，含伪元素）=====")
     views = [
         # (视图名, 进入该视图的点击序列)
+        # A-1：导航序号必须与 SettingsScreen 的 navItems 一一对应 ——
+        # 顺序是 provider/models/params/theme/data/about（6 项）。旧脚本按
+        # 7 项年代的序号点：数据点了 6（关于）、关于点了 7（不存在的项），
+        # 两轮审计全程测错视图，PASS 全是假的。
         ("主工作台", []),
         ("设置·提供商", [".wbtn"]),
         ("设置·主题", [".wbtn", ".a-nav-item:nth-of-type(4)"]),
         ("设置·参数", [".wbtn", ".a-nav-item:nth-of-type(3)"]),
-        ("设置·数据", [".wbtn", ".a-nav-item:nth-of-type(6)"]),
-        ("设置·关于", [".wbtn", ".a-nav-item:nth-of-type(7)"]),
+        ("设置·数据", [".wbtn", ".a-nav-item:nth-of-type(5)"]),
+        ("设置·关于", [".wbtn", ".a-nav-item:nth-of-type(6)"]),
         ("备忘录", ['.tb-btn[title="备忘录"]']),
     ]
     bad = 0

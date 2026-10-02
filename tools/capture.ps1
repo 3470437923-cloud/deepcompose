@@ -21,6 +21,11 @@ param(
 
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+# N-55: without ErrorActionPreference, any mid-run cmdlet failure (bitmap
+# creation / COM unavailable) printed one red line and kept going, still
+# emitting SAVED at the end -- output contradicted reality. Stop = fail fast,
+# so the output can be trusted as a verdict.
+$ErrorActionPreference = "Stop"
 
 Add-Type -AssemblyName System.Drawing
 

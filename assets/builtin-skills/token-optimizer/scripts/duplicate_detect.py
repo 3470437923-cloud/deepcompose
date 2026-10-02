@@ -49,7 +49,7 @@ def extract_info(skill_path):
     try:
         with open(sf, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-    except:
+    except OSError:  # N-56：裸 except 连 KeyboardInterrupt 都吞
         return None
     
     info = {"content": content}
@@ -58,7 +58,9 @@ def extract_info(skill_path):
     info["name"] = m.group(1).strip() if m else os.path.basename(skill_path)
     
     # Extract description
-    m = re.search(r'^description:/s*(.+)$', content, re.MULTILINE)
+    # A-5：旧正则写成 /s（字母斜杠 s）而非 \s —— description 永远匹配不到，
+    # 0.3 权重的"描述重叠"维度从上线起就是死的。
+    m = re.search(r'^description:\s*(.+)$', content, re.MULTILINE)
     info["desc"] = m.group(1).strip() if m else ""
     
     # Extract triggers
@@ -148,7 +150,7 @@ def main():
     print()
 
     if not require_skills_dir():
-        return
+        sys.exit(2)  # N-34：与 token_audit 同口径——目录缺失是可预期失败，退出码 2
     
     # Scan all skills
     skills_info = {}

@@ -41,7 +41,7 @@ function memFs(files: Record<string, string> = {}): FsBridge {
     },
     async stat(p: string): Promise<StatInfo | null> {
       if (!(p in files)) return null;
-      return { isDir: false, size: files[p].length, mtimeMs: 1700000000000 };
+      return { isDir: false, isLink: false, size: files[p].length, mtimeMs: 1700000000000 };
     },
     __files: files,
   } as unknown as FsBridge;

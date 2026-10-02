@@ -68,15 +68,31 @@ public class UW {
 '@
 if (-not ("UW" -as [type])) { Add-Type -TypeDefinition $sig }
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+# N-16: the old implementation killed ALL deepcompose processes by name -- that
+# also closed instances the user had open from another checkout or install.
+# Here we only clear leftovers whose path matches this script's -Exe (those are
+# from a previous uiwalk run), and at the end we only stop the process we started.
+$exePath = if (Test-Path $Exe) { (Get-Item $Exe).FullName } else { $null }
+if ($exePath) {
+    Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -eq $exePath } |
+        Stop-Process -Force
+    Start-Sleep -Milliseconds 500
+}
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds 9
 $proc.Refresh()
+# N-54: failure paths must also stop the process we started -- otherwise every
+# failed run leaks one deepcompose process in the background (and the next run's
+# cleanup would then be tempted to kill by name again).
 if ($proc.HasExited) { Write-Output "FAIL exited: $($proc.ExitCode)"; exit 1 }
 
 $h = [UW]::Pick([uint32]$proc.Id)
-if ($h -eq [IntPtr]::Zero) { Write-Output "FAIL no window"; exit 1 }
+if ($h -eq [IntPtr]::Zero) {
+    Write-Output "FAIL no window"
+    Stop-Process -Id $proc.Id -Force
+    exit 1
+}
 if ([UW]::IsIconic($h)) { [UW]::ShowWindow($h, 9) | Out-Null; Start-Sleep -Milliseconds 700 }
 [UW]::ShowWindow($h, 5) | Out-Null
 # ALT trick: release the foreground lock, otherwise SetForegroundWindow from a
@@ -113,13 +129,21 @@ function Save-Shot([string]$out) {
 }
 
 # steps: semicolon-separated. Each: action|arg1|arg2
+# N-54: validate each step's argument shape before acting -- a bare/missing
+# "cap" argument made Split-Path receive an empty string and crash, killing the
+# whole walk silently mid-run. Bad steps are skipped with a WARN instead.
 $items = $Steps -split ";"
+$shotsDir = Join-Path $PSScriptRoot "..\shots"
 foreach ($it in $items) {
     $t = $it.Trim()
     if ($t -eq "") { continue }
     $p = $t -split "\|"
     switch ($p[0].Trim()) {
         "click" {
+            if ($p.Count -lt 2 -or $p[1].Trim() -notmatch '^\d+\s*,\s*\d+$') {
+                Write-Output "WARN bad click step (need 'click|x,y'): $t"
+                continue
+            }
             $xy = $p[1] -split ","
             $x = [int]$xy[0] + $ox
             $y = [int]$xy[1] + $oy
@@ -128,18 +152,35 @@ foreach ($it in $items) {
             Start-Sleep -Milliseconds 900
         }
         "keys" {
+            if ($p.Count -lt 2) { Write-Output "WARN bad keys step: $t"; continue }
             $ws.SendKeys($p[1]) | Out-Null
             Write-Output "KEYS $($p[1])"
             Start-Sleep -Milliseconds 500
         }
         "cap" {
-            Save-Shot $p[1]
+            if ($p.Count -lt 2 -or [string]::IsNullOrWhiteSpace($p[1])) {
+                Write-Output "WARN bad cap step (need 'cap|out.png'): $t"
+                continue
+            }
+            # bare file names (no directory) land in shots\ so Split-Path -Parent
+            # never receives an empty string
+            $out = $p[1].Trim()
+            if ($out -notmatch '[\\/]') { $out = Join-Path $shotsDir $out }
+            Save-Shot $out
         }
         "wait" {
+            if ($p.Count -lt 2 -or $p[1].Trim() -notmatch '^\d+$') {
+                Write-Output "WARN bad wait step (need 'wait|ms'): $t"
+                continue
+            }
             Start-Sleep -Milliseconds ([int]$p[1])
+        }
+        default {
+            Write-Output "WARN unknown step: $t"
         }
     }
 }
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+# N-16: stop only the process we started (see header note); tolerate prior exit
+if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
 Write-Output "DONE"
