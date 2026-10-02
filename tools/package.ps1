@@ -37,11 +37,17 @@ $oldLnks = @(
 # The linker cannot replace a running exe; kill leftovers from earlier captures.
 # N-16: only stop processes running THIS repo's build output -- killing by name
 # would also close instances the user has open from another checkout / install.
+# B12-8: match BOTH paths of this repo: the cargo output ($exe) and the delivery
+# copy ($dst, which is what the desktop shortcut launches). Matching only $exe
+# left the shortcut-launched app running, so step [4/5] `Copy-Item -Force` died
+# with "being used by another process".
+$targetPaths = @()
+if (Test-Path $exe) { $targetPaths += (Get-Item $exe).FullName }
+if (Test-Path $dst) { $targetPaths += (Get-Item $dst).FullName }
 $running = @()
-if (Test-Path $exe) {
-    $targetPath = (Get-Item $exe).FullName
+if ($targetPaths.Count -gt 0) {
     $running = @(Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
-        Where-Object { $_.Path -and $_.Path -eq $targetPath })
+        Where-Object { $_.Path -and ($targetPaths -contains $_.Path) })
 }
 if ($running.Count -gt 0) {
     Write-Output ("[0/5] stopping {0} running deepcompose process(es) from this build" -f $running.Count)

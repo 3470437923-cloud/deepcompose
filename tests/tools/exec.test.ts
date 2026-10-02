@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createNodeFs } from "../support/nodeFs";
-import { executeTool, type ToolContext } from "../../src/core/tools/exec";
+import { executeTool, normalizeQuestions, type ToolContext } from "../../src/core/tools/exec";
 import { NEEDS_CONFIRMATION_PREFIX } from "../../src/core/tools/pathGuard";
 import { parseSnapshots } from "../../src/core/store/snapshot";
 
@@ -575,6 +575,44 @@ describe("question / skill_lookup / create_project", () => {
     // 模型可能给出 "null" 这类合法 JSON 但非对象的参数体
     expect(await executeTool(ctx(), "file_read", "null")).toBe('{"error":"operation is required"}');
     expect(await executeTool(ctx(), "file_read", "{坏")).toBe('{"error":"工具参数不是合法 JSON"}');
+  });
+
+  it("B12-8：漏 options / 坏形态的题被丢弃，界面不再 q.options.map 白屏或卡死", async () => {
+    // 只有一题且它没有可选项 → 不弹空窗，回报参数错误让模型重问
+    expect(
+      await executeTool(ctx({ askQuestions: async () => [[]] }), "question", {
+        questions: [{ question: "选一个方向" }],
+      }),
+    ).toBe('{"error":"every question needs a non-empty options array (label required)"}');
+
+    // 一好一坏：坏题丢弃、好题照问；坏题不会让「每题都要选」的提交条件永远凑不满
+    const r = JSON.parse(
+      await executeTool(ctx({ askQuestions: async () => [["继续"]] }), "question", {
+        questions: [
+          { question: "坏题", options: null },
+          { question: "还继续吗？", options: [{ label: "继续" }, { label: "停止" }] },
+        ],
+      }),
+    );
+    expect(r.answers).toEqual(["继续"]);
+    expect(r.output).toContain('"还继续吗？"="继续"');
+    expect(r.output).not.toContain("坏题");
+  });
+
+  it("B12-8：normalizeQuestions 逐项归一（非对象项、坏 option、description 类型）", () => {
+    const qs = normalizeQuestions([
+      null,
+      "标量",
+      { question: 42, options: [{ label: "甲" }, { label: "" }, null, { label: 7 }, { label: "乙", description: "说明" }, { label: "丙", description: 9 }] },
+      { question: "多选题", options: [{ label: "A" }], multi_select: true },
+    ]);
+    expect(qs).toHaveLength(2);
+    expect(qs[0]).toEqual({
+      question: "",
+      options: [{ label: "甲" }, { label: "乙", description: "说明" }, { label: "丙" }],
+      multi_select: false,
+    });
+    expect(qs[1]).toEqual({ question: "多选题", options: [{ label: "A" }], multi_select: true });
   });
 
   it("skill_lookup 缺 skill_name → 逐字错误；命中 → {skill_name,content} 且带目录说明", async () => {

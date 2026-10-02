@@ -27,6 +27,11 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 # so the output can be trusted as a verdict.
 $ErrorActionPreference = "Stop"
 
+# B12-8: a bare file name has no parent directory -- Split-Path -Parent returns ""
+# and New-Item -Path "" terminates the script (ErrorActionPreference=Stop) while the
+# app we launched keeps running. Resolve bare names into shots\ (same rule as uiwalk).
+if ($Out -notmatch '[\\/]') { $Out = Join-Path $PSScriptRoot "..\shots\$Out" }
+
 Add-Type -AssemblyName System.Drawing
 
 $sig = @'
@@ -69,6 +74,7 @@ public class WinCap {
 if (-not ("WinCap" -as [type])) { Add-Type -TypeDefinition $sig }
 
 $proc = Start-Process $Exe -PassThru
+try {
 Start-Sleep -Seconds $WaitSec
 $proc.Refresh()
 
@@ -137,6 +143,9 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 
 Write-Output "SAVED $Out"
-
-Stop-Process -Id $proc.Id -Force
+} finally {
+    # B12-8: fail-fast paths (bitmap / COM / save errors) must still close the app
+    # we launched -- otherwise every failed capture leaves a stray GUI process.
+    if ($proc -and -not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+}
 Write-Output "CLOSED"

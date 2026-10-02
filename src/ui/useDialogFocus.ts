@@ -20,7 +20,7 @@
  * 用 rAF 而不是直接 focus()：面板此时还没挂载进 DOM。
  */
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { RefObject } from "react";
 
 const FOCUSABLE =
@@ -34,12 +34,26 @@ export function useDialogFocus(
   panelRef: RefObject<HTMLElement | null>,
   initialRef?: RefObject<HTMLElement | null>,
 ) {
+  /** 只在「从关到开」那一次记录的触发元素（B12-8，见下） */
+  const prevRef = useRef<HTMLElement | null>(null);
+  const wasActive = useRef(false);
+
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      wasActive.current = false; // 关闭才复位：effect 因依赖变化重跑时不算"重新打开"
+      return;
+    }
     const token = Symbol("dialog");
     dialogStack.push(token);
     const isTop = () => dialogStack[dialogStack.length - 1] === token;
-    const prev = document.activeElement as HTMLElement | null;
+    // B12-8：`prev` 只在**打开那一刻**捕获一次。旧实现写在 effect 体内，于是任何一次
+    // 重跑（panelRef/initialRef 变化、父组件重渲染）都会把 activeElement 重新记一遍 ——
+    // 叠层场景下抓到的其实是**上层模态里的输入框**，cleanup 归还焦点时就把焦点从上层的
+    // 手打确认框抢回下层面板（Tab 陷阱随之失效，Esc 与视觉焦点错位）。
+    if (!wasActive.current) {
+      prevRef.current = document.activeElement as HTMLElement | null;
+      wasActive.current = true;
+    }
 
     const raf = requestAnimationFrame(() => {
       if (!isTop()) return; // 栈顶另有其人（同帧又开了更上层的模态）：让位
@@ -93,7 +107,9 @@ export function useDialogFocus(
       if (idx >= 0) dialogStack.splice(idx, 1);
       // 面板已经卸载，焦点会掉到 body —— 主动还回去。
       // 只有自己原本是栈顶才归还：下层先关不许抢上层模态的焦点。
-      if (wasTop) prev?.focus?.();
+      // B12-8：只还「打开那一刻」记录的元素，且它仍在文档里（可能已被卸载/替换）。
+      const prev = prevRef.current;
+      if (wasTop && prev && prev.isConnected) prev.focus?.();
     };
   }, [active, panelRef, initialRef]);
 }

@@ -1,9 +1,11 @@
 """把 before/after 截图拼成并排对比图，作为改版验收证据。
 
 前提：
-    先用 preview_shot.py 分别产出两套截图到 shots/preview-before 与
-    shots/preview-after（--label before / --label after，文件名需与下方
-    PAIRS 对应）；pip install pillow。
+    先用 preview_shot.py 分别产出两套截图，**输出目录必须显式指定**
+    （默认 --out 是 shots/preview，与本脚本要读的两个目录不同名）：
+        python tools/preview_shot.py --label before --out shots\\preview-before
+        python tools/preview_shot.py --label after  --out shots\\preview-after
+    文件名需与下方 PAIRS 对应；pip install pillow。
 用法：
     python tools/_compare_sheet.py     # 在仓库根目录下运行
 产出：

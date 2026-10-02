@@ -55,7 +55,7 @@ V9 审计覆盖 SKILL.md + references/ + scripts/ + assets/ 四个维度：
 python scripts/token_audit.py
 ```
 
-**输出示例**：
+**输出示例（上游 V9 的样本数据，非本应用实测数字）**：
 ```
 === Summary ===
   Skills scanned:      73
@@ -66,6 +66,9 @@ python scripts/token_audit.py
   Hidden refs >10KB:   28 skills
   Categories: {'coding': 31, 'novel': 30, ...}
 ```
+
+> 本应用自带 5 个内置技能（novel-writer / novel-deslop / novel-structure-quality-coordinator /
+> skill-creator / token-optimizer），实际数字以**当场跑出的输出**为准，不要复述上面这段样本。
 
 **关键发现**：references/ 目录占总权重 53.6%，是 SKILL.md 自身的 6.7 倍——这是此前审计的完全盲区。
 
@@ -299,4 +302,4 @@ novel-deslop / novel-structure-quality-coordinator / skill-creator / token-optim
 > 3. 新增 3 个模块（D/E/F）：重复检测、能量模式引擎、小说专项审计
 > 4. 内容密度分析——区分可操作指令与哲学性阐述
 > 5. 通用分类引擎——通过关键词匹配自动分类未知来源 Skill，无需预注册
-> 6. 脚本从 3 个扩展至 6 个，全部经过 73 Skill 实盘验证
+> 6. 脚本从 3 个扩展至 6 个（上游在 73 个 Skill 的语料上跑过；本应用的内置技能只有 5 个，脚本同样适用）

@@ -1779,14 +1779,16 @@ html[data-nav="back"] .win { --push-x: -10px; }
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
-/* 具名配置列表：当前档位用左侧强调条 + 浅色底标出 */
+/* 具名配置列表：当前档位用 1px 左侧强调线 + 浅色底标出。
+   B12-8：DESIGN.md 明令「没有超过 1px 的彩色边条」（旧 border-left:2px 强调条
+   已全部拆除）；这里原为 2px，属漏网。左边距 +1px 保持文字与其它行对齐。 */
 .a-profile-list { display: flex; flex-direction: column; margin-bottom: 12px; }
 .a-profile-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 9px 2px 9px 10px;
-  border-left: 2px solid transparent;
+  padding: 9px 2px 9px 11px;
+  border-left: 1px solid transparent;
 }
 .a-profile-row + .a-profile-row { border-top: 1px solid var(--line-soft); }
 .a-profile-row.on { border-left-color: var(--accent); background: var(--accent-soft); }

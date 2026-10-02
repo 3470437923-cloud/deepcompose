@@ -167,15 +167,17 @@ def run_pass(c, theme, targets, label, prep):
     c.cmd("Page.navigate", url="http://localhost:5183/preview.html?theme=%s" % theme)
     if not c.wait_ready(min_text=60):
         print("FAIL %s 页面未就绪" % theme)
-        return None, 1
+        return None, 1, 0
     prep(c)
     rows = json.loads(c.eval(CONTRAST_JS % json.dumps(targets)))
     bad = 0
+    measured = 0
     print("\n===== %s / %s =====" % (theme, label))
     for r in rows:
         if r.get("missing"):
             print("  SKIP %-28s 页面上没有这个元素" % r["label"])
             continue
+        measured += 1
         ok = r["ratio"] >= r["need"] - 0.005
         if not ok:
             bad += 1
@@ -183,11 +185,16 @@ def run_pass(c, theme, targets, label, prep):
               % ("PASS" if ok else "FAIL", r["label"], r["ratio"], r["need"],
                  r["size"], r["weight"], " 大字" if r["large"] else "",
                  ",".join(str(x) for x in r["fg"]), ",".join(str(x) for x in r["bg"])))
-    return rows, bad
-
+    return rows, bad, measured
 
 def main():
-    c = CDP(9223)
+    try:
+        c = CDP(9223)
+    except Exception as e:
+        # B12-8：连不上 CDP = 判不了（2），不带崩栈
+        print("判不了：连不上 CDP 端口 9223 —— 先起 vite 5183 + 无头 Edge 9223（见 docs/DEVELOPMENT.md §4）")
+        print("  原因：%s" % e)
+        return 2
     c.cmd("Emulation.setDeviceMetricsOverride", width=1600, height=1000, deviceScaleFactor=1, mobile=False)
 
     # 占位符走伪元素，单列一次（Chrome 支持 getComputedStyle(el,'::placeholder')）
@@ -224,25 +231,34 @@ def main():
 
     report = {}
     bad = 0
+    measured_total = 0
     for theme in ("dsblue", "light", "dark"):
-        rows, n = run_pass(c, theme, targets, "主工作台", prep_main)
+        rows, n, m = run_pass(c, theme, targets, "主工作台", prep_main)
         if rows is not None:
             report["%s/main" % theme] = rows
         bad += n
-        rows, n = run_pass(c, theme, settings_targets, "设置·提供商", prep_settings)
+        measured_total += m
+        rows, n, m = run_pass(c, theme, settings_targets, "设置·提供商", prep_settings)
         if rows is not None:
             report["%s/settings-a" % theme] = rows
         bad += n
-        rows, n = run_pass(c, theme, settings_targets_b, "设置·数据", prep_settings_b)
+        measured_total += m
+        rows, n, m = run_pass(c, theme, settings_targets_b, "设置·数据", prep_settings_b)
         if rows is not None:
             report["%s/settings-b" % theme] = rows
         bad += n
+        measured_total += m
 
     out = os.path.join("shots", "contrast-report.json")
     os.makedirs(os.path.dirname(out), exist_ok=True)
     with open(out, "w", encoding="utf-8") as fh:
         json.dump(report, fh, ensure_ascii=False, indent=2)
     print("\nREPORT %s" % out)
+    # B12-8：一条都没真正量到（vite 没起 / 选择器全漂移）＝判不了（2），
+    # 不能报"全部达标" —— 那正是本文件注释里记的那个旧事故形态。
+    if measured_total == 0:
+        print("\n判不了：没有任何一条被真实测量（检查 vite 5183 与无头 Edge 9223）")
+        return 2
     print("\n%s" % ("全部达标" if bad == 0 else "有 %d 项未达标" % bad))
     return 0 if bad == 0 else 1
 

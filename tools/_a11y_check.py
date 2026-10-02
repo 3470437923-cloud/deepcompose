@@ -8,7 +8,8 @@ docs/DEVELOPMENT.md），页面为 preview.html + src/preview/mockBackend.ts；
 复用 _shot_flow.py 的 CDP/FLOWS/run_flow（改那边签名会波及本脚本）。
 
 用法：
-    python tools/_a11y_check.py    # 全部通过退出码 0，有一项不过即 1
+    python tools/_a11y_check.py    # 全部通过退出码 0；有未通过 1；判不了（环境无法建立
+                                   # 默认媒体态等）2 —— 与 _style_audit/_css_coverage 同口径
 
 三件容易自欺的事，本脚本都绕开了：
   1. matchMedia 必须在设置仿真"之后"再读，否则读到的是上一状态。
@@ -32,32 +33,46 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from _shot_flow import CDP, FLOWS, run_flow  # noqa: E402
 
-# (说明, 选择器, 伪元素, 计算属性, 断言(now, base), 需要先切到有消息的会话)
+# (说明, 选择器, 伪元素, 计算属性, 断言(now, base), 需要的前置状态)
+#   前置状态：empty = 欢迎空态（不点任何东西）｜chat = 有会话｜streaming = 正在生成
+# 旧实现把前置状态写成布尔（"要不要切会话"），然后**无论哪一组都跑一遍 stream 流程**：
+#   · 空态探针要看的 .cw-tip 被自己发出去的那条消息顶掉；
+#   · 生成态探针要看的 .streaming 被流程里 1.2s 的等待耗掉（生成是瞬时状态）。
+# 结果是 12 条探针恒 __missing__、被报成产品缺陷 —— 探针先把自己的被测对象弄没了。
 P = [
-    ("进场动画关闭", ".win", None, "animationName", lambda v, b: v == "none", True),
-    ("欢迎提示不动", ".cw-tip", None, "animationName", lambda v, b: v == "none", False),
-    ("消息不动", ".msg", None, "animationName", lambda v, b: v == "none", True),
-    ("打字点不动", ".typing i", None, "animationName", lambda v, b: v == "none", True),
+    ("进场动画关闭", ".win", None, "animationName", lambda v, b: v == "none", "chat"),
+    ("欢迎提示不动", ".cw-tip", None, "animationName", lambda v, b: v == "none", "empty"),
+    ("消息不动", ".msg", None, "animationName", lambda v, b: v == "none", "chat"),
+    ("打字点不动", ".typing i", None, "animationName", lambda v, b: v == "none", "streaming"),
     # 生成中的行进线在降级态换成"整宽静止实线"：动效没了，状态还在。
     ("生成行进线静止", ".panel-chat.streaming", "::before", "animationName",
-     lambda v, b: v == "none", True),
+     lambda v, b: v == "none", "streaming"),
     ("行进线转整宽静止", ".panel-chat.streaming", "::before", "width",
-     lambda v, b: float(v.rstrip("px")) > float(b.rstrip("px")), True),
+     lambda v, b: float(v.rstrip("px")) > float(b.rstrip("px")), "streaming"),
     ("过渡压到极短", ".btn", None, "transitionDuration",
-     lambda v, b: all(float(x.strip().rstrip("s") or 0) <= 0.05 for x in v.split(",")), True),
+     lambda v, b: all(float(x.strip().rstrip("s") or 0) <= 0.05 for x in v.split(",")), "chat"),
 ]
 
 PROBES = {
     "prefers-reduced-motion:reduce": P,
     "prefers-contrast:more": [
         ("面板描边加深", ".surface-sheet", None, "borderTopColor",
-         lambda v, b: v != b, True),
-        ("气泡加描边", ".bubble", None, "boxShadow", lambda v, b: "inset" in v, True),
-        ("按钮加描边", ".btn", None, "boxShadow", lambda v, b: "inset" in v, True),
+         lambda v, b: v != b, "chat"),
+        ("气泡加描边", ".bubble", None, "boxShadow", lambda v, b: "inset" in v, "chat"),
+        ("按钮加描边", ".btn", None, "boxShadow", lambda v, b: "inset" in v, "chat"),
         ("发丝线令牌加深", ".statusbar", None, "borderTopColor",
-         lambda v, b: v != b, True),
+         lambda v, b: v != b, "chat"),
     ],
 }
+
+# 显式默认媒体态（**不能靠 features=[] 求默认**）：无头 Chromium/Edge 的
+# `prefers-reduced-motion` 默认就是 reduce，于是"基准态"其实是被压过的降级态 ——
+# 过渡存活检查因此把 0.01ms 读成产品缺陷（15 条假红）。所有基准测量一律显式声明。
+DEFAULT_FEATURES = [
+    {"name": "prefers-reduced-motion", "value": "no-preference"},
+    {"name": "prefers-contrast", "value": "no-preference"},
+]
+STATE_LABEL = {"empty": "欢迎空态", "chat": "有会话", "streaming": "生成中"}
 
 JS = """
 (([sel, pseudo, prop]) => {
@@ -65,6 +80,17 @@ JS = """
   if (!el) return '__missing__';
   return String(getComputedStyle(el, pseudo || undefined)[prop]);
 })(%s)
+"""
+
+# 发送按钮（生成态的准备动作；不放进 _shot_flow 的 FLOWS，因为那份流程带 1.2s 等待，
+# 会把瞬时的 .streaming 状态等到消失）
+JS_SEND = """
+(() => {
+  const el = document.querySelector('.send');
+  if (!el) return 'miss';
+  el.click();
+  return 'ok';
+})()
 """
 
 # ── 扁平度审计 ──
@@ -100,15 +126,44 @@ def pair(p):
     return json.dumps([p[1], p[2], p[3]])
 
 
-def load(c, url, seed):
-    """seed=True 先切到预置会话（才有 .msg/.bubble），再真发一条
-    （才有 .streaming 与打字点）；seed=False 留在欢迎空态（才有 .cw-tip）。"""
+def set_media(c, features):
+    c.cmd("Emulation.setEmulatedMedia", features=features)
+
+
+def reduced_motion_active(c):
+    """当前页面上 (prefers-reduced-motion: reduce) 是否命中。"""
+    return c.eval("matchMedia('(prefers-reduced-motion: reduce)').matches")
+
+
+def open_streaming(c, timeout=4.0):
+    """点发送后**轮询**等生成态出现（生成是瞬时状态，固定 sleep 必然错过）。
+
+    返回 True 表示测量时刻页面上确实在生成。"""
+    run_flow(c, FLOWS["composer"], verbose=False)  # 聚焦 + 灌文本（不发）
+    c.eval(JS_SEND)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if c.eval("!!document.querySelector('.panel-chat.streaming')") is True:
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def load(c, url, state):
+    """按探针要求的前置状态准备页面。
+
+    empty     = 欢迎空态：**不点任何东西**（.cw-tip 只在没有消息时存在）
+    chat      = 有会话：切到预置会话（才有 .msg/.bubble）
+    streaming = 生成中：发一条并轮询等 .streaming 出现
+    """
     c.cmd("Page.navigate", url=url)
     if not c.wait_ready(min_text=60):
         return False
-    if seed:
-        run_flow(c, FLOWS["chat"], verbose=False)
-    run_flow(c, FLOWS["stream"], verbose=False)
+    if state == "empty":
+        return True
+    run_flow(c, FLOWS["chat"], verbose=False)
+    if state == "streaming":
+        return open_streaming(c)
     return True
 
 
@@ -121,22 +176,22 @@ def media_checks(c, base_url, theme):
     bad = 0
     for feature, probes in PROBES.items():
         name, _, value = feature.partition(":")
-        for seed in (False, True):
-            group = [p for p in probes if p[5] == seed]
+        for state in ("empty", "chat", "streaming"):
+            group = [p for p in probes if p[5] == state]
             if not group:
                 continue
-            print("\n===== %s / %s  [%s] =====" % (theme, feature, "有会话" if seed else "欢迎空态"))
+            print("\n===== %s / %s  [%s] =====" % (theme, feature, STATE_LABEL.get(state, state)))
 
-            c.cmd("Emulation.setEmulatedMedia", features=[])
-            if not load(c, url, seed):
-                print("  FAIL 基准页面未就绪")
+            set_media(c, DEFAULT_FEATURES)
+            if not load(c, url, state):
+                print("  FAIL 基准页面未就绪（状态：%s）" % STATE_LABEL.get(state, state))
                 bad += 1
                 continue
             base = {p[0]: c.eval(JS % pair(p)) for p in group}
 
             c.cmd("Emulation.setEmulatedMedia", features=[{"name": name, "value": value}])
-            if not load(c, url, seed):
-                print("  FAIL 降级页面未就绪")
+            if not load(c, url, state):
+                print("  FAIL 降级页面未就绪（状态：%s）" % STATE_LABEL.get(state, state))
                 bad += 1
                 continue
             hits = c.eval("matchMedia(%s).matches" % json.dumps("(%s: %s)" % (name, value)))
@@ -151,7 +206,7 @@ def media_checks(c, base_url, theme):
                     bad += 1
                 print("  %-4s %-14s %-40s -> %s"
                       % ("PASS" if passed else "FAIL", label, (base.get(label) or "")[:40], now[:40]))
-    c.cmd("Emulation.setEmulatedMedia", features=[])
+    set_media(c, DEFAULT_FEATURES)
     return bad
 
 
@@ -178,7 +233,7 @@ def flat_checks(c, base_url):
         ("备忘录", ['.tb-btn[title="备忘录"]']),
     ]
     bad = 0
-    c.cmd("Emulation.setEmulatedMedia", features=[])
+    set_media(c, DEFAULT_FEATURES)
     for theme in ("dsblue", "light", "dark"):
         for view, clicks in views:
             u = "%s?theme=%s" % (base_url, theme)
@@ -228,31 +283,54 @@ ALIVE = [
 
 
 def alive_checks(c, base_url):
-    print("\n===== 过渡存活（多套主题）=====")
+    """返回未通过数；**返回 None 表示环境无法建立默认媒体态**（本次测量作废，退出码 2）。
+
+    为什么必须显式声明默认态：无头 Chromium/Edge 的 prefers-reduced-motion 默认是
+    reduce，而 CSS 在 reduce 下把过渡压到 0.01ms —— 不声明默认态就会把"降级分支
+    生效"读成"产品没有过渡"，整段审计变成假红。
+    """
+    print("\n===== 过渡存活（多套主题，显式默认媒体态）=====")
     bad = 0
-    c.cmd("Emulation.setEmulatedMedia", features=[])
+    checked = 0
+    set_media(c, DEFAULT_FEATURES)
     for theme in ("dsblue", "light", "dark"):
         c.cmd("Page.navigate", url="%s?theme=%s" % (base_url, theme))
         if not c.wait_ready(min_text=60):
             print("  FAIL %s 未就绪" % theme)
             bad += 1
             continue
+        if reduced_motion_active(c):
+            print("  TOOL-ERROR %s：无法建立默认媒体态 —— (prefers-reduced-motion: reduce) 仍命中；"
+                  "此时读到的过渡时长是被压过的降级值，不能当产品结论" % theme)
+            return None
         run_flow(c, FLOWS["editor"], verbose=False)
         for label, sel in ALIVE:
             v = c.eval(JS % json.dumps([sel, None, "transitionDuration"]))
             if v == "__missing__":
                 print("  SKIP %-7s %-14s 页面上没有这个元素" % (theme, label))
                 continue
+            checked += 1
             vals = [float(x.strip().rstrip("s") or 0) for x in v.split(",")]
             ok = max(vals) > 0.02
             if not ok:
                 bad += 1
             print("  %-4s %-7s %-14s %s" % ("PASS" if ok else "FAIL", theme, label, v))
+    # B12-8：五个探针一个都没找到元素（选择器漂移/页面没渲染）＝判不了（2），
+    # 不能因为 bad==0 就报"全部通过" —— 那是把"判不了"当通过。
+    if checked == 0:
+        print("  TOOL-ERROR：过渡探针一个都没落到元素上（选择器漂移或页面未渲染）")
+        return -1
     return bad
 
 
 def main():
-    c = CDP(9223)
+    try:
+        c = CDP(9223)
+    except Exception as e:
+        # B12-8：连不上 CDP = 判不了（2），不带崩栈
+        print("判不了：连不上 CDP 端口 9223 —— 先起 vite 5183 + 无头 Edge 9223（见 docs/DEVELOPMENT.md §4）")
+        print("  原因：%s" % e)
+        return 2
     url = "http://localhost:5183/preview.html"
     c.cmd("Emulation.setDeviceMetricsOverride", width=1600, height=1000,
           deviceScaleFactor=1, mobile=False)
@@ -261,7 +339,11 @@ def main():
     for theme in ("dsblue", "light", "dark"):
         bad += media_checks(c, url, theme)
     bad += flat_checks(c, url)
-    bad += alive_checks(c, url)
+    alive = alive_checks(c, url)
+    if alive is None or alive < 0:
+        print("\n判不了：环境无法建立默认媒体态，或过渡探针一个都没落到元素上（退出码 2）")
+        return 2
+    bad += alive
     print("\n%s" % ("全部通过" if bad == 0 else "有 %d 项未通过" % bad))
     return 0 if bad == 0 else 1
 

@@ -390,9 +390,14 @@ def t_keepalive(key, model):
 
 def main():
     ap = argparse.ArgumentParser()
+    # B12-8: validate --only. A typo ("balanc") used to run nothing at all and still
+    # exit 0 -- while this probe's output is cited as `[已实测]` evidence in
+    # docs/DECISIONS.md. argparse exits 2 on an unknown choice.
     ap.add_argument(
         "--only",
         default="all",
+        choices=["all", "balance", "replay", "anthropic", "anth2", "openai2", "effort2",
+                 "keepalive", "stream", "cache", "limits"],
         help="balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits|all",
     )
     ap.add_argument("--model", default=DEFAULT_MODEL)

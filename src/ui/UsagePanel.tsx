@@ -102,6 +102,19 @@ export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onTog
     [prefs, dirs],
   );
 
+  /** 重读统计文件的「今日」块（旁路：任何失败只影响这一小块） */
+  const readToday = useCallback(async (): Promise<void> => {
+    if (!dirs) return;
+    try {
+      const file = await loadUsageStats(getFs(), dirs.usageStatsFile);
+      const day = todayTotals(file, new Date());
+      setToday(day);
+      setRequests(day.requests);
+    } catch {
+      /* 统计是旁路 */
+    }
+  }, [dirs]);
+
   /** 打开时读一次统计 + 闲忙时 + 余额（余额受节流约束） */
   useEffect(() => {
     let alive = true;
@@ -126,6 +139,26 @@ export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onTog
       alive = false;
     };
   }, [dirs, refreshBalance]);
+
+  /** B12-8：本次会话累计一变（每轮生成结束）就重读统计 —— 旧实现只在"打开那一刻"读一次，
+   *  面板钉住时「今日」永远停在打开时的数字，看着像统计坏了。 */
+  useEffect(() => {
+    void readToday();
+  }, [readToday, sessionUsage]);
+
+  /** B12-8：跨零点重读（面板钉住过夜时，「今日」不该继续显示前一天的数字）。
+   *  每分钟核一次日期键，只有真的换天才读盘。 */
+  useEffect(() => {
+    if (!dirs) return;
+    let dayKey = new Date().toDateString();
+    const t = window.setInterval(() => {
+      const now = new Date();
+      if (now.toDateString() === dayKey) return;
+      dayKey = now.toDateString();
+      void readToday();
+    }, 60_000);
+    return () => window.clearInterval(t);
+  }, [dirs, readToday]);
 
   /** 倒计时每秒刷新一次（只有面板开着才跑） */
   useEffect(() => {

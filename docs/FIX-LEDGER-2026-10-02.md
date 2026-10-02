@@ -124,6 +124,52 @@
 | N-58 saveSession 索引失败留孤儿 | ✅ | 批次2：新会话索引写失败回滚会话文件 |
 
 ---
+
+## 三、复审新发现（R-01 ~ R-30，B12 批次8）
+
+> 来源：台账全部划完后按用户要求**重新全面审视**——4 个只读复审子代理分模块拉网（core/ai、core/store、
+> tools/skills/UI、Rust+tools+assets+文档），加上我在验证阶段的实测。每条都先自己复现/读码求证再修；
+> **求证不成立的不改代码，只记结论**（R-07）。
+
+| 条目 | 状态 | 说明 |
+|---|---|---|
+| R-01 e2e_chat 备份发生在覆写之后 | ✅ | **真高危**：批次6 的 N-07 修复把备份块放在 mock 写入**之后**，备份到的是已覆盖的文件、finally 恢复的也是 mock 值 → 用户真实 Key/配置永久消失。已把备份块移到任何写入之前；用临时 APPDATA + 不存在的 -Exe 走真实脚本路径实测：`PREFS backed up → PREFS → PREFS restored from backup`，原 Key 完整、备份文件已清理 |
+| R-02 question 单题形态不校验 → 白屏/弹窗卡死 | ✅ | `exec.ts` 新增 `normalizeQuestions`（非对象项丢弃、options 非数组按空、label 非空字符串才算选项、**无选项的题整体丢弃**），全部丢弃时回报参数错误；`MainWorkbench` 渲染侧再兜 `(q.options ?? [])`。旧形态除了 `q.options.map` 抛 TypeError 白屏，还会让「每题都要选」的提交按钮永远凑不满 → 弹窗卡死。未加 ErrorBoundary：根因 + 渲染兜底已闭环，通用边界会掩盖缺陷（与"不做静默兜底"取向不符）。回归锁 `tests/tools/exec.test.ts`（3 例） |
+| R-03 配置缺失时用户消息不落盘 | ✅ | `controller.send`/`sendIsolated` 的 `!cfg` 早退分支现在先 `withUserMessage(...)` + `saveSession` 再回报错误。旧行为：界面乐观气泡被 `setSession(res.session)` 整体替换，刚敲的整段 prompt 屏幕与磁盘两处皆无。回归锁 `tests/ai/controller.test.ts`（2 例：落盘断言 + 追加不覆盖） |
+| R-04 断流时未执行工具被序列化成空结果 | ✅ | `agent.runAgent` 的 streamError 分支补回填 `{"error":"流中断，工具未执行"}`（与中止路径同形态）。旧行为：`protocol.ts` 的 `result ?? ""` 让下一轮请求把"没执行"变成"成功返回空串"，模型可能据此声称已写入。回归锁 `tests/ai/agent.test.ts`（新增 1 例） |
+| R-05 伏笔统计标题被"统计"字样劫持 | ✅ | `tracking.ts` 的 `STATS_HEADING_RE` 由 `/^##\s*.*统计/` 收紧为**锚定** `/^##\s*伏笔统计/`。旧形态：任何含"统计"的标题（如条目标题 `## F010 统计口径待定`）会把其后所有 `- 键：值` 当自述消费，条目状态既不计数也不进 unclassified → 计数静默归零、核对功能失效。回归锁 `tests/store/tracking.test.ts`（新增 1 例） |
+| R-06 purgeItem 先删目录后写清单 | ✅ | `recycle.purgeItem` 改为**先写清单再动盘**，删除失败把条目放回（与 `moveToRecycle` 同一顺序纪律）。旧顺序在清单写失败时留下"目录已不在、彻底删除永远失败"的幽灵条目 |
+| R-07 savePrefs 不同步 bootInput | 🔶 | **复核结论：不是缺陷，不改代码**。复审称"内存目录被后续保存打回、磁盘仍是新值（内存/磁盘漂移）"——实测读码：`serializePrefs` 写入 KEY_MAP 全量键（不省略默认值），所以带空路径的保存会把磁盘也改回默认；保存路径派生用的是**本次 prefs**（`bootInput` 只提供 home/documents），内存与磁盘始终同源。用户显式清空路径时回落默认根本来就是正确语义。 |
+| R-08 handlePathsChange 未同步 formRef | ✅ | 按同文件 `handleResetSync` 的既定纪律（"必须立即同步，不能等下一轮渲染"）补 `formRef.current = next` + 清 dirty。复审描述的"防抖把新路径写回旧值"实测不成立（`[form]` effect 会补上、`savePrefs(next)` 直接用新值），属**加固**而非复现缺陷 |
+| R-09 叠层模态焦点被下层面板抢回 | ✅ | `useDialogFocus` 的 `prev` 改为**只在"从关到开"那一次**捕获（`useRef` + 上升沿），归还前判 `isConnected`。旧实现每次 effect 重跑都重抓 activeElement（叠层时抓到的是上层模态里的输入框），cleanup 归还即把焦点从上层的输入框抢回下层面板 |
+| R-10 挂边备忘录不随切作品重载 | ✅ | 加载 effect 依赖补 `project?.ref.root`。旧行为：挂边态 `open` 恒 true，切作品不重载 → 列表显示旧作品条目、新建却按新作品作用域落库 |
+| R-11 用量面板「今日」只读一次 | ✅ | 新增"会话累计变化即重读" + "每分钟核日期键、跨零点重读"两条路径。旧行为：面板钉住时今日数字停住、跨零点不归零 |
+| R-12 轮次上限两份文案 | ✅ | `agent.ts` 统一为一个 `roundsExceeded` 常量（回归锁同步改为逐字断言）。旧实现 emit 与 `RunResult.error` 各写一句，界面按事件先后覆盖 chatError，措辞会漂 |
+| R-13 落盘失败丢用量回执 | ✅ | `controller` 两处 `saveSession` 失败折算成 `SendResult`（带 usage + truncated），并仍尝试记一次统计；不再让 promise reject 掉回执 |
+| R-14 打包不停 release\ 交付副本 | ✅ | `package.ps1` 的进程过滤同时匹配 cargo 产物与 `release\DeepCompose.exe`（桌面快捷方式启动的就是后者）。旧过滤只匹配前者 → 第 [4/5] 步 `Copy-Item -Force` 报 "being used by another process" |
+| R-15 preview_shot 的"几何断言"未接线 | ✅ | 探针结果现在真的参与判定：app-shell 缺失 / 主题未生效 / 出现 backdrop-filter、渐变、filter:blur / 横向或纵向溢出 / 旧体系包裹层 → 计入 failures 并让退出码为 1（文档承诺与实现对齐，A-7 的后续） |
+| R-16 三个审计脚本"判不了当通过" | ✅ | `_style_audit` / `_contrast_audit` / `_a11y_check` 各补"一条都没量到 → return 2"，与 DEVELOPMENT §9.2 自己写的口径一致（旧行为：vite 没起/选择器全漂移时 `bad` 保持 0 → 报全清） |
+| R-17 novel_audit 结论自相矛盾 | ✅ | 实测输出同时打印"Inflation risks detected: 5"与"Novel skills are well-optimized"。低于行动阈值但确有检出时，改为如实汇报三档计数（"Below action threshold … monitor"），真为 0 才说 well-optimized |
+| R-18 skill_size_check 用标记数冒充密度 | ✅ | `[LOW-DENS:%]` 改按文档口径 `density < 40` 判；标记命中多但密度够时改用 `[FLUFF-MARKERS:n]`（实测旧输出 `[LOW-DENS:52%]`，而 52% 按 SKILL.md 是中间档） |
+| R-19 PRODUCT.md 宣称已删除的降级信号 | ✅ | 无障碍段改为"两个信号独立降级（reduced-motion / contrast: more）"，并写明 `prefers-reduced-transparency` 在新实色体系下没有降级对象、原分支已随玻璃体系删除，扁平度由 `_a11y_check` 的扁平度审计保证 |
+| R-20 DESIGN.md 禁止的 2px 边条仍在用 | ✅ | `app.css` 的 `.a-profile-row` 由 `border-left: 2px` 改 1px（左边距 +1px 保持文字对齐）。全目录 grep 后仅剩 `.st-save.unsaved` 的 `border-top: 2px dashed`（印章式指示，非列表彩色边条，判定为设计元素保留） |
+| R-21 before/after 对比图配方产不出输入 | ✅ | `docs/DEVELOPMENT.md` §9.3 与 `_compare_sheet.py` docstring 补 `--out shots\preview-before` / `--out shots\preview-after`（`preview_shot.py` 默认输出 `shots/preview`，与对比脚本要读的目录不同名 → 照抄是 0 张图且不报错） |
+| R-22 probe_win_style 的 WS_POPUP 恒判 no | ✅ | 掩码改 Int64 字面量 `0x80000000L`。PS 5.1 下无 L 后缀是 Int32(-2147483648)，与 Int64 样式做 -band 时符号扩展 → 真 popup 窗口也报 no |
+| R-23 e2e_live/capture 无 try/finally + 裸文件名崩 | ✅ | 两脚本主体包进 try/finally（异常也停掉自启进程）；`capture.ps1` 的裸 `-Out foo.png` 统一解析到 `shots\`（旧写法 `Split-Path -Parent` 拿空串 → `New-Item -Path ""` 在 Stop 语义下终止并漏进程） |
+| R-24 ds_probe 的 --only 不校验 | ✅ | argparse 加 `choices=[...]`（打错字 exit 2）。旧行为：`--only balanc` 零请求零输出却 exit 0，而它的输出被 DECISIONS 当 `[已实测]` 证据 |
+| R-25 文档口径三处不一致 | ✅ | AGENTS.md：退出码说明改为"0/1/2（含判不了的三类情形）"、`ModelCombo` 改注为"B11 起为只能点选的 `ModelSelect`，现码无此名"、交付流程补 tsc 闸门、基线改实测 456 例/34 文件；DECISIONS D-026 基线同步 456；README 打包行补 tsc |
+| R-26 token-optimizer 示例宣称 73 个技能 | ✅ | §1.2 输出示例标注"上游 V9 样本数据，非本应用实测"，并写明本应用内置 5 个；文末脚注同步（不再让模型复述"73 个技能实盘验证"） |
+| R-27 D-018 闲置阈值与代码不符 | ✅ | D-018 的"5 分钟"更正为 **45 秒**（与 `usage/view.ts` 的 `IDLE_AFTER_MS = 45_000` 及 D-031④ 一致），并写明更正缘由 |
+| R-28 tokens.css 注释与 DESIGN.md 冲突 | ✅ | 按 WCAG 公式实算：`#4d6bfe` 白字 4.33:1、88% 混黑 `#445ee0` 为 **5.35:1**（原注释写 6.5:1，错）→ 改为 5.35:1；圆角段"收到 8px"改为 10px（`--r-xl`，与 DESIGN.md 一致） |
+| R-29 `_a11y_check` 27 条假红（探针自欺） | ✅ | **我在验证阶段实测发现**：① 任何分组都跑一遍 stream 流程 → 空态探针的 `.cw-tip` 被自己发的消息顶掉、生成态探针的 `.streaming` 被 1.2s 等待耗掉（12 条恒 `__missing__`）② 无头 Edge 的 `prefers-reduced-motion` 默认就是 reduce，而 CSS 在 reduce 下把过渡压到 0.01ms → 过渡存活 15 条全红。修法：前置状态按 empty/chat/streaming 精确准备 + 生成态轮询；所有基准测量显式 `Emulation.setEmulatedMedia(DEFAULT_FEATURES)` 并断言 reduce 未命中（不成立报 TOOL-ERROR 且 exit 2）。修复后实测 **exit 0 全部通过** |
+| R-30 DEVELOPMENT 的 _style_audit 命令漏 about | ✅ | 文档命令改为不带 `--flows`（跑默认全集，含 A-1 刚修正的 about 第 6 项），或在收窄时显式列出 `…,about` |
+
+---
 **提交记录**：`603ef18` 基线保护 → `16c9a79` 批次1（tools/AI 核心：N-01/02/03/12/13/14/15/27/30 + B-1/B-4 核心侧）
 → `a825a37` 批次2（store/协议层：I-1/5/6/7/8/12、B-3、N-4/26/28/29/46/58）→ 批次3（Rust/文件桥：
-N-08/09/10/11/32/33/47/48/49/52，encoding_rs GBK 回退 + CSP + 链接语义统一）
+N-08/09/10/11/32/33/47/48/49/52，encoding_rs GBK 回退 + CSP + 链接语义统一）→ 批次4（设置屏：
+C-1~C-6、B-5、N-20/22/24/25）→ 批次5（工作台/模态：N-05/06/17/18/19/21/23/40/41/43/44/45、D-1~D-3、
+B-1/B-4/I-7/I-12 UI 接线）→ `f488fa2` 批次6（工具与脚本闸门：A-1/2/4/5/6/7、B-2、E-2/3、
+N-07/16/34/35/36/39/40/51/53/54/55/56）→ `625ef9a` 批次7（内置技能发布链路 + 协议层 +
+品牌/文档：A-3/8、E-1/4、I-2/3/4/9/10/11、F-2、N-16/31/37/38/42/50/57）→ 批次8（复审 30 条：
+R-01~R-30，见上表）

@@ -74,6 +74,8 @@ web
 
 ## Accessibility & Inclusion
 
-- `prefers-reduced-motion`（装饰动效无条件让路）、`prefers-reduced-transparency`、`prefers-contrast: more` 三个信号**各自独立**降级。
+- `prefers-reduced-motion`（装饰动效无条件让路）与 `prefers-contrast: more` 两个信号**各自独立**降级；
+  `prefers-reduced-transparency` 在新实色体系下**没有降级对象**——原分支随玻璃体系一并删除（见 `src/styles/surface.css` 的说明），
+  扁平度由 `tools/_a11y_check.py` 的扁平度审计持续保证（零 backdrop-filter / 零渐变 / 零 filter:blur）。
 - 键盘可达：`:focus-visible` 实心焦点环分两级（指针聚焦 vs 键盘聚焦）；模态有 Esc 退出与焦点接管（`useDialogFocus`）。
 - 中文界面（`lang="zh-CN"`），正文与路径必须可选中复制。

@@ -105,7 +105,10 @@ $flags = [ordered]@{
     "WS_MINIMIZEBOX"                      = 0x00020000
     "WS_CAPTION"                          = 0x00C00000
     "WS_SYSMENU"                          = 0x00080000
-    "WS_POPUP"                            = 0x80000000
+    # B12-8: 0x80000000 without the L suffix is an Int32 in Windows PowerShell 5.1
+    # (-2147483648); the -band against an Int64 style sign-extends it, so a real
+    # WS_POPUP window reported "no". Force the Int64 literal.
+    "WS_POPUP"                            = 0x80000000L
 }
 Write-Output ("style = 0x{0:X8}" -f $style)
 foreach ($k in $flags.Keys) {

@@ -82,6 +82,17 @@ if (-not ("E2E" -as [type])) { Add-Type -TypeDefinition $sig }
 $prefsDir = Join-Path $env:APPDATA "com.writerd\writerD"
 New-Item -ItemType Directory -Force -Path $prefsDir | Out-Null
 $prefsFile = Join-Path $prefsDir "shared_preferences.json"
+
+# N-07 (B12 batch 8 re-fix): back up the REAL prefs BEFORE any write. The batch-6
+# attempt put this block after the mock write, so the "backup" captured the mock
+# config and `finally` restored mock values over the user's live key -- the real
+# config was gone with no residue. Order matters: copy first, then overwrite.
+$backup = "$prefsFile.e2e-backup"
+if (Test-Path $prefsFile) {
+    Copy-Item $prefsFile $backup -Force
+    Write-Output "PREFS backed up -> $backup"
+}
+
 $prefs = @{
     "flutter.llm_base_url"          = "http://127.0.0.1:8899"
     "flutter.api_key"               = "mock-key"
@@ -111,16 +122,6 @@ if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $by
     Write-Output "PREFS BOM stripped"
 }
 Write-Output "PREFS -> $prefsFile"
-
-# N-07: back up the real prefs BEFORE overwriting. The old implementation rewrote
-# the user's live prefs into mock provider settings (key lost, endpoint pointed at
-# 127.0.0.1:8899) and never restored them. The backup is restored in `finally`
-# unconditionally (success / failure / mid-run exception alike).
-$backup = "$prefsFile.e2e-backup"
-if (Test-Path $prefsFile) {
-    Copy-Item $prefsFile $backup -Force
-    Write-Output "PREFS backed up -> $backup"
-}
 
 try {
 

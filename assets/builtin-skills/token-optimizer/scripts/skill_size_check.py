@@ -207,8 +207,15 @@ def main():
             if hidden > 10240:
                 hidden_flag = " [HIDDEN:{:.0f}KB]".format(hidden / 1024)
             density_flag = ""
-            if fluff >= 3:
+            # B12-8: SKILL.md defines "low density" as actionable-line ratio < 40%,
+            # but this flag used to fire on fluff-marker *count* (>=3) while printing
+            # a percentage -- measured output claimed "[LOW-DENS:52%]" (52% is the
+            # mid band per the docs). Judge the documented threshold; marker count
+            # gets its own honest label.
+            if density < 40:
                 density_flag = " [LOW-DENS:{:.0f}%]".format(density)
+            elif fluff >= 3:
+                density_flag = " [FLUFF-MARKERS:{}]".format(fluff)
             print("      {:<35} {:.0f}KB = MD:{:.0f} + REF:{:.0f} + SC:{:.0f}{}{}".format(
                 name, total / 1024, md_sz / 1024, ref_sz / 1024, sc_sz / 1024,
                 hidden_flag, density_flag))
