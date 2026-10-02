@@ -98,6 +98,14 @@ def main():
     themes = [t.strip() for t in args.themes.split(",") if t.strip()]
     flows = [f.strip() for f in args.flows.split(",") if f.strip()]
 
+    # N-51：未知 flow 名旧实现直接 FLOWS[flow] KeyError 崩掉（栈 traceback
+    # 而不是人话）。启动即校验并列出可用名。
+    unknown = [f for f in flows if f not in FLOWS]
+    if unknown:
+        print("未知 flow 名: %s" % ", ".join(unknown))
+        print("可用 flow 名: %s" % ", ".join(sorted(FLOWS)))
+        return 2
+
     c = CDP(args.port)
     all_bare = {}
     for theme in themes:
@@ -131,7 +139,10 @@ def main():
     for sel, where in sorted(all_bare.items(), key=lambda kv: -len(kv[1])):
         locs = sorted(set(where))
         print("  %-46s 出现在: %s" % (sel, ", ".join(locs[:6]) + (" …" if len(locs) > 6 else "")))
+    # E-3：与 _a11y_check/_contrast_audit 同口径 —— 有问题必须以非零退出，
+    # 否则并列的"审计闸门"里它永远全绿
+    return 1 if all_bare else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

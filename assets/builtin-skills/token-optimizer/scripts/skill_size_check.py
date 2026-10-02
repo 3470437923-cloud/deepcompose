@@ -135,7 +135,7 @@ def main():
     print()
 
     if not require_skills_dir():
-        return
+        sys.exit(2)  # N-34：与 token_audit 同口径——目录缺失是可预期失败，退出码 2
 
     skills = []
     for name in sorted(os.listdir(SKILLS_DIR)):

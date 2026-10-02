@@ -42,8 +42,9 @@ def dir_size(path):
     for root, dirs, files in os.walk(path):
         for f in files:
             fp = os.path.join(root, f)
+            # N-56：裸 except 连 KeyboardInterrupt/SystemExit 一起吞，改窄
             try: total += os.path.getsize(fp)
-            except: pass
+            except OSError: pass
     return total
 
 print("=== Token Audit V9 - Full Directory Scan ===")
@@ -67,7 +68,7 @@ for name in os.listdir(SKILLS_DIR):
     try:
         with open(sf, 'r', encoding='utf-8', errors='ignore') as f:
             head = f.read(2000).lower()
-    except:
+    except OSError:
         head = ""
     
     cat = "other"
@@ -126,10 +127,17 @@ print(f"  Categories: {cats}")
 print()
 
 # Self-check
+# N-35：自检段假定 skills 根里必有 token-optimizer —— 审计自定义目录
+#（--skills-dir 指向别处）时 os.path.getsize 直接 FileNotFoundError，
+# 前面全部输出作废。目录不存在就明说并跳过，不当"必崩"处理。
 self_d = os.path.join(SKILLS_DIR, "token-optimizer")
-self_md = os.path.getsize(os.path.join(self_d, "SKILL.md"))
-self_sc = dir_size(os.path.join(self_d, "scripts"))
-self_total = self_md + self_sc
-print(f"  TO self-cost: {kb(self_total)} KB (~{self_total//4} tokens)")
+self_sf = os.path.join(self_d, "SKILL.md")
+if os.path.isfile(self_sf):
+    self_md = os.path.getsize(self_sf)
+    self_sc = dir_size(os.path.join(self_d, "scripts"))
+    self_total = self_md + self_sc
+    print(f"  TO self-cost: {kb(self_total)} KB (~{self_total//4} tokens)")
+else:
+    print("  TO self-cost: (token-optimizer not in this skills root, skipped)")
 print()
 print("Done.")

@@ -68,8 +68,15 @@ public class E2E {
 '@
 if (-not ("E2E" -as [type])) { Add-Type -TypeDefinition $sig }
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Sleep -Milliseconds 500
+# N-16: only clear leftovers running THIS script's -Exe path -- never kill by
+# name, which would take down other DeepCompose instances the user has open.
+$exePath = if (Test-Path $Exe) { (Get-Item $Exe).FullName } else { $null }
+if ($exePath) {
+    Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -eq $exePath } |
+        Stop-Process -Force
+    Start-Sleep -Milliseconds 500
+}
 $proc = Start-Process $Exe -PassThru
 Start-Sleep -Seconds $WaitSec
 $proc.Refresh()
@@ -117,5 +124,6 @@ $bmp.Save($Out, [System.Drawing.Imaging.ImageFormat]::Png)
 $bmp.Dispose()
 Write-Output "SAVED $Out"
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | Stop-Process -Force
+# N-16: stop only the process we started (see note above)
+if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
 Write-Output "CLOSED"

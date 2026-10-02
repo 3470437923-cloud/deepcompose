@@ -10,10 +10,12 @@
 用法：
     python tools/_css_coverage.py    # 需要 git 命令行可用
 
+退出码（E-3 统一口径）：0 = 通过；1 = 有漏项；2 = 基线丢失（旧 CSS 已不在
+HEAD 上，对比无从谈起——是重构窗口期的一次性验收工具，不是常驻检查）。
+**基线丢失绝不能当"通过"退出**：旧脚本此时静默给出"旧有新无 0 项"，
+看起来全绿，其实什么都没比。
+
 已知坑：
-    - "旧 CSS"取自 `git show HEAD:src/styles/<file>`：重构一旦提交，HEAD 上
-      不再有这三个旧文件，git show 返回空/报错，本脚本失去对比基线——它是
-      重构窗口期的一次性验收工具，不是常驻检查。
     - className={...} 表达式已剔除比较操作数（见下方行内注释），但更复杂的
       模板串拼接仍可能漏提或误提类名。
     - 仓库根目录从本脚本位置推导（tools/ 的上一级），不再写死盘符路径。
@@ -21,6 +23,7 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = str(Path(__file__).resolve().parent.parent)
@@ -39,12 +42,25 @@ def git_show(path):
         ["git", "-C", ROOT, "show", "HEAD:" + path],
         capture_output=True,
     )
-    return out.stdout.decode("utf-8", "replace")
+    return out.returncode, out.stdout.decode("utf-8", "replace")
 
 
 old = set()
+baseline_missing = []
 for p in ("src/styles/app.css", "src/styles/glass.css", "src/styles/tokens.css"):
-    old |= tokens_of(git_show(p))
+    rc, text = git_show(p)
+    if rc != 0 or not text.strip():
+        # A-4：HEAD 上已没有这个旧文件 —— 记下来而不是把空串当基线
+        baseline_missing.append(p)
+        continue
+    old |= tokens_of(text)
+
+if baseline_missing:
+    print("基线丢失（HEAD 上已无旧 CSS，本脚本失去对比对象）：")
+    for p in baseline_missing:
+        print("   %s" % p)
+    print("仍可参考的旧 token 数: %d" % len(old))
+    sys.exit(2)
 
 new = set()
 for name in sorted(os.listdir(STYLES)):
@@ -93,3 +109,9 @@ unused = sorted(new - old - tsx)
 print("\n-- 新 CSS 定义但无人引用（%d，新增设施或冗余）--" % len(unused))
 for t in unused:
     print("   .%s" % t)
+
+# E-3：漏项必须以非零退出码收尾 —— 这脚本曾被当闸门用，但它从来
+# 不设退出码，"有漏项"和"全通过"在外部看来一模一样。
+if missing_old or missing_jsx:
+    sys.exit(1)
+sys.exit(0)

@@ -41,15 +41,13 @@ THEMES = ["dark", "light", "dsblue"]
 SIZES = [(1600, 1000), (1280, 800), (1024, 700)]
 
 # Runs in the page: returns a JSON string of everything we want asserted.
+# A-7：旧探针整套在测玻璃时代的选择器（.glass/.grain/.ambient .orb/--bg-base），
+# 实色体系重构后这些类全部不存在 —— 探测恒空、结果静默无效。现在改为
+# 断言**当前体系的不变量**：零 backdrop-filter、零渐变、零 filter:blur()，
+# 与 _a11y_check.py 的扁平度审计同口径（这里的样本是单帧几何，那边更全面）。
 PROBE = r"""
 (() => {
   const q = (s) => document.querySelector(s);
-  const glass = Array.prototype.slice.call(document.querySelectorAll('.glass'));
-  const blurOf = (el) => {
-    const b = getComputedStyle(el).backdropFilter || getComputedStyle(el).webkitBackdropFilter;
-    return b && b !== 'none' ? b : null;
-  };
-  const withBlur = glass.filter((el) => blurOf(el)).length;
   const de = document.documentElement;
   const app = q('.app-shell');
   const r = app ? app.getBoundingClientRect() : null;
@@ -58,18 +56,24 @@ PROBE = r"""
   const menu = q('.sess-menu');
   const mr2 = menu ? menu.getBoundingClientRect() : null;
   const sitems = Array.prototype.slice.call(document.querySelectorAll('.sess-item'));
-  const orbs = Array.prototype.slice.call(document.querySelectorAll('.ambient .orb'));
+  // 扁平度不变量：整屏（含伪元素）不允许玻璃/渐变/模糊
+  let backdropBlur = 0, gradients = 0, filterBlur = 0;
+  for (const el of document.querySelectorAll('*')) {
+    for (const pseudo of [null, '::before', '::after']) {
+      const s = getComputedStyle(el, pseudo || undefined);
+      const bf = s.backdropFilter || s.webkitBackdropFilter;
+      if (bf && bf !== 'none') backdropBlur++;
+      if (/gradient/.test(s.backgroundImage || '')) gradients++;
+      if (/blur\(/.test(s.filter || '')) filterBlur++;
+    }
+  }
   return JSON.stringify({
     theme: de.dataset.theme || null,
     hasAppShell: !!app,
-    orbs: orbs.length,
-    orbOpacity: orbs.length ? getComputedStyle(orbs[0]).backgroundColor : null,
-    grain: !!q('.grain'),
-    glassCount: glass.length,
-    glassWithBlur: withBlur,
-    blurSample: glass.length ? blurOf(glass[0]) : null,
+    backdropBlur: backdropBlur,
+    gradients: gradients,
+    filterBlur: filterBlur,
     accent: getComputedStyle(de).getPropertyValue('--accent').trim(),
-    bgBase: getComputedStyle(de).getPropertyValue('--bg-base').trim(),
     docScrollW: de.scrollWidth, docClientW: de.clientWidth,
     docScrollH: de.scrollHeight, docClientH: de.clientHeight,
     overflowX: de.scrollWidth > de.clientWidth + 1,
@@ -185,7 +189,9 @@ def main():
     if args.clicks:
         clicks = [s for s in args.clicks.split(",") if s.strip()]
     elif args.view == "settings":
-        clicks = [".wbtn"]           # 标题栏第一个 .wbtn 即齿轮（设置）
+        # A-6：按 title 精确点齿轮 —— "第一个 .wbtn" 依赖 DOM 顺序，进了
+        # 设置屏后第一个 .wbtn 是「最小化」，跨屏复用会点错窗口按钮。
+        clicks = ['button.wbtn[title="设置"]']
     else:
         clicks = []
     label = args.label or args.view
@@ -243,9 +249,9 @@ def main():
                 row["shot"] = path
                 row["shotBytes"] = c.shot(path)
             report["runs"].append(row)
-            print("%-7s %-9s -ok  glass=%d blur=%d ovX=%s ovY=%s gap=%s winH=%s accent=%s"
-                  % (theme, "%dx%d" % (w, h), probe["glassCount"], probe["glassWithBlur"],
-                     probe["overflowX"], probe["overflowY"], probe["bottomGap"],
+            print("%-7s %-9s -ok  blur=%d grad=%d filt=%d ovX=%s ovY=%s gap=%s winH=%s accent=%s"
+                  % (theme, "%dx%d" % (w, h), probe["backdropBlur"], probe["gradients"],
+                     probe["filterBlur"], probe["overflowX"], probe["overflowY"], probe["bottomGap"],
                      (probe.get("winRect") or {}).get("h"), probe["accent"]))
 
     with open(os.path.join(outdir, "probe-report.json"), "w", encoding="utf-8") as fh:

@@ -38,13 +38,14 @@ function memFs(dirs: Record<string, string>): FsBridge {
         .filter((d) => d.startsWith(root + "\\"))
         .map((d) => {
           const name = d.slice(root.length + 1);
-          return { name, rel: name, path: d, isDir: true, size: 0, mtimeMs: 0 };
+          return { name, rel: name, path: d, isDir: true, isLink: false, size: 0, mtimeMs: 0 };
         });
     },
     async writeText() {},
     async appendText() {},
     async mkdir() {},
     async remove() {},
+    async removeChild() {},
     async rename() {},
     async copy() {},
     async stat() {
