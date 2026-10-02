@@ -127,15 +127,41 @@ export function parseSession(text: string): SessionFile | null {
   }
 }
 
-/** 解析索引：损坏/非对象 → 空索引（列表页永不因索引损坏而崩） */
+/** 索引条目字段级容错（与 parseSession 同口径）：类型不符的字段回落默认值，
+ *  非对象条目整条丢弃 —— 索引被外部写坏（projectPath 是数字/null 等）时，
+ *  不能让 samePath 的字符串假设在删除流程里抛 TypeError。 */
+function normalizeIndexEntry(v: unknown): SessionIndexEntry | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const e = v as Record<string, unknown>;
+  const num = (x: unknown): number => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  return {
+    title: typeof e.title === "string" ? e.title : "",
+    projectPath: typeof e.projectPath === "string" ? e.projectPath : "",
+    createdAt: typeof e.createdAt === "string" ? e.createdAt : "",
+    updatedAt: typeof e.updatedAt === "string" ? e.updatedAt : "",
+    userMessageCount: Math.max(0, Math.floor(num(e.userMessageCount))),
+    size: Math.max(0, num(e.size)),
+    mtimeMs: Math.max(0, num(e.mtimeMs)),
+  };
+}
+
+/** 解析索引：损坏/非对象 → 空索引；条目逐条字段级容错（列表页永不因索引损坏而崩） */
 export function parseIndex(text: string): SessionIndex {
   try {
     const raw: unknown = JSON.parse(text);
     if (raw && typeof raw === "object") {
       const o = raw as Partial<SessionIndex>;
+      const sessions: Record<string, SessionIndexEntry> = {};
+      const src = o.sessions;
+      if (src && typeof src === "object" && !Array.isArray(src)) {
+        for (const [id, e] of Object.entries(src as Record<string, unknown>)) {
+          const entry = normalizeIndexEntry(e);
+          if (entry) sessions[id] = entry;
+        }
+      }
       return {
         version: typeof o.version === "number" ? o.version : SESSION_INDEX_VERSION,
-        sessions: (o.sessions as Record<string, SessionIndexEntry>) ?? {},
+        sessions,
       };
     }
   } catch {
@@ -184,6 +210,9 @@ export async function saveSession(fs: FsBridge, sessionsDir: string, s: SessionF
     const body = JSON.stringify(s);
     await fs.writeText(sessionFile(sessionsDir, s.id), body);
     const index = await loadIndex(fs, sessionsDir);
+    // 索引写失败时的孤儿防护：**新**会话已在盘上但索引无条目 → 列表永远看不到它，
+    // 回滚掉刚写的文件（已有会话不滚 —— 那会连历史版本一起毁掉）。
+    const isNew = !(s.id in index.sessions);
     const st = await fs.stat(sessionFile(sessionsDir, s.id));
     index.sessions[s.id] = {
       title: s.title,
@@ -194,7 +223,18 @@ export async function saveSession(fs: FsBridge, sessionsDir: string, s: SessionF
       size: new TextEncoder().encode(body).length,
       mtimeMs: st?.mtimeMs ?? Date.now(),
     };
-    await saveIndex(fs, sessionsDir, index);
+    try {
+      await saveIndex(fs, sessionsDir, index);
+    } catch (e) {
+      if (isNew) {
+        try {
+          await fs.remove(sessionFile(sessionsDir, s.id), false);
+        } catch {
+          // 回滚失败不再掩盖原始的索引写错误
+        }
+      }
+      throw e;
+    }
     return index;
   });
 }
@@ -272,6 +312,8 @@ export async function deleteSessionsForProject(
  */
 export function listSessions(index: SessionIndex, projectPath?: string | null): SessionListEntry[] {
   const out: SessionListEntry[] = Object.entries(index.sessions).map(([id, e]) => ({ id, ...e }));
-  const filtered = projectPath ? out.filter((e) => e.projectPath === projectPath) : out;
+  // 过滤口径与 deleteSessionsForProject 一致（samePath：大小写不敏感、分隔符统一）——
+  // 严格相等会在路径风格不一致时过滤不出会话，而删除又能匹配上，留下孤儿会话（B-3）
+  const filtered = projectPath ? out.filter((e) => samePath(e.projectPath, projectPath)) : out;
   return filtered.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
 }

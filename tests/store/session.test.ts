@@ -191,4 +191,37 @@ describe("listSessions", () => {
     };
     expect(listSessions(tie).map((e) => e.id)).toEqual(["x", "y"]);
   });
+
+  it("过滤口径与删除一致：路径大小写/分隔符不同也能列出（B-3 回归锁）", () => {
+    // 修复前 listSessions 用严格相等、deleteSessionsForProject 用 samePath：
+    // 大小写不一致时列表过滤不出、删除却能匹配，留下孤儿会话
+    const mixed: SessionIndex = {
+      version: 1,
+      sessions: {
+        a: entry("甲", "C:\\Books\\作品A", "2026-05-21T10:00:00.000000"),
+      },
+    };
+    expect(listSessions(mixed, "c:\\books\\作品A").map((e) => e.id)).toEqual(["a"]);
+    expect(listSessions(mixed, "C:/Books/作品A/").map((e) => e.id)).toEqual(["a"]);
+  });
+});
+
+describe("parseIndex 字段级容错", () => {
+  it("脏条目字段回落默认值；非对象条目整条丢弃（N-29 回归锁：samePath 不再撞 TypeError）", () => {
+    const idx = parseIndex(
+      JSON.stringify({
+        version: 1,
+        sessions: {
+          good: { title: "好", projectPath: "P1", updatedAt: "2026-05-21T10:00:00.000000" },
+          dirty: { title: 1, projectPath: 42, updatedAt: null, mtimeMs: "x" },
+          junk: "not-an-object",
+        },
+      }),
+    );
+    expect(Object.keys(idx.sessions).sort()).toEqual(["dirty", "good"]);
+    expect(idx.sessions.dirty.projectPath).toBe("");
+    expect(idx.sessions.dirty.mtimeMs).toBe(0);
+    // 过滤与排序对脏数据不再抛
+    expect(() => listSessions(idx, "P1")).not.toThrow();
+  });
 });

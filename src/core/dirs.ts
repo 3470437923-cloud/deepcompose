@@ -36,10 +36,21 @@ export const PROJECT_DIRS = {
   recycleManifest: "recycle_manifest.json",
 } as const;
 
-/** 系统级条目（左栏目录树与内容扫描一律排除；'.' 开头同样视为系统）。
+/** 系统级条目的判定规则表（**单一真源**：新增系统文件/目录时只在这里加一条，
+ *  左栏目录树、内容扫描、回收站安全门全部走这张表，不再各写一份判定）。
  *  注意："writerd_" 前缀与 recycle_manifest.json 是磁盘契约判定，不可改名。 */
+const SYSTEM_ENTRY_RULES: readonly { test: (name: string) => boolean; why: string }[] = [
+  // '.' 开头：隐藏条目（含 .openwrite_recycle / .openwrite_manifest.json 两种身份文件）
+  { test: (n) => n.startsWith("."), why: "隐藏条目（.openwrite_* 等）" },
+  // writerd_ 前缀：应用数据（writerd_oplog 等，磁盘契约）
+  { test: (n) => n.startsWith("writerd_"), why: "应用数据前缀（磁盘契约）" },
+  // 回收站清单：位于回收站根、不带前缀的普通文件名，必须单列
+  { test: (n) => n === PROJECT_DIRS.recycleManifest, why: "回收站清单（磁盘契约）" },
+];
+
+/** 系统级条目（左栏目录树与内容扫描一律排除；判定规则见 SYSTEM_ENTRY_RULES） */
 export function isSystemEntryName(name: string): boolean {
-  return name.startsWith(".") || name.startsWith("writerd_") || name === PROJECT_DIRS.recycleManifest;
+  return SYSTEM_ENTRY_RULES.some((r) => r.test(name));
 }
 
 /** 应用数据与配置的固定目录/文件名（磁盘契约：writerd_* 前缀、com.writerd\writerD、
@@ -145,10 +156,12 @@ export function dirname(path: string): string {
  * toLowerCase 对个别 Unicode 字符（如 'İ'）会变长，拿小写长度切片会错位。
  */
 export function relative(base: string, target: string): string | null {
+  // 比较前先把 '/' 归一为 '\'：与本模块 basename/dirname/join 接受两种分隔符的口径一致，
+  // 混合分隔符输入（如 base 用 '\'、target 用 '/'）不该被误判成"不在 base 内"
   const bRaw = base.replace(/[\\/]+$/, "");
-  const b = bRaw.toLowerCase();
+  const b = bRaw.replace(/\//g, "\\").toLowerCase();
   const t = target.replace(/[\\/]+$/, "");
-  const tl = t.toLowerCase();
+  const tl = t.replace(/\//g, "\\").toLowerCase();
   if (tl === b) return "";
   if (!tl.startsWith(b + "\\")) return null;
   return t.slice(bRaw.length + 1);

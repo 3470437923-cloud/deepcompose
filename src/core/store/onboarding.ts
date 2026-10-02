@@ -72,18 +72,27 @@ const CORE_FIELD_MAP: { key: keyof OnboardingAnswers; label: string }[] = [
   { key: "conflict", label: "核心冲突与结局方向" },
 ];
 
+/** 正则转义（字段标签进 RegExp 前必须过一遍） */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /**
  * 把模板 content 里 `- {label}：待填写` 这一行替换为 `- {label}：{value}`（只动第一处）。
  * 多行答案压成一行（模板字段是一行一条；换行用「；」接上，不破坏行结构）。
+ * 匹配按**整行锚定**（^…$）：模板正文若在叙述句里恰好包含该串，不会被误填。
+ * 答案里的字面 `{书名}` 转成全角 `｛书名｝`：覆盖内容落盘前还要过 renderTemplate，
+ * 不转义会被二次替换成作品名 —— 用户写的就是字面量，不该被静默改写。
  * value 为空或该行不存在时原样返回 —— 宁可不填，不硬塞。
  */
 export function fillTemplateField(content: string, label: string, value: string): string {
-  const v = value.trim().replace(/\s*\r?\n\s*/g, "；");
+  const v = value.trim().replace(/\s*\r?\n\s*/g, "；").replace(/\{书名\}/g, "｛书名｝");
   if (v === "") return content;
   const line = `- ${label}：待填写`;
-  const i = content.indexOf(line);
-  if (i < 0) return content;
-  return `${content.slice(0, i)}- ${label}：${v}${content.slice(i + line.length)}`;
+  const re = new RegExp(`^${escapeRegExp(line)}[ \\t]*$`, "m");
+  const m = re.exec(content);
+  if (!m) return content;
+  return `${content.slice(0, m.index)}- ${label}：${v}${content.slice(m.index + m[0].length)}`;
 }
 
 /**

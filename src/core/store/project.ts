@@ -25,7 +25,7 @@ import {
   recycleRoot,
 } from "../dirs";
 import { parseManifest, serializeManifest, type ProjectManifest } from "./manifest";
-import { compareChapterFiles, stripMd } from "./chapter";
+import { compareChapterFiles, parseChapterName, stripMd } from "./chapter";
 import { DOC_TEMPLATES, renderTemplate } from "./templates";
 import { childNameProblem } from "./names";
 
@@ -165,6 +165,11 @@ export interface ContentNode {
   size: number;
   mtimeMs: number;
   children: ContentNode[];
+  /**
+   * 该目录的子树因深度上限被截断（I-7：不再静默消失，界面须给出可见标记）。
+   * 仅目录节点可能出现；未截断时字段缺省。
+   */
+  truncated?: boolean;
 }
 
 /** 目录树排序：已知内容目录按固定次序在前，其余按名称；文件按类别排序 */
@@ -191,14 +196,16 @@ function compareNodes(a: ContentNode, b: ContentNode, parentRel: string): number
 /**
  * 递归构建作品内容树（左栏数据源）。
  * 排除系统条目（.openwrite_* / writerd_* / recycle_manifest.json，见 isSystemEntryName）；
- * 深度上限 maxDepth 层（作品根直接子级为第 1 层）——同时防御异常嵌套与
+ * 深度上限 maxDepth 层（作品根直接子级为第 1 层，默认 10）——防御异常嵌套与
  * 符号链接成环：即使目录互相链接，递归也会在深度上限处截断，不会无限展开。
+ * 截断**不再静默**：被截断的目录节点带 truncated:true，界面必须给出可见标记（I-7），
+ * 用户不会再以为深层文件丢了。
  * fs.list 对不存在/不可读的目录返回 []，残缺作品不会抛错。
  */
 export async function buildContentTree(
   fs: FsBridge,
   projectRoot: string,
-  maxDepth = 4,
+  maxDepth = 10,
 ): Promise<ContentNode[]> {
   const walk = async (dir: string, rel: string, depth: number): Promise<ContentNode[]> => {
     if (depth > maxDepth) return [];
@@ -208,6 +215,7 @@ export async function buildContentTree(
       if (isSystemEntryName(e.name)) continue;
       const childRel = rel === "" ? e.name : join(rel, e.name);
       if (e.isDir) {
+        const atLimit = depth + 1 > maxDepth;
         nodes.push({
           name: e.name,
           rel: childRel,
@@ -215,7 +223,11 @@ export async function buildContentTree(
           isDir: true,
           size: 0,
           mtimeMs: e.mtimeMs,
-          children: await walk(e.path, childRel, depth + 1),
+          children: atLimit ? [] : await walk(e.path, childRel, depth + 1),
+          // 下一层会被深度上限截掉 → 给本目录打截断标记（只有真有内容被藏时才打）
+          ...(atLimit && (await fs.list(e.path)).some((x) => !isSystemEntryName(x.name))
+            ? { truncated: true }
+            : {}),
         });
       } else {
         nodes.push({
@@ -331,14 +343,121 @@ export async function writeProjectFile(fs: FsBridge, path: string, content: stri
   await fs.writeText(path, content);
 }
 
-/** 是否为受管作品：以作品清单 .openwrite_manifest.json 的存在为准（仅目录存在不算） */
+/**
+ * 是否为受管作品。判据与 scanBooksRoot / loadProject 的可见性口径统一（I-1）：
+ * 清单 .openwrite_manifest.json 存在 → 受管；清单缺失但内容目录（小说资料/章节内容）
+ * 存在 → 同样算受管（手工建目录/旧版产物的"半受管"作品，能列出能打开，就不能在
+ * 删除/打开判定时又说它不存在）。
+ */
 export async function projectExists(fs: FsBridge, root: string): Promise<boolean> {
-  return fs.exists(projectManifestFile(root));
+  if (await fs.exists(projectManifestFile(root))) return true;
+  return (await fs.exists(projectDocsDir(root))) || (await fs.exists(projectChaptersDir(root)));
 }
+
+/** 附加文档登记（I-6）：14 件套之外、既有作品中真实存在并被工作流引用的文档。
+ *  createProject 不生成（它们不是每本书都必须的），但校验与文档以此清单为准，
+ *  不再"存在于作品中却在代码里没有任何登记"。 */
+export const KNOWN_EXTRA_DOCS: readonly { name: string; why: string }[] = [
+  { name: "世界观.md", why: "世界观设定长文（超出 02-核心设定 字段容量的部分）" },
+  { name: "写作禁忌.md", why: "作者禁忌清单（年代错误/题材红线等，供起草与审读核对）" },
+  { name: "风格规范.md", why: "文风与措辞规范（人称/视角/句式偏好）" },
+] as const;
 
 /** 作品回收站根（作品根级，保持既有格式） */
 export function booksRecycleRoot(booksRoot: string): string {
   return recycleRoot(booksRoot);
+}
+
+// ────────────────────────────── 作品校验（I-12） ──────────────────────────────
+
+/** 一条校验发现 */
+export interface ProjectIssue {
+  /** error = 影响正常使用（文件读不出/清单损坏）；warn = 结构不完整；info = 提示 */
+  level: "error" | "warn" | "info";
+  /** 机器可读的检查名（稳定字符串，测试按它断言） */
+  check: string;
+  /** 人话描述（界面直接展示） */
+  message: string;
+}
+
+/**
+ * 作品结构校验（I-12：把外部内容放进作品根之后，软件第一次有了"看一看"的入口）。
+ * **只读不判**的纪律不变：本函数只报告、不修复、不补建任何文件。
+ * 覆盖：清单存在性与可解析性、基础目录、14 件套、章节文件可读性与编号连续性。
+ */
+export async function validateProject(fs: FsBridge, projectRoot: string): Promise<ProjectIssue[]> {
+  const issues: ProjectIssue[] = [];
+  const st = await fs.stat(projectRoot);
+  if (!st || !st.isDir) {
+    return [{ level: "error", check: "root-missing", message: `作品目录不存在：${projectRoot}` }];
+  }
+
+  // 清单：缺失 → 半受管警告；损坏 → error（loadProject 会按空清单容错，但用户该知道）
+  const manifestPath = projectManifestFile(projectRoot);
+  if (!(await fs.exists(manifestPath))) {
+    issues.push({
+      level: "warn",
+      check: "manifest-missing",
+      message: "缺少作品清单 .openwrite_manifest.json（半受管状态：能列出，但显示名/排序等受管信息缺失）",
+    });
+  } else {
+    try {
+      const m = parseManifest(await fs.readText(manifestPath));
+      if (m.version !== 1) {
+        issues.push({ level: "info", check: "manifest-version", message: `清单版本为 ${m.version}（当前协议版本 1）` });
+      }
+    } catch {
+      issues.push({ level: "error", check: "manifest-unreadable", message: "作品清单无法读取（非 UTF-8 或已损坏）" });
+    }
+  }
+
+  // 基础目录
+  for (const [dir, label] of [
+    [projectDocsDir(projectRoot), "小说资料"],
+    [projectChaptersDir(projectRoot), "章节内容"],
+    [projectPendingDir(projectRoot), "待确认"],
+  ] as const) {
+    const d = await fs.stat(dir);
+    if (!d || !d.isDir) issues.push({ level: "warn", check: "dir-missing", message: `缺少基础目录：${label}` });
+  }
+
+  // 14 件套（只报告缺失，不补建）
+  const docsDir = projectDocsDir(projectRoot);
+  const docNames = new Set((await fs.list(docsDir)).filter((e) => !e.isDir).map((e) => e.name));
+  const missing = DOC_TEMPLATES.filter((t) => !docNames.has(t.name)).map((t) => t.name);
+  if (missing.length > 0) {
+    issues.push({
+      level: "info",
+      check: "templates-missing",
+      message: `14 件套缺 ${missing.length} 份：${missing.slice(0, 3).join("、")}${missing.length > 3 ? " 等" : ""}`,
+    });
+  }
+
+  // 章节：文件必须可读（非 UTF-8 会在编辑回路里炸）；编号只报告断档，不判对错
+  const chapters = await listChapters(fs, projectRoot);
+  for (const c of chapters) {
+    try {
+      await fs.readText(c.path);
+    } catch {
+      issues.push({ level: "error", check: "chapter-unreadable", message: `章节文件无法按 UTF-8 读取：${c.name}（可能是 GBK/UTF-16 旧稿）` });
+    }
+  }
+  const nos = chapters
+    .map((c) => parseChapterName(stripMd(c.name))?.no)
+    .filter((n): n is number => typeof n === "number")
+    .sort((a, b) => a - b);
+  for (let i = 1; i < nos.length; i++) {
+    if (nos[i] === nos[i - 1]) {
+      issues.push({ level: "warn", check: "chapter-duplicate", message: `章号重复：第${nos[i]}章` });
+    } else if (nos[i] > nos[i - 1] + 1) {
+      issues.push({
+        level: "info",
+        check: "chapter-gap",
+        message: `章节编号断档：第${nos[i - 1]}章 → 第${nos[i]}章`,
+      });
+    }
+  }
+  return issues;
 }
 
 /**
