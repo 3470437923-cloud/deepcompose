@@ -8,8 +8,9 @@
 
 const q = new URLSearchParams(location.search);
 const THEME = (q.get("theme") === "light" || q.get("theme") === "dsblue") ? q.get("theme") : "dark";
-// 故障注入：?fail=prefs 让 prefs_load 抛错，用于验证「配置未加载」兜底页；
-// 真的 IPC 失败也是 rejected promise，形态一致
+// 故障注入：?fail=prefs 让 prefs_load 抛错 —— 抛错走 boot() 的失败路径，
+// 屏显的是 MainWorkbench 的「启动失败」屏（C-6：设置屏的「配置未加载」兜底页已随死代码删除，
+// 不再有第二个故障形态）
 const FAIL = q.get("fail") || "";
 
 const HOME = "C:\\Users\\Preview";

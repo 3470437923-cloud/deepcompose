@@ -31,13 +31,13 @@
 | B-2 package.ps1 跳过 tsc | ⬜ | |
 | B-3 会话列表/删除路径口径不同 | ✅ | 批次2：listSessions 改用 samePath（含回归测试） |
 | B-4 冷读不跟会话级思考档位 | ✅ | 批次1：IsolatedSendOptions.thinking + providerOf 传档（UI 传参在批次3） |
-| B-5 contextLimit/reservedOutputTokens 无上界 | ⬜ | |
-| C-1 API Key 边输边发+落盘 | ⬜ | |
-| C-2 SkillSection 绕过 dirty/save | ⬜ | |
-| C-3 Row/GroupHead 组件体重定义 | ⬜ | |
-| C-4 ThemeSection flash 死代码 | ⬜ | |
-| C-5 Ctrl+S 无条件 preventDefault | ⬜ | |
-| C-6 !boot 兜底分支不可达 | ⬜ | |
+| B-5 contextLimit/reservedOutputTokens 无上界 | ✅ | 批次4：NumInput 统一钳制（context 1–4096K、reserved 1–384K、maxOutput 1–384K、toolRound 1–50） |
+| C-1 API Key 边输边发+落盘 | ✅ | 批次4：自动检测只对「未动过的 Key」放行（stableKeyRef）；半截 Key 不再发上游，手动检测不受限 |
+| C-2 SkillSection 绕过 dirty/save | ✅ | 批次4：父级 toggleSkill 统一管道（改 form+formRef 同步、立即落盘最新表单、失败重新置脏） |
+| C-3 Row/GroupHead 组件体重定义 | ✅ | 批次4：提为模块级 SkillRow/SkillGroupHead（props 化） |
+| C-4 ThemeSection flash 死代码 | ✅ | 批次4：移除从未调用的 onFlash prop（flash 展示保留） |
+| C-5 Ctrl+S 无条件 preventDefault | ✅ | 批次4：只在有保存动作的三页吞默认行为 + 补依赖数组 |
+| C-6 !boot 兜底分支不可达 | ✅ | 批次4：删除死分支；mockBackend ?fail=prefs 注释改为指向主界面启动失败屏 |
 | D-1 useDialogFocus 无 focusin 兜底 | ⬜ | |
 | D-2 MainWorkbench 状态归属三件套 | ⬜ | |
 | D-3 冗余/缺能力三件套 | ⬜ | |
@@ -78,12 +78,12 @@
 | N-17 模态叠层 Esc 关两层 | ⬜ | |
 | N-18 Dialogs Esc 无 isComposing 守卫 | ⬜ | |
 | N-19 MemoModal 挂边态 Tab 陷阱 | ⬜ | |
-| N-20 数字输入当场 clamp 吞小数点 | ⬜ | |
+| N-20 数字输入当场 clamp 吞小数点 | ✅ | 批次4：NumInput 本地持有原始文本（"0."/"-"/空不提交），完整数字即时提交、失焦归一 |
 | N-21 UsagePanel 节流被卸载架空 | ⬜ | |
-| N-22 设置卸载保存与 booted 竞态 | ⬜ | |
+| N-22 设置卸载保存与 booted 竞态 | ✅ | 批次4：savePrefs 同步段先更新内存单例（失败回滚）+ doSave 未装配护栏 |
 | N-23 向导创建中可 Esc/遮罩取消 | ⬜ | |
-| N-24 连接检测竞态覆盖手选模型 | ⬜ | |
-| N-25 平台提示弹窗无焦点接管 | ⬜ | |
+| N-24 连接检测竞态覆盖手选模型 | ✅ | 批次4：detectSeq 序号丢弃迟到响应 + ensureModel 函数式判空（闭包旧 form 不再判空） |
+| N-25 平台提示弹窗无焦点接管 | ✅ | 批次4：useDialogFocus 挂确认弹窗（移入+Tab 循环+归还），Esc 补 isComposing |
 | N-26 purgeItem 目标缺失中断清空 | ✅ | 批次2：缺失目标直接清条目 + emptyRecycle 逐条 try/catch（含回归测试） |
 | N-27 thinkingSupportedFor 严格相等 | ✅ | 批次1：sameBaseUrl 忽略尾随斜杠/大小写 |
 | N-28 onboarding 子串匹配+{书名}二次替换 | ✅ | 批次2：整行锚定 + 字面{书名}转全角防二次替换 |

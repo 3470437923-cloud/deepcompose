@@ -77,9 +77,12 @@ async function doBoot(): Promise<Boot> {
 
 /** 保存配置并同步进程内单例。
  *  路径类键（custom_novels_dir / custom_skills_dir）变化时即时重推 dirs，
- *  使设置屏的展示与返回主界面后的重新装配都拿到新路径（无需重启）。 */
+ *  使设置屏的展示与返回主界面后的重新装配都拿到新路径（无需重启）。
+ *  N-22：内存单例在**调用的同步段**就更新（先于写盘 await）——「卸载兜底保存
+ *  在途时重进设置屏」不再读到旧 prefs 把它写回去；写盘失败则回滚内存，避免
+ *  内存与磁盘漂移。 */
 export async function savePrefs(prefs: Prefs): Promise<void> {
-  await invoke("prefs_save", { json: serializePrefs(prefs) });
+  const prev = booted;
   if (booted) {
     const dirs = bootInput
       ? resolveDirs({
@@ -89,6 +92,12 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
         })
       : booted.dirs;
     booted = { dirs, prefs };
+  }
+  try {
+    await invoke("prefs_save", { json: serializePrefs(prefs) });
+  } catch (e) {
+    if (prev) booted = prev; // 写盘失败：内存回到保存前，与磁盘保持一致
+    throw e;
   }
 }
 
