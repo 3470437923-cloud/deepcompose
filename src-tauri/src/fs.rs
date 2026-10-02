@@ -21,6 +21,8 @@ pub struct DirEntry {
     pub is_dir: bool,
     pub size: u64,
     pub mtime_ms: u64,
+    /// 是否为链接 / junction（与 fs_stat 同口径看链接本身；前端据此给标记、不递归展开）
+    pub is_link: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -160,9 +162,44 @@ fn mtime_ms(md: &fs::Metadata) -> u64 {
         .unwrap_or(0)
 }
 
+/// 文本解码策略（与 TS 侧测试替身 nodeFs 逐条同口径）：
+///   1. UTF-8 BOM → 剥离后按 UTF-8（BOM 不应作为正文首字符 U+FEFF 混进编辑器）；
+///   2. UTF-16LE/BE BOM → 按对应解码（部分编辑器/旧版 Word 的导出形态）；
+///   3. 严格 UTF-8；
+///   4. 失败回退 GBK（encoding_rs 的 GBK 实现覆盖 GB18030 常用区）——
+///      中文 Windows 用户的存量旧稿大量是 GBK，"打不开旧稿"是阻断级体验问题。
+/// IO 错误（占用/权限/不存在）仍然报错；编码层面不再产生硬错误。
+fn decode_text(bytes: &[u8]) -> String {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return String::from_utf8_lossy(rest).into_owned();
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        return String::from_utf16_lossy(&units);
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        let units: Vec<u16> = rest
+            .chunks_exact(2)
+            .map(|c| u16::from_be_bytes([c[0], c[1]]))
+            .collect();
+        return String::from_utf16_lossy(&units);
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            let (s, _, _) = encoding_rs::GBK.decode(bytes);
+            s.into_owned()
+        }
+    }
+}
+
 #[tauri::command]
 pub fn fs_read_text(path: String) -> Result<String, String> {
-    fs::read_to_string(&path).map_err(|e| format!("读取失败 {path}: {}", io_err(e)))
+    let bytes = fs::read(&path).map_err(|e| format!("读取失败 {path}: {}", io_err(e)))?;
+    Ok(decode_text(&bytes))
 }
 
 #[tauri::command]
@@ -201,17 +238,23 @@ pub fn fs_list(dir: String) -> Result<Vec<DirEntry>, String> {
     let mut out = Vec::new();
     for ent in rd.flatten() {
         let path = ent.path();
-        let md = match ent.metadata() {
+        // symlink_metadata：看链接本身而不是目标（与 fs_stat 同口径）——
+        // junction 不再被当成普通目录列出（前端不会递归进链接、删除门也能一眼认出），
+        // 悬空链接也不再被静默跳过，而是带 is_link 标记列出来。
+        let md = match fs::symlink_metadata(&path) {
             Ok(md) => md,
             Err(_) => continue,
         };
+        let link = is_reparse(&md);
+        let is_dir = md.is_dir() && !link;
         let name = ent.file_name().to_string_lossy().to_string();
         out.push(DirEntry {
             rel: name.clone(),
             path: path.to_string_lossy().to_string(),
-            is_dir: md.is_dir(),
-            size: if md.is_dir() { 0 } else { md.len() },
+            is_dir,
+            size: if is_dir { 0 } else { md.len() },
             mtime_ms: mtime_ms(&md),
+            is_link: link,
             name,
         });
     }
@@ -258,10 +301,44 @@ pub fn fs_rename(from: String, to: String) -> Result<(), String> {
     fs::rename(&from, &t).map_err(|e| format!("改名失败 {from} → {to}: {}", io_err(e)))
 }
 
+/// 取路径的"最深可 canonicalize 前缀"：目标可能尚不存在，
+/// 逐级向上找第一个存在的祖先 canonicalize，再把剩余段拼回去。
+/// 这样「目标是否位于源内部」的判定对 junction/符号链接同样成立。
+fn canonicalize_deepest(p: &Path) -> PathBuf {
+    let mut missing: Vec<std::ffi::OsString> = Vec::new();
+    let mut cur: &Path = p;
+    loop {
+        if let Ok(c) = fs::canonicalize(cur) {
+            let mut out = c;
+            for seg in missing.iter().rev() {
+                out.push(seg);
+            }
+            return out;
+        }
+        match cur.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                cur = cur.parent().unwrap_or(Path::new(""));
+            }
+            None => return p.to_path_buf(), // 已到根仍失败：退回原路径（词法判定兜底）
+        }
+    }
+}
+
 #[tauri::command]
 pub fn fs_copy(from: String, to: String) -> Result<(), String> {
     let src = Path::new(&from);
     let dst = PathBuf::from(&to);
+    // 防自复制：目标位于源内部（A → A\b）会目录套目录无限递归，
+    // 直到路径超长才报错 —— 期间已在磁盘上真实创建深层垃圾目录。
+    // 判定走 canonicalize（含 junction 解引用），词法相同也算自复制。
+    if src.is_dir() {
+        let src_c = canonicalize_deepest(src);
+        let dst_c = canonicalize_deepest(&dst);
+        if dst_c == src_c || dst_c.starts_with(&src_c) {
+            return Err(format!("不能把目录复制到它自身内部：{from} → {to}"));
+        }
+    }
     if let Some(parent) = dst.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("建目录失败 {}: {}", parent.display(), io_err(e)))?;
     }
@@ -278,7 +355,17 @@ fn copy_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
         let ent = ent?;
         let from = ent.path();
         let to = dst.join(ent.file_name());
-        if from.is_dir() {
+        // reparse point（junction/符号链接）**跳过不跟随**：跟随可能指回祖先
+        // （无限递归）或指到授权根外（把无关目录拷进作品）。与 fs_stat 的
+        // 「看链接本身而不是目标」同一口径。
+        let md = match fs::symlink_metadata(&from) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if is_reparse(&md) {
+            continue;
+        }
+        if md.is_dir() {
             copy_dir(&from, &to)?;
         } else {
             fs::copy(&from, &to)?;

@@ -89,10 +89,19 @@ pub fn save(st: &WinState) {
 }
 
 fn span(st: &WinState, s: &Screen) -> (i32, i32) {
+    // saturating 算术：window_state.json 是用户可写的，
+    // 构造的极值（w 接近 u32::MAX、x 为 i32::MIN 等）不能让加法溢出 ——
+    // debug 构建溢出即 panic，而 Cargo.toml 的 panic="abort" 会让 release 整进程死。
     let x1 = st.x.max(s.x);
     let y1 = st.y.max(s.y);
-    let x2 = (st.x + st.w as i32).min(s.x + s.w as i32);
-    let y2 = (st.y + st.h as i32).min(s.y + s.h as i32);
+    let x2 = st
+        .x
+        .saturating_add(st.w.min(i32::MAX as u32) as i32)
+        .min(s.x.saturating_add(s.w.min(i32::MAX as u32) as i32));
+    let y2 = st
+        .y
+        .saturating_add(st.h.min(i32::MAX as u32) as i32)
+        .min(s.y.saturating_add(s.h.min(i32::MAX as u32) as i32));
     ((x2 - x1).max(0), (y2 - y1).max(0))
 }
 
@@ -108,6 +117,13 @@ pub fn sanitize(st: WinState, screens: &[Screen]) -> Option<WinState> {
     if st.w < 1 || st.h < 1 {
         return None;
     }
+    // 尺寸 sanity 上限：任何屏幕都不可能需要的量级直接夹掉
+    //（window_state.json 用户可写，天文数字没有几何意义）
+    let st = WinState {
+        w: st.w.min(16384),
+        h: st.h.min(16384),
+        ..st
+    };
     let host = screens.iter().find(|s| {
         let (sw, sh) = span(&st, s);
         sw >= MIN_VISIBLE && sh >= MIN_VISIBLE

@@ -264,15 +264,38 @@ describe("file_write", () => {
     expect(await fsp.readFile(path.join(root, "章节内容", "第8章.md"), "utf8")).toBe("新首行\r\n原首行\r\n次行\r\n");
   });
 
-  it("search：单个非 UTF-8 文件不拖垮整次搜索，并计入 files_skipped", async () => {
-    // GBK 编码的旧稿：nodeFs.readText 按 UTF-8 解码会抛（与 Rust read_to_string 同口径）
-    await fsp.writeFile(path.join(root, "小说资料", "旧稿.md"), Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0x0a]));
+  it("search：单个不可读文件不拖垮整次搜索，并计入 files_skipped", async () => {
+    // 造一个"只对特定文件读失败"的桥（占用/权限类 IO 错误的替身）
+    const failing = {
+      ...fs,
+      async readText(p: string): Promise<string> {
+        if (p.endsWith("坏文件.md")) throw new Error("文件被占用");
+        return fs.readText(p);
+      },
+    };
+    await fsp.writeFile(path.join(root, "小说资料", "坏文件.md"), "世界观\r\n", "utf8");
+    const r = JSON.parse(
+      await executeTool(ctx({ fs: failing }), "file_manage", { operation: "search", path: ".", search_text: "世界观" }),
+    );
+    expect(r.success).toBe(true);
+    expect(r.files_found).toBeGreaterThan(0); // 其余文件的命中不受影响
+    expect(r.files_skipped).toBe(1);
+    await fsp.rm(path.join(root, "小说资料", "坏文件.md"));
+  });
+
+  it("search：GBK 旧稿可被读出并命中（N-11：readText 的 GBK 回退）", async () => {
+    // "世界观" 的 GBK 编码
+    await fsp.writeFile(
+      path.join(root, "小说资料", "旧稿.md"),
+      Buffer.from([0xca, 0xc0, 0xbd, 0xe7, 0xb9, 0xdb, 0x0a]),
+    );
     const r = JSON.parse(
       await executeTool(ctx(), "file_manage", { operation: "search", path: ".", search_text: "世界观" }),
     );
     expect(r.success).toBe(true);
-    expect(r.files_found).toBeGreaterThan(0);
-    expect(r.files_skipped).toBeGreaterThanOrEqual(1);
+    const hit = r.results.find((x: { file: string }) => x.file.endsWith("旧稿.md"));
+    expect(hit).toBeDefined();
+    expect(hit.matches[0].content).toContain("世界观");
     await fsp.rm(path.join(root, "小说资料", "旧稿.md"));
   });
 });

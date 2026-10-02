@@ -14,6 +14,14 @@ use tokio::sync::Notify;
 /// 活跃流的中断句柄（request_id → Notify），供「停止生成」取消上游流
 pub struct AbortMap(pub Mutex<HashMap<String, Arc<Notify>>>);
 
+/// 取锁的统一出口：poisoned 也取出数据继续用（N-47）。
+/// 持锁期间没有可 panic 的代码路径，poison 只可能来自外部不可控因素；
+/// panic=abort 的 release 构建里 unwrap 会让整个应用死掉，退而求其次：
+/// poisoned 锁里的 HashMap 仍是完整可用的（写操作要么没开始要么已完成）。
+fn lock_map<'a>(state: &'a tauri::State<'a, AbortMap>) -> std::sync::MutexGuard<'a, HashMap<String, Arc<Notify>>> {
+    state.0.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 /// 一次流式请求的配置
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,15 +71,17 @@ pub async fn ai_stream(
     // 「停止生成」时 ai_abort 也能拿到句柄。配合 ai_abort 的 notify_one
     // （无等待者时存许可），abort 早于本处 select 注册也不会丢。
     let notify = Arc::new(Notify::new());
-    state
-        .0
-        .lock()
-        .unwrap()
-        .insert(request_id.clone(), notify.clone());
+    lock_map(&state).insert(request_id.clone(), notify.clone());
 
-    let client = reqwest::Client::builder()
-        .build()
-        .map_err(|e| format!("HTTP 客户端创建失败: {e}"))?;
+    let client = match reqwest::Client::builder().build() {
+        Ok(c) => c,
+        Err(e) => {
+            // 失败路径同样要清掉进门时注册的中断句柄（其余所有退出路径都清了），
+            // 否则 AbortMap 残留条目永不释放，同 id 复用时 abort 会打到旧句柄
+            lock_map(&state).remove(&request_id);
+            return Err(format!("HTTP 客户端创建失败: {e}"));
+        }
+    };
 
     let mut req = client.post(&url).json(&body);
     for (k, v) in headers.iter() {
@@ -82,7 +92,7 @@ pub async fn ai_stream(
     // 不发任何 line，界面保留已有内容）
     let sent = tokio::select! {
         _ = notify.notified() => {
-            state.0.lock().unwrap().remove(&request_id);
+            lock_map(&state).remove(&request_id);
             emit(&app, &request_id, "done", String::new());
             return Ok(());
         }
@@ -92,7 +102,7 @@ pub async fn ai_stream(
     let resp = match sent {
         Ok(r) => r,
         Err(e) => {
-            state.0.lock().unwrap().remove(&request_id);
+            lock_map(&state).remove(&request_id);
             emit(&app, &request_id, "stream_error", format!("{e}"));
             emit(&app, &request_id, "done", String::new());
             return Ok(());
@@ -102,12 +112,15 @@ pub async fn ai_stream(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        state.0.lock().unwrap().remove(&request_id);
+        lock_map(&state).remove(&request_id);
+        // 错误体截断到 200 字符再转发（与 ai_models/ai_balance 同口径）：
+        // 上游错误页可以是整份 HTML，无界转发会撑爆事件负载
+        let brief: String = text.chars().take(200).collect();
         emit(
             &app,
             &request_id,
             "http_error",
-            format!("{}|{}", status.as_u16(), text),
+            format!("{}|{}", status.as_u16(), brief),
         );
         emit(&app, &request_id, "done", String::new());
         return Ok(());
@@ -145,7 +158,7 @@ pub async fn ai_stream(
         }
     }
 
-    state.0.lock().unwrap().remove(&request_id);
+    lock_map(&state).remove(&request_id);
 
     if !buf.is_empty() {
         let s = String::from_utf8_lossy(&buf).to_string();
@@ -161,7 +174,7 @@ pub async fn ai_stream(
 /// 许可会被存下，随后的 notified() 立即返回，不丢中断。
 #[tauri::command]
 pub async fn ai_abort(state: tauri::State<'_, AbortMap>, request_id: String) -> Result<(), String> {
-    if let Some(notify) = state.0.lock().unwrap().remove(&request_id) {
+    if let Some(notify) = lock_map(&state).remove(&request_id) {
         notify.notify_one();
     }
     Ok(())
