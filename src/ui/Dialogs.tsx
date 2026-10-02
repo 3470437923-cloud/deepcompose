@@ -14,6 +14,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
+import { pushEsc } from "./escStack";
 
 export interface InputRequest {
   title: string;
@@ -55,14 +56,11 @@ export function InputDialog({ req }: { req: InputRequest | null }) {
     if (req) setValue("");
   }, [req]);
 
-  // Esc 任意位置可退出（不依赖焦点落在哪里）
+  // Esc 任意位置可退出（不依赖焦点落在哪里）。
+  // escStack：叠层模态一次 Esc 只关最上层（N-17）；组词中的 Esc 不算（N-18）
   useEffect(() => {
     if (!req) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") req.resolve(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return pushEsc(() => req.resolve(null));
   }, [req]);
 
   useDialogFocus(Boolean(req), panelRef, inputRef);
@@ -126,11 +124,7 @@ export function TypedConfirmDialog({ req }: { req: TypedConfirmRequest | null })
 
   useEffect(() => {
     if (!req) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") req.resolve(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return pushEsc(() => req.resolve(false));
   }, [req]);
 
   // 焦点落在输入框上：这个弹窗要用户做的是"打字"，不是"找按钮"
@@ -194,11 +188,7 @@ export function ConfirmDialog({ req }: { req: ConfirmRequest | null }) {
 
   useEffect(() => {
     if (!req) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") req.resolve(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return pushEsc(() => req.resolve(false));
   }, [req]);
 
   // 焦点默认落在确认键上 —— 这是一次"要不要做"的问句，

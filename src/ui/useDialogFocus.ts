@@ -8,6 +8,15 @@
  *   3. 关闭时把焦点还给打开前的那个元素（不还的话焦点掉回文档开头，
  *      连续操作的人每次都得重新摸一遍）。
  *
+ * 叠层与逃逸（D-1 / N-40 的修复）：
+ *   - 模态栈：多个模态叠开时，Tab 只由**栈顶**模态接管 —— 旧实现每个实例
+ *     都在 window 上挂监听，一次 Tab 被两层各自 preventDefault + focus，
+ *     谁赢取决于注册顺序；
+ *   - focusin 兜底：焦点经程序化 focus()、点击非聚焦区域等途径**逃出面板**
+ *     时拉回来 —— 旧实现只拦 keydown 的 Tab，其余逃逸路径全部失守；
+ *   - 归还纪律：只有自己仍是栈顶时才把焦点还给 prev —— 下层模态先关
+ *     （上层还开着）不许抢焦点。
+ *
  * 用 rAF 而不是直接 focus()：面板此时还没挂载进 DOM。
  */
 
@@ -17,6 +26,9 @@ import type { RefObject } from "react";
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** 模态栈（模块级）：effect 依激活顺序入栈，卸载出栈；只认栈顶 */
+const dialogStack: symbol[] = [];
+
 export function useDialogFocus(
   active: boolean,
   panelRef: RefObject<HTMLElement | null>,
@@ -24,18 +36,26 @@ export function useDialogFocus(
 ) {
   useEffect(() => {
     if (!active) return;
+    const token = Symbol("dialog");
+    dialogStack.push(token);
+    const isTop = () => dialogStack[dialogStack.length - 1] === token;
     const prev = document.activeElement as HTMLElement | null;
 
     const raf = requestAnimationFrame(() => {
+      if (!isTop()) return; // 栈顶另有其人（同帧又开了更上层的模态）：让位
       const target = initialRef?.current ?? panelRef.current;
       target?.focus();
     });
 
+    const focusables = () =>
+      Array.from(panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? []);
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Tab") return;
+      if (!isTop()) return; // 叠层：Tab 归最上层模态管
       const panel = panelRef.current;
       if (!panel) return;
-      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE));
+      const items = focusables();
       if (items.length === 0) return;
       const first = items[0];
       const last = items[items.length - 1];
@@ -50,12 +70,30 @@ export function useDialogFocus(
       }
     };
 
+    // focusin 兜底：焦点逃出面板（程序化 focus / 点击非聚焦区把焦点打到
+    // body 或遮罩）就拉回面板内；非栈顶不掺和
+    const onFocusIn = (e: FocusEvent) => {
+      if (!isTop()) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const t = e.target as HTMLElement | null;
+      if (t && panel.contains(t)) return;
+      const items = focusables();
+      (items[0] ?? panel).focus();
+    };
+
     window.addEventListener("keydown", onKey);
+    document.addEventListener("focusin", onFocusIn);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("keydown", onKey);
-      // 面板已经卸载，焦点会掉到 body —— 主动还回去
-      prev?.focus?.();
+      document.removeEventListener("focusin", onFocusIn);
+      const wasTop = dialogStack[dialogStack.length - 1] === token;
+      const idx = dialogStack.indexOf(token);
+      if (idx >= 0) dialogStack.splice(idx, 1);
+      // 面板已经卸载，焦点会掉到 body —— 主动还回去。
+      // 只有自己原本是栈顶才归还：下层先关不许抢上层模态的焦点。
+      if (wasTop) prev?.focus?.();
     };
   }, [active, panelRef, initialRef]);
 }

@@ -14,9 +14,10 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMaximized } from "./useMaximized";
 import { useDialogFocus } from "./useDialogFocus";
+import { pushEsc } from "./escStack";
 import { FOLLOW_SPRING, isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
 import logo from "../assets/logo.png";
-import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, savePrefs } from "../core/app";
+import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, onBootReplaced, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
 import { PROJECT_DIRS, dirname, join } from "../core/dirs";
 import { isoMicros } from "../core/ids";
@@ -26,6 +27,7 @@ import {
   kindForRel,
   loadProject,
   scanBooksRoot,
+  validateProject,
   type ContentNode,
   type FileKind,
   type FileRef,
@@ -108,8 +110,11 @@ export function extractError(result: string): string {
   }
 }
 
-/** 会话相对时间（N 分钟前 / N 小时前 / 昨天 / 日期） */
+/** 会话相对时间（N 分钟前 / N 小时前 / 昨天 / 日期）。
+ *  N-43：mtime 缺失（索引容错归零）不再显示「1月1日」—— epoch 0 不是
+ *  "1970 年 1 月 1 日建的会话"，是"不知道什么时候建的"。 */
 export function relTime(ms: number, now = Date.now()): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "时间未知";
   const diff = now - ms;
   const min = 60_000;
   const hour = 60 * min;
@@ -207,7 +212,14 @@ export function tabEditable(t: OpenTab): boolean {
   return t.kind === "doc" || t.editing;
 }
 
-export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () => void }) {
+export default function MainWorkbench({
+  onOpenSettings,
+  suspended = false,
+}: {
+  onOpenSettings: () => void;
+  /** 设置屏在侧（N-05：本组件常驻挂载、仅隐藏）：全局按键监听挂闸，防双份 Ctrl+S */
+  suspended?: boolean;
+}) {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -316,6 +328,27 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     [],
   );
 
+  // ── 根外路径确认（B-1 UI 接线）──
+  /** 会话内已批准的根外目录（exec.ts 按引用追加，同会话后续访问不再重复询问）。
+   *  用 ref 而非 state：它是工具执行层的内部台账，不参与渲染；换会话即清空。 */
+  const allowedDirsRef = useRef<string[]>([]);
+  useEffect(() => {
+    allowedDirsRef.current = [];
+  }, [session?.id]);
+
+  /** 工具要访问作品根之外的绝对路径时问用户。
+   *  链路：exec.ts pathGuard「需确认」→ ToolContext.confirmExternal → 这里。
+   *  正文必须带**绝对路径原文** —— 用户得看懂它要去动哪里才能做决定。 */
+  const confirmExternal = useCallback(
+    (absPath: string) =>
+      askConfirm(
+        "允许访问作品根之外的路径？",
+        `AI 请求访问作品根之外的路径：\n${absPath}\n批准后本次会话内该目录下的后续访问不再询问。`,
+        { confirmLabel: "允许" },
+      ),
+    [askConfirm],
+  );
+
   /** 手打名字确认（彻底删除/清空回收站；不拿到一致的名字就不给确认键） */
   const askTypedConfirm = useCallback(
     (title: string, body: string, expected: string, confirmLabel?: string, noun?: string) =>
@@ -339,7 +372,8 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const activeTab = useMemo(() => tabs.find((t) => t.rel === activeRel) ?? null, [tabs, activeRel]);
 
-  // 字号与模型（prefs 直读；设置屏保存后返回主界面时组件重挂载即生效）
+  // 字号与模型（prefs 直读；N-05 常驻挂载后：savePrefs 替换 boot 单例对象，
+  // 返回主界面的重渲染即读到新值——不再依赖「重挂载即生效」）
   const bootPrefs = ready ? currentBoot()?.prefs ?? null : null;
   const editorFontSize = bootPrefs?.editorFontSize ?? 15;
   const chatFontSize = bootPrefs?.chatFontSize ?? 15;
@@ -462,10 +496,27 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       setActiveRel(null);
       setTreeFolders(defaultTreeFolders(data.tree));
       setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
+      // I-12 UI 接线：打开即校验（外部放进作品根的内容第一次有了"看一看"的入口）。
+      // 校验只读不判（见 validateProject 注释）；失败不阻断打开，状态条汇总即可。
+      try {
+        const issues = await validateProject(fs, ref.root);
+        if (issues.length > 0) {
+          const worst = issues.find((i) => i.level === "error") ?? issues[0];
+          setStatus(
+            `${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料 · 结构校验 ${issues.length} 项提示（${worst.message}）`,
+          );
+        }
+      } catch {
+        /* 校验本身出错不打扰打开 */
+      }
       await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
     },
     [autoSaveAllTabs, session],
   );
+
+  /** 装配节拍：0 = 首次启动；+1 = 存储路径变更（N-05：常驻挂载后由
+   *  onBootReplaced 通知重装配——作品根/技能根变了必须重扫，否则界面停在旧根上） */
+  const [assembleTick, setAssembleTick] = useState(0);
 
   /** 首次启动：装配桥与目录，扫描作品 + 技能；恢复上次打开的作品与面板可见性 */
   useEffect(() => {
@@ -505,8 +556,15 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         if (alive) setError(String(e));
       }
     })();
+    return () => {
+      alive = false;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [assembleTick]);
+
+  // N-05 配套：设置屏改「存储位置」→ boot 单例已即时重推（savePrefs），
+  // 这里重新走一遍装配（旧作品的脏标签先由 openProjectRef 内的 autoSaveAllTabs 落盘）
+  useEffect(() => onBootReplaced(() => setAssembleTick((t) => t + 1)), []);
 
   const refreshProjects = useCallback(async () => {
     if (!dirs) return;
@@ -559,10 +617,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         setActiveRel(ref.rel);
         return;
       }
-      // 资料单槽一读：打开任何新文件前，旧资料标签自动保存并销毁（正文/候选不占资料槽）
+      // 资料单槽一读：打开任何新文件前，旧资料标签自动保存并销毁（正文/候选不占资料槽）。
+      // N-06：保存失败就不换槽 —— 旧资料内容只在这个 tab 里，销毁等于丢稿
       const docTab = tabs.find((t) => t.kind === "doc");
       if (docTab) {
-        if (docTab.dirty) await saveTabAs(docTab, "资料单槽切换自动保存");
+        if (docTab.dirty) {
+          const ok = await saveTabAs(docTab, "资料单槽切换自动保存");
+          if (!ok) return;
+        }
         setTabs((prev) => prev.filter((t) => t.kind !== "doc"));
       }
       let content = "";
@@ -599,8 +661,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     setSaving(false);
   }, [activeTab, saveTabAs]);
 
-  /** Ctrl+S 保存（仅可编辑态） */
+  /** Ctrl+S 保存（仅可编辑态；设置屏在侧时让位给设置屏自己的 Ctrl+S —— N-05 常驻挂载的配套闸） */
   useEffect(() => {
+    if (suspended) return;
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
@@ -609,7 +672,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [saveActive]);
+  }, [saveActive, suspended]);
 
   /** 关窗守卫：自动保存全部脏标签与编辑态（3.0 语义：不丢稿、不询问）。
       有任何一个标签写盘失败就**不销毁窗口** —— 旧实现拿到 false 也照关，
@@ -737,14 +800,23 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     [dirs, session, activeTab, project, askConfirm, refreshProjects, refreshRecycleCount],
   );
 
-  /** 继续写作：优先打开最新候选稿，其次第一章、第一份资料（无作品则提示） */
+  /** 继续写作：优先打开**章号最大**的候选稿，其次第一章、第一份资料（无作品则提示） */
   const continueWriting = useCallback(async () => {
     if (!project) {
       setStatus("请先在左侧文件面板选择作品");
       return;
     }
-    const target =
-      project.pending[project.pending.length - 1] ?? project.chapters[project.chapters.length - 1] ?? project.docs[0];
+    // D-2：候选按章号最大挑，不再取数组末位 —— listPending 的排序是
+    // 文件名比较序（"第10章"排在"第2章"前面），与"写作推进到哪了"不是一回事
+    const latestPending = project.pending.reduce<FileRef | null>((best, p) => {
+      if (!best) return p;
+      const n = parseChapterName(p.name);
+      const b = parseChapterName(best.name);
+      if (n === null) return best;
+      if (b === null) return p;
+      return n > b ? p : best;
+    }, null);
+    const target = latestPending ?? project.chapters[project.chapters.length - 1] ?? project.docs[0];
     if (!target) {
       setStatus(`${project.ref.name} 还没有章节或资料`);
       return;
@@ -863,10 +935,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     }
   }, [project, transport, askQuestions, refreshSessions, refreshProject]);
 
-  /** 「修改/完成」按钮：正文与候选默认只读，点击后进入/结束编辑态 */
+  /** 「修改/完成」按钮：正文与候选默认只读，点击后进入/结束编辑态。
+   *  返回值 = 结束编辑是否落盘成功（N-06：失败时 editing/dirty 原样保留，
+   *  调用方据此不销毁标签；进入编辑恒成功）。 */
   const toggleEditing = useCallback(
-    async (tab: OpenTab) => {
-      if (tab.kind === "doc") return;
+    async (tab: OpenTab): Promise<boolean> => {
+      if (tab.kind === "doc") return true;
       const fs = getFs();
       if (!tab.editing) {
         setTabs((prev) =>
@@ -874,14 +948,17 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         );
         if (project) await appendOplog(fs, project.ref.root, "edit_start", tab.rel, session?.id ?? "");
         setStatus(`正在编辑 ${tab.name}（点「完成」保存并触发回流审稿）`);
-        return;
+        return true;
       }
       // 结束编辑：自动保存 → 轻改仅记日志，实质改动触发回流
       const latest = tabs.find((t) => t.rel === tab.rel) ?? tab;
-      if (latest.dirty) await saveTabAs(latest, "结束编辑自动保存");
+      if (latest.dirty) {
+        const ok = await saveTabAs(latest, "结束编辑自动保存");
+        if (!ok) return false;
+      }
       const diff: DiffResult = diffLines(latest.editBase ?? latest.baseContent, latest.content);
       setTabs((prev) => prev.map((t) => (t.rel === tab.rel ? { ...t, editing: false, editBase: null } : t)));
-      if (!project) return;
+      if (!project) return true;
       const noChange = diff.changedChars === 0;
       const light = noChange || isLightEdit(diff);
       const kind = latest.kind === "candidate" ? "candidate" : "chapter";
@@ -895,11 +972,11 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       });
       if (noChange) {
         setStatus(`${latest.name} 无实质改动，已退出编辑`);
-        return;
+        return true;
       }
       if (light) {
         setStatus(`${latest.name} 已保存 · 改动较小未触发回流（已记录日志）`);
-        return;
+        return true;
       }
       reflowQueue.current.push({
         prompt: buildReflowPrompt({
@@ -912,6 +989,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       });
       setStatus(`${latest.name} 已保存，回流排队中…`);
       void drainReflow();
+      return true;
     },
     [tabs, project, session, saveTabAs, drainReflow],
   );
@@ -921,13 +999,21 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
     async (rel: string) => {
       const tab = tabs.find((t) => t.rel === rel);
       if (!tab) return;
-      if (tab.editing) await toggleEditing(tab);
-      else if (tab.dirty) await saveTabAs(tab, "关闭标签自动保存");
-      setTabs((prev) => {
-        const next = prev.filter((t) => t.rel !== rel);
-        if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
-        return next;
-      });
+      // N-06：保存结果要接住 —— 写盘失败就不关标签（内容只存在于这个 tab 里，
+      // 无条件移除等于静默丢稿）。toggleEditing 结束编辑同样走 saveTabAs，
+      // 失败时它保持 editing/dirty 原样并返回 false。
+      if (tab.editing) {
+        const ok = await toggleEditing(tab);
+        if (!ok) return;
+      } else if (tab.dirty) {
+        const ok = await saveTabAs(tab, "关闭标签自动保存");
+        if (!ok) return;
+      }
+      // N-41：副作用移出 setState 的 updater —— updater 在 StrictMode/重放下
+      // 可能被再次调用，setActiveRel 不属于它
+      const next = tabs.filter((t) => t.rel !== rel);
+      setTabs(next);
+      if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
     },
     [tabs, activeRel, toggleEditing, saveTabAs],
   );
@@ -973,6 +1059,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           onEvent: onAgentEvent,
           askQuestions,
           signal,
+          // B-1 UI 接线：根外路径确认 + 会话内已批准目录（按引用透传，exec.ts 追加）
+          confirmExternal,
+          allowedDirs: allowedDirsRef.current,
           // 会话级临时档位（null = 配置默认）；平台不支持时由 providerOf 统一过滤掉
           thinking: thinkLevel,
         });
@@ -1005,7 +1094,7 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         void drainReflow(); // 生成槽空出后排空待跑回流
       }
     },
-    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow, thinkLevel],
+    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow, thinkLevel, confirmExternal],
   );
 
   const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
@@ -1076,6 +1165,9 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
           transport,
           onEvent: onAgentEvent,
           signal,
+          // B-4 UI 接线（D-014）：冷读跟随会话级思考档位 —— 用户在主界面
+          // 关掉思考后，冷读不再按配置默认开思考
+          thinking: thinkLevel,
         });
         setSession(res.session);
         const aiText =
@@ -1111,10 +1203,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         void drainReflow(); // 冷读占用的生成槽释放后，排空待跑回流
       }
     },
-    [project, transport, onAgentEvent, refreshSessions, refreshProject, drainReflow],
+    [project, transport, onAgentEvent, refreshSessions, refreshProject, drainReflow, thinkLevel],
   );
 
-  /** 打开会话：若会话绑定了项目则恢复绑定 */
+  /** 打开会话：若会话绑定了项目则恢复绑定。
+   *  N-44：失败不再静默 —— 会话文件缺失/损坏（loadSession 返回 null）给状态条
+   *  提示；IO 异常同样接住（调用处是 void，冒泡就是无人处理的 rejection）。 */
   const openSession = useCallback(
     async (id: string) => {
       const b = currentBoot();
@@ -1124,20 +1218,27 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
         setStatus("正在生成中，请先停止当前生成再切换会话");
         return;
       }
-      const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
-      if (!s) return;
-      setSession(s);
-      const root = s.projectPath?.trim();
-      if (root && project?.ref.root.toLowerCase() !== root.toLowerCase()) {
-        let ref = projects.find((p) => p.root.toLowerCase() === root.toLowerCase());
-        if (!ref) {
-          // 列表过期时重扫一次
-          const list = await scanBooksRoot(getFs(), b.dirs.booksRoot);
-          setProjects(list);
-          ref = list.find((p) => p.root.toLowerCase() === root.toLowerCase());
+      try {
+        const s = await loadSession(getFs(), b.dirs.sessionsDir, id);
+        if (!s) {
+          setStatus("会话文件缺失或已损坏，无法打开");
+          return;
         }
-        if (ref) await openProjectRef(ref);
-        else setStatus(`会话原属作品已不在作品根：${root}`);
+        setSession(s);
+        const root = s.projectPath?.trim();
+        if (root && project?.ref.root.toLowerCase() !== root.toLowerCase()) {
+          let ref = projects.find((p) => p.root.toLowerCase() === root.toLowerCase());
+          if (!ref) {
+            // 列表过期时重扫一次
+            const list = await scanBooksRoot(getFs(), b.dirs.booksRoot);
+            setProjects(list);
+            ref = list.find((p) => p.root.toLowerCase() === root.toLowerCase());
+          }
+          if (ref) await openProjectRef(ref);
+          else setStatus(`会话原属作品已不在作品根：${root}`);
+        }
+      } catch (e) {
+        setStatus(`打开会话失败：${String(e instanceof Error ? e.message : e)}`);
       }
     },
     [project, projects, openProjectRef],
@@ -1145,6 +1246,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
 
   const answerPending = useCallback(() => {
     if (!pending) return;
+    // D-2：必答问题不许交白卷 —— 全空答案会让 agent 拿着空选择继续跑
+    const unanswered = pending.items.findIndex((_, i) => (qSel[i] ?? []).length === 0);
+    if (unanswered >= 0) {
+      setStatus(`第 ${unanswered + 1} 个问题还没有选择，选完再提交`);
+      return;
+    }
     const answers = pending.items.map((_, i) => qSel[i] ?? []);
     pending.resolve(answers);
     setPending(null);
@@ -1226,15 +1333,14 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
   const coldTitleId = useId();
   useDialogFocus(Boolean(coldReq), coldPanelRef, coldSubmitRef);
 
+  // escStack：叠层时一次 Esc 只关最上层（N-17）
   useEffect(() => {
     if (!coldReq) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (e.isComposing) return;
-      setColdReq(null);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // D-2：每次打开重置选项 —— 上一次留下的选择不属于这一次的冷读
+    //（与 NewBookWizard 打开即整体重置同一条纪律）
+    setColdPrior(1);
+    setColdGoal("clarity");
+    return pushEsc(() => setColdReq(null));
   }, [coldReq]);
 
   /* 「需要你的选择」是 AI 通过 ask 工具提出的必答问题，**没有取消语义** ——
@@ -1302,6 +1408,13 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
               <path d="M2.8 5.4A1.6 1.6 0 0 1 4.4 3.8h3l1.4 1.8h6.8a1.6 1.6 0 0 1 1.6 1.6v7.4a1.6 1.6 0 0 1-1.6 1.6H4.4a1.6 1.6 0 0 1-1.6-1.6V5.4z" />
             </svg>
             <span className="lbl">{n.name}</span>
+            {/* I-7：目录被截断（超出 200 条上限）必须可见 —— 静默截断会让
+                用户以为"文件就这么多"，往里放的新文件"消失" */}
+            {n.truncated ? (
+              <span className="tcut" title="该目录条目过多，仅显示前 200 项">
+                …已截断
+              </span>
+            ) : null}
           </button>
           {treeFolders[n.rel] !== false ? renderNodes(n.children, depth + 1) : null}
         </div>
@@ -2117,7 +2230,6 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
       <RecycleBin
         open={recycleOpen}
         onClose={() => setRecycleOpen(false)}
-        dirs={dirs}
         booksRoot={dirs?.booksRoot ?? null}
         onStatus={setStatus}
         onChanged={() => void refreshProjects()}
@@ -2227,7 +2339,12 @@ export default function MainWorkbench({ onOpenSettings }: { onOpenSettings: () =
                 })}
               </div>
             ))}
-            <button className="qsubmit btn btn-accent" onClick={answerPending}>
+            <button
+              className="qsubmit btn btn-accent"
+              onClick={answerPending}
+              disabled={pending.items.some((_, i) => (qSel[i] ?? []).length === 0)}
+              title={pending.items.some((_, i) => (qSel[i] ?? []).length === 0) ? "每个问题都选择后才可提交" : undefined}
+            >
               提交
             </button>
           </div>

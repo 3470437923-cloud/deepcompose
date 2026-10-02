@@ -670,6 +670,13 @@ html[data-nav="back"] .win { --push-x: -10px; }
   text-overflow: ellipsis;
 }
 .tnode.grp { font-weight: 640; color: var(--tx-1); letter-spacing: 0.004em; }
+/* I-7：目录被截断的可见标记（条目超出 200 条上限时界面必须明说） */
+.tnode .tcut {
+  flex: none;
+  font-size: 10px;
+  color: var(--tx-dim);
+  letter-spacing: 0;
+}
 /* .tnode.sub 的固定缩进已删除：层级缩进由 JSX 按 depth 内联计算
    （见 MainWorkbench 的 paddingLeft），这里的 28px 从来没生效过，
    而它恰好又是"缩进写死在 CSS 里"这种会在深层目录下错位的老做法。 */

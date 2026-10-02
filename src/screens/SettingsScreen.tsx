@@ -20,6 +20,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useMaximized } from "../ui/useMaximized";
 import { useDialogFocus } from "../ui/useDialogFocus";
+import { pushEsc } from "../ui/escStack";
 import logo from "../assets/logo.png";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
@@ -620,12 +621,8 @@ function ProviderSection({
       const t = setTimeout(() => setNotice(null), NOTICE_BUBBLE_MS);
       return () => clearTimeout(t);
     }
-    const onKey = (e: KeyboardEvent) => {
-      // isComposing：输入法组词的 Esc 不算"取消"（与 Dialogs 同口径）
-      if (e.key === "Escape" && !e.isComposing) closeNotice();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // escStack：叠层时一次 Esc 只关最上层（N-17）；组词中的 Esc 不算
+    return pushEsc(closeNotice);
     // closeNotice 是当次渲染的闭包，依赖 notice 即可（每开一次弹窗重挂一次）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notice]);
