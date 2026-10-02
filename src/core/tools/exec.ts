@@ -84,6 +84,32 @@ function err(message: string): string {
   return JSON.stringify({ error: message });
 }
 
+/**
+ * N-42：工具失败判定 —— 只认 err() 的**结构**：整串是一个 JSON 对象、
+ * 仅含 "error" 一个键、值为字符串。
+ *
+ * 旧判定是 UI 侧子串嗅探 `includes('"error"')`：今天的成功结果碰巧都不会
+ * 命中（字符串值里的引号全部被 JSON 转义成 \"），但它依赖两个巧合——
+ * 「成功形态永远没有 error 键」和「内容永远被转义」。任何成功形态一旦
+ * 长出 error 字段（比如 search 改为逐文件报告跳过原因），整个成功结果
+ * 就会被误标成失败。结构判定把失败语义钉死在契约本身，UI 不再各自嗅探。
+ */
+export function isToolErrorResult(result: string | null | undefined): boolean {
+  if (typeof result !== "string" || !result.startsWith('{"error":')) return false;
+  try {
+    const j: unknown = JSON.parse(result);
+    return (
+      typeof j === "object" &&
+      j !== null &&
+      !Array.isArray(j) &&
+      Object.keys(j).length === 1 &&
+      typeof (j as { error?: unknown }).error === "string"
+    );
+  } catch {
+    return false;
+  }
+}
+
 /** 统一的成功结果形态：字段序即 JSON 序（既有格式对字段名与形态都有实证） */
 function ok(obj: Record<string, unknown>): string {
   return JSON.stringify(obj);

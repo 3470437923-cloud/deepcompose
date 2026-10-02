@@ -1130,7 +1130,7 @@ function SkillSection({
       ) : null}
       {skills.length === 0 ? (
         <div className="a-empty">
-          技能清单为空。内置技能位于 Documents\skills\，首次扫描后将出现在这里。
+          技能清单为空。内置技能随应用发布，首次启动会自动释放到技能目录；自定义技能放进同一目录后，重启应用即可被扫描到。
         </div>
       ) : null}
     </div>

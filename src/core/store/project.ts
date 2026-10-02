@@ -26,8 +26,10 @@ import {
 } from "../dirs";
 import { parseManifest, serializeManifest, type ProjectManifest } from "./manifest";
 import { compareChapterFiles, parseChapterName, stripMd } from "./chapter";
-import { DOC_TEMPLATES, renderTemplate } from "./templates";
+import { DOC_TEMPLATES, FORESHADOW_DOC, renderTemplate, STATE_DOC } from "./templates";
 import { childNameProblem } from "./names";
+import { parseProjectStatus, statusChapterNo, type ProjectStatus } from "./status";
+import { countForeshadowing } from "./tracking";
 
 export interface ProjectRef {
   /** 作品根绝对路径 */
@@ -383,7 +385,8 @@ export interface ProjectIssue {
 /**
  * 作品结构校验（I-12：把外部内容放进作品根之后，软件第一次有了"看一看"的入口）。
  * **只读不判**的纪律不变：本函数只报告、不修复、不补建任何文件。
- * 覆盖：清单存在性与可解析性、基础目录、14 件套、章节文件可读性与编号连续性。
+ * 覆盖：清单存在性与可解析性、基础目录、14 件套、章节文件可读性与编号连续性、
+ * 状态文档与正文的进度一致性（I-3）、伏笔自述统计与条目数的一致性（I-4）。
  */
 export async function validateProject(fs: FsBridge, projectRoot: string): Promise<ProjectIssue[]> {
   const issues: ProjectIssue[] = [];
@@ -457,7 +460,58 @@ export async function validateProject(fs: FsBridge, projectRoot: string): Promis
       });
     }
   }
+
+  // I-3：00-项目状态.md 的结构化读取 —— 应用第一次能自己判断"写作进度到哪一步"，
+  // 而不是把整份文档丢给模型读。模板口径：当前章节 = **下一个要写的章**，
+  // 所以"状态声明第N章"意味着正文应该已有 N-1 章；声明的进度跑在磁盘前面就是漂移。
+  const status = await readProjectStatus(fs, projectRoot);
+  if (status) {
+    const declared = statusChapterNo(status);
+    const maxNo = nos.length > 0 ? nos[nos.length - 1] : 0;
+    if (declared !== null && declared - 1 > maxNo) {
+      issues.push({
+        level: "warn",
+        check: "status-chapter-ahead",
+        message: `00-项目状态.md 记「${status.chapter}」，但 章节内容 里最大只到第${maxNo}章（状态比正文快）`,
+      });
+    }
+  }
+  // I-4：伏笔自述统计必须与条目数一致 —— 作者自述第一次可以被软件核对。
+  // 自述留空（模板默认「待填写」）＝没有自述，不报；只提示，不改写用户文档。
+  try {
+    const fp = join(projectDocsDir(projectRoot), FORESHADOW_DOC);
+    if (await fs.exists(fp)) {
+      const counts = countForeshadowing(await fs.readText(fp));
+      if (counts.mismatches.length > 0) {
+        issues.push({
+          level: "warn",
+          check: "foreshadow-count-mismatch",
+          message: `追踪-伏笔.md 自述统计与条目数不一致：${counts.mismatches[0]}`,
+        });
+      }
+    }
+  } catch {
+    /* 读失败（占用/非 UTF-8）不阻断校验 */
+  }
   return issues;
+}
+
+/**
+ * 读取并解析作品的 00-项目状态.md（I-3）。
+ * 文件不存在 / 读不出 / 形态不认（解析出空字段）→ null：调用方按"没有状态信息"处理。
+ */
+export async function readProjectStatus(
+  fs: FsBridge,
+  projectRoot: string,
+): Promise<ProjectStatus | null> {
+  const p = join(projectDocsDir(projectRoot), STATE_DOC);
+  if (!(await fs.exists(p))) return null;
+  try {
+    const st = parseProjectStatus(await fs.readText(p));
+    return Object.keys(st.fields).length > 0 ? st : null;
+  } catch {
+    return null; // 读失败（占用/非 UTF-8）按"没有状态信息"处理，绝不抛给调用方
+  }
 }
 
 /**

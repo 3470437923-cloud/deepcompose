@@ -12,7 +12,8 @@
 # Usage   : .\tools\probe_window.ps1 [-Exe <path>] [-StateFile <json>] [-WaitSec <n>]
 #           Default -Exe is the packaged build release\DeepCompose.exe.
 #           The script rewrites and finally deletes nothing outside -StateFile,
-#           but it DOES kill running deepcompose processes between cases.
+#           and it only stops app instances launched from the same -Exe path
+#           between cases (never the user's other DeepCompose windows).
 # Pitfalls: - -StateFile defaults to %APPDATA%\com.writerd\writerD\
 #             window_state.json: that legacy dir is a frozen disk contract (the
 #             app still uses it after the rename). Do not rebrand this path.
@@ -120,7 +121,14 @@ Write-Output ""
 
 function Launch([string]$tag) {
     # Kill leftovers first so the fresh instance owns the only app window.
-    Get-Process -Name deepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+    # N-16: scoped to THIS script's -Exe path (the previous case's instance) --
+    # never kill by process name, which would close the user's own windows too.
+    $exePath = if (Test-Path $Exe) { (Get-Item $Exe).FullName } else { $null }
+    if ($exePath) {
+        Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path -eq $exePath } |
+            Stop-Process -Force
+    }
     Start-Sleep -Milliseconds 800
     $proc = Start-Process $Exe -PassThru
     Start-Sleep -Seconds $WaitSec

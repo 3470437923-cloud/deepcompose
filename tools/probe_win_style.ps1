@@ -11,8 +11,9 @@
 #           Default -Exe is the packaged build release\DeepCompose.exe.
 # Pitfalls: - Needs a real interactive desktop session; measurements taken in a
 #             locked or headless session are not meaningful.
-#           - Kills any running deepcompose process first and force-kills the
-#             probe instance at the end, so unsaved in-app state is lost.
+#           - Stops leftovers running THIS build's exe first (never instances
+#             from another path) and force-kills its own probe instance at the
+#             end, so unsaved state of that probe copy is lost.
 # ASCII-only on purpose: Windows PowerShell 5.1 misreads UTF-8 files without BOM.
 param(
     [string]$Exe = (Join-Path $PSScriptRoot "..\release\DeepCompose.exe"),
@@ -73,7 +74,15 @@ Write-Output "screen    = ${sw}x${sh}"
 Write-Output ("workarea  = {0}x{1} at ({2},{3})" -f ($wa.Right - $wa.Left), ($wa.Bottom - $wa.Top), $wa.Left, $wa.Top)
 Write-Output ""
 
-Get-Process -Name deepcompose -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.Id -Force }
+# N-16: only stop leftovers running THIS script's -Exe (a previous probe run).
+# Killing by process name would also take down DeepCompose instances the user
+# has open from another checkout or installed copy.
+$exePath = if (Test-Path $Exe) { (Get-Item $Exe).FullName } else { $null }
+if ($exePath) {
+    Get-Process -Name deepcompose -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -and $_.Path -eq $exePath } |
+        Stop-Process -Force
+}
 Start-Sleep -Seconds 1
 
 $proc = Start-Process $Exe -PassThru

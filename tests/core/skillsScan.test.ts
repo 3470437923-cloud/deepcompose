@@ -71,6 +71,32 @@ describe("parseFrontmatter", () => {
     expect(r.name).toBe("novel-writer");
     expect(r.description).toBe("描述");
   });
+  it("N-31：---- 分隔线不当围栏（不再从 horizontal rule 里孵出 phantom 技能）", () => {
+    const r = parseFrontmatter("----\nname: bogus\n----\n正文");
+    expect(r.name).toBe("");
+    expect(r.description).toBe("");
+  });
+  it("N-31：以 --- 开头但带尾巴的行不闭合围栏，后续字段不丢", () => {
+    const r = parseFrontmatter("---\nname: real\n---not-a-fence\ndescription: 描述\n---\n正文");
+    expect(r.name).toBe("real");
+    expect(r.description).toBe("描述");
+  });
+  it("A-8：YAML 成对引号被剥掉（token-optimizer 的带引号 description 不再注入字面引号）", () => {
+    const r = parseFrontmatter('---\nname: token-optimizer\ndescription: "带引号的描述"\n---\n');
+    expect(r.name).toBe("token-optimizer");
+    expect(r.description).toBe("带引号的描述");
+    const single = parseFrontmatter("---\nname: 'x'\ndescription: 'y'\n---\n");
+    expect(single.name).toBe("x");
+    expect(single.description).toBe("y");
+  });
+  it("A-8：不成对引号原样保留（只做简单标量口径，不吃掉用户内容）", () => {
+    const r = parseFrontmatter('---\nname: x\ndescription: "半截引号\n---\n');
+    expect(r.description).toBe('"半截引号');
+  });
+  it("N-31：围栏未闭合 → 空值（旧口径不变）", () => {
+    const r = parseFrontmatter("---\nname: x\ndescription: y\n正文里没有闭合围栏");
+    expect(r.name).toBe("");
+  });
 });
 
 describe("scanSkills", () => {
@@ -93,8 +119,14 @@ describe("scanSkills", () => {
     const fs = memFs({ "C:\\skills\\empty": "# 无 SKILL.md 的目录" });
     expect(await scanSkills(fs, "C:\\skills")).toHaveLength(0);
   });
-  it("内置名单就是设置页的 2 个", () => {
-    expect([...BUILTIN_SKILL_NAMES].sort()).toEqual(["novel-writer", "skill-creator"]);
+  it("内置名单就是随包的 5 个（A-8：与 assets/builtin-skills 一致）", () => {
+    expect([...BUILTIN_SKILL_NAMES].sort()).toEqual([
+      "novel-deslop",
+      "novel-structure-quality-coordinator",
+      "novel-writer",
+      "skill-creator",
+      "token-optimizer",
+    ]);
   });
 });
 

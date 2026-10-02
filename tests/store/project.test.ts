@@ -302,6 +302,57 @@ describe("候选区与通用内容树", () => {
     await fsp.rm(half, { recursive: true, force: true });
   });
 
+  it("validateProject：状态声明的进度跑在正文前面 → status-chapter-ahead 警告（I-3）", async () => {
+    const ref = await createProject(fs, booksRoot, "状态漂移样本");
+    // 新建作品默认 当前章节：第000章 + 无正文 → 不该报
+    const fresh = await validateProject(fs, ref.root);
+    expect(fresh.some((i) => i.check === "status-chapter-ahead")).toBe(false);
+
+    // 磁盘上只有第1章，状态却声称当前章节=第5章（=正文该有 4 章）
+    await fsp.writeFile(path.join(ref.root, "章节内容", "第1章.md"), "一\r\n", "utf8");
+    await fsp.writeFile(
+      path.join(ref.root, "小说资料", "00-项目状态.md"),
+      "# 项目状态\r\n- 当前阶段：连续写作\r\n- 当前章节：第5章\r\n- 正文处理进度：起草中\r\n\r\n## 开书大纲自检\r\n- 状态：可试写\r\n",
+      "utf8",
+    );
+    const issues = await validateProject(fs, ref.root);
+    expect(issues.some((i) => i.check === "status-chapter-ahead" && i.level === "warn")).toBe(true);
+
+    // 状态与正文对齐（第2章 = 下一个要写的章）→ 不再报
+    await fsp.writeFile(
+      path.join(ref.root, "小说资料", "00-项目状态.md"),
+      "- 当前阶段：连续写作\r\n- 当前章节：第2章\r\n- 正文处理进度：起草中\r\n",
+      "utf8",
+    );
+    const aligned = await validateProject(fs, ref.root);
+    expect(aligned.some((i) => i.check === "status-chapter-ahead")).toBe(false);
+  });
+
+  it("validateProject：伏笔自述统计与条目数不一致 → foreshadow-count-mismatch 警告（I-4）", async () => {
+    const ref = await createProject(fs, booksRoot, "伏笔核对样本");
+    // 新建作品：模板统计行全是「待填写」＝没有自述 → 不报
+    const fresh = await validateProject(fs, ref.root);
+    expect(fresh.some((i) => i.check === "foreshadow-count-mismatch")).toBe(false);
+
+    // 自述 29 条已回收，正文却只有 1 条 → 报
+    await fsp.writeFile(
+      path.join(ref.root, "小说资料", "追踪-伏笔.md"),
+      "# 追踪-伏笔\r\n## 伏笔统计\r\n- 已回收：29\r\n\r\n## F001 x\r\n- 状态：已回收\r\n",
+      "utf8",
+    );
+    const issues = await validateProject(fs, ref.root);
+    expect(issues.some((i) => i.check === "foreshadow-count-mismatch" && i.level === "warn")).toBe(true);
+
+    // 自述与条目一致 → 不再报
+    await fsp.writeFile(
+      path.join(ref.root, "小说资料", "追踪-伏笔.md"),
+      "# 追踪-伏笔\r\n## 伏笔统计\r\n- 已回收：1\r\n\r\n## F001 x\r\n- 状态：已回收\r\n",
+      "utf8",
+    );
+    const aligned = await validateProject(fs, ref.root);
+    expect(aligned.some((i) => i.check === "foreshadow-count-mismatch")).toBe(false);
+  });
+
   it("projectExists：清单缺失但有内容目录 → 也算受管（I-1 回归锁：判据与可见性统一）", async () => {
     const half = path.join(booksRoot, "半受管样本2");
     await fsp.mkdir(path.join(half, "小说资料"), { recursive: true });

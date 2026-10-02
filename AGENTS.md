@@ -37,7 +37,7 @@ src/core/store/     作品目录协议(project) · 14 件套模板(templates) ·
                     操作日志+diff(oplog) · 清单(manifest) · 格式优先回写(markdown，回归锁)
                     章号解析(chapter) · 写前快照(snapshot) · 会话(session) · 备忘录(memo)
 src/core/tools/     工具 schema(spec) · 执行(exec) · 路径分级(pathGuard，唯一策略源)
-src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan)
+src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
 src/ui/             主工作台(MainWorkbench) · 开书引导(NewBookWizard) · 标题栏鲸鱼(TitlebarWhale) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
@@ -47,6 +47,9 @@ src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进
 src-tauri/src/      sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何)
 tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
+                    审计类：_a11y_check / _contrast_audit / _style_audit / _css_coverage（退出码统一 0 通过 / 1 有问题 / 2 判不了）
+                    真机类：_shot_flow.py(截图流程+CDP 公共库) · _compare_sheet.py · cdp_probe.py · uiwalk.ps1 · probe_window.ps1 · probe_win_style.ps1
+                    **全量清单与用法见 docs/DEVELOPMENT.md §9**（新加脚本必须补进那一节）
 ```
 
 > **已落地（B0–B9 全部完成，规划注记已删）**：`src/core/usage/stats|peak|persist|view.ts`（B2/B6）、
