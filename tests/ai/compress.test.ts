@@ -96,6 +96,48 @@ describe("splitMessages", () => {
 });
 
 describe("maybeCompress", () => {
+  it.each(["network", "missing-stop", "length", "max_tokens", "throw"])("不缓存未完成摘要：%s", async (failure) => {
+    __clearCompressCache();
+    let calls = 0;
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"半截摘要"}}]}');
+        if (failure === "network") handlers.onError("connection reset");
+        if (failure === "throw") throw new Error("IPC failed");
+        if (failure === "length" || failure === "max_tokens") {
+          handlers.onLine(`data: {"choices":[{"delta":{},"finish_reason":"${failure}"}]}`);
+          handlers.onLine("data: [DONE]");
+        }
+      },
+    };
+    const opts = {
+      cfg, transport,
+      messages: Array.from({ length: 40 }, (_, i) => msg(`m${i}`, i % 2 ? "assistant" : "user", "字".repeat(300))),
+      contextLimit: 10_000, reservedOutputTokens: 1_000, sessionId: `failure-${failure}`,
+    };
+    expect(await maybeCompress(opts)).toBeNull();
+    expect(await maybeCompress(opts)).toBeNull();
+    expect(calls).toBe(2);
+  });
+  it.each(["end_turn", "max_tokens"])("Anthropic 摘要完整性：%s", async (reason) => {
+    __clearCompressCache();
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        handlers.onLine('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"摘要"}}');
+        handlers.onLine(`data: {"type":"message_delta","delta":{"stop_reason":"${reason}"}}`);
+        handlers.onLine('data: {"type":"message_stop"}');
+      },
+    };
+    const result = await maybeCompress({
+      cfg: { ...cfg, useAnthropicFormat: true }, transport,
+      messages: Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "assistant", "字".repeat(3000))),
+      contextLimit: 10_000, reservedOutputTokens: 1_000, sessionId: `anthropic-${reason}`,
+    });
+    if (reason === "end_turn") expect(result?.block).toContain("摘要");
+    else expect(result).toBeNull();
+  });
+
   it("未超预算 → null（不发摘要请求）", async () => {
     __clearCompressCache();
     const cap: { req?: HttpRequest } = {};

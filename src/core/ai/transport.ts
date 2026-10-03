@@ -36,7 +36,7 @@ function uuid(): string {
 }
 
 /** 当前活跃流（单生成并发；「停止生成」用） */
-let activeRequestId: string | null = null;
+let activeAbort: (() => void) | null = null;
 
 /**
  * 中断当前流：Rust 侧截断上游连接，已收到的部分正文保留。
@@ -44,55 +44,67 @@ let activeRequestId: string | null = null;
  * 此时没有流可断，中止由 agent 循环的 signal 检查收尾）。
  */
 export function abortActiveStream(): void {
-  const id = activeRequestId;
-  if (id) void invoke("ai_abort", { requestId: id });
+  activeAbort?.();
 }
 
 /**
  * 生产传输层：一条 stream() = 一次 ai_stream invoke + 一个按 requestId 过滤的事件监听。
- * 并发假设：全应用单生成并发（UI busyRef 守卫），activeRequestId 单槽即可；
+ * 并发假设：全应用单生成并发（UI busyRef 守卫），activeAbort 单槽即可；
  * 压缩摘要流与主流是先后关系，不会同时占用。
  */
 export function createTauriTransport(): StreamTransport {
   return {
     async stream(req: HttpRequest, handlers): Promise<void> {
       const requestId = uuid();
-      activeRequestId = requestId;
+      let cancelled = false;
+      let started = false;
+      const abort = () => {
+        if (cancelled) return;
+        cancelled = true;
+        if (started) {
+          void invoke("ai_abort", { requestId }).catch((e: unknown) => handlers.onError(String(e)));
+        }
+      };
+      activeAbort = abort;
+      let unlisten: (() => void) | undefined;
       let finish: () => void = () => {};
       const finished = new Promise<void>((resolve) => {
         finish = resolve;
       });
 
-      // 先挂监听再 invoke：Rust 首行事件可能紧随 invoke 到达，顺序反了会丢行
-      const unlisten = await listen<AiChunk>("ai_chunk", (event) => {
-        const p = event.payload;
-        if (p.requestId !== requestId) return;
-        switch (p.kind) {
-          case "line":
-            handlers.onLine(p.data);
-            break;
-          case "http_error":
-            // 折成哨兵行走 onLine：agent 侧统一解析 status|body 并逐字分类
-            handlers.onLine(HTTP_ERROR_PREFIX + p.data);
-            break;
-          case "stream_error":
-            handlers.onError(p.data);
-            break;
-          case "done":
-            finish();
-            break;
-        }
-      });
-
       try {
+        // 先挂监听再 invoke：Rust 首行事件可能紧随 invoke 到达，顺序反了会丢行
+        unlisten = await listen<AiChunk>("ai_chunk", (event) => {
+          const p = event.payload;
+          if (p.requestId !== requestId) return;
+          switch (p.kind) {
+            case "line":
+              handlers.onLine(p.data);
+              break;
+            case "http_error":
+              // 折成哨兵行走 onLine：agent 侧统一解析 status|body 并逐字分类
+              handlers.onLine(HTTP_ERROR_PREFIX + p.data);
+              break;
+            case "stream_error":
+              handlers.onError(p.data);
+              break;
+            case "done":
+              finish();
+              break;
+          }
+        });
+
+        // 注册监听期间的停止尚无 Rust 句柄，直接取消这次发送。
+        if (cancelled) return;
+        started = true;
         await invoke("ai_stream", {
           request: { requestId, url: req.url, headers: req.headers, body: req.body },
         });
         await finished;
       } finally {
         // 无论正常结束、HTTP 错误还是 invoke 异常，监听必须摘除（防泄漏）
-        unlisten();
-        if (activeRequestId === requestId) activeRequestId = null;
+        if (activeAbort === abort) activeAbort = null;
+        unlisten?.();
       }
     },
   };
