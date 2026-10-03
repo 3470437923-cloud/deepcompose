@@ -186,7 +186,8 @@ function useDismiss(active: boolean, ref: React.RefObject<HTMLElement | null>, c
 export const WRITE_NEXT_MESSAGE =
   "请按 novel-writer 主线写下一章候选：先读 小说资料/00-项目状态.md 恢复状态；" +
   "按 小说资料/05-滚动细纲.md 检索本章需要的最小资料（相关人物、地点、物品、时间、资源、伏笔），不默认读整本书；" +
-  "完成 完整初稿 → 逐段修改 → 全文复读；把初稿与唯一最新候选写入 待确认/（第N章-v1-初稿.md、第N章-v2-候选.md，N 为下一章节号）；" +
+  "完成完整起草、逐段修改与全文复读，只保留 待确认/第N章-候选.md 一个候选文件（N 为下一章节号），在同一文件内修改，写前快照由系统保留，不另存初稿或第二版；" +
+  "本次单候选要求优先于旧技能或书内规则的双文件约定；已有用户稿先保留，未经授权不覆盖；" +
   "更新 00-项目状态 的候选指针与进度后交付，只报题目与完成状态，不附自评。先不采用、不回写正式追踪表。";
 
 /** 对话空态的快捷提示（点击预填输入框，用户可改后再发送） */
@@ -201,13 +202,23 @@ const STARTER_TIPS: { label: string; text: string }[] = [
 export function adoptMessage(pendingRel: string): string {
   const rel = pendingRel.replace(/\\/g, "/");
   return (
-    `【采用门】我采用 ${rel} 作为该候选对应章节的最终稿。请执行采用回写：` +
+    `【采用门】我采用 ${rel} 作为该候选对应章节的最终稿。指定版本已经确认，不重复确认采用；只有版本歧义或需要修改用户文字时才提问。请执行采用回写：` +
     `1) 在 小说资料/00-项目状态.md 登记采用版本并把回写标为进行中；` +
     `2) 把最终稿保存为 章节内容/第N章.md（N 取该候选章号）；` +
     `3) 只按最终稿增量更新受影响的追踪表与章节摘要（节内替换，注明来源章节）；` +
-    `4) 逐项核对后清除待办，把本章初稿与候选移入 待确认/已处理/ 留档并清候选指针；` +
+    `4) 逐项核对后清除待办，把本章当前候选及已有旧版稿件移入 待确认/已处理/ 留档并清候选指针；` +
     `5) 全部成功后标记完成并推进当前章节。中断先补余项，不重复累计，全部核对成功前不写新章。`
   );
+}
+
+/** 保存门：失败时保留编辑态；采用阶段负责结束编辑与发送，不启动候选回流。 */
+export async function adoptAfterSave(
+  save: () => Promise<boolean>,
+  adopt: () => Promise<void>,
+): Promise<boolean> {
+  if (!(await save())) return false;
+  await adopt();
+  return true;
 }
 
 /** 标签是否处于可输入状态：资料永远可编辑；正文/候选仅在用户点了「修改」后可编辑 */
@@ -943,7 +954,7 @@ export default function MainWorkbench({
             thinking: "off",
           });
           await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title });
-          setStatus(`回流完成：${task.title}（审稿报告与学习记录已落盘）`);
+          setStatus(`回流任务结束：${task.title}（结果见对应回流会话）`);
         } catch (e) {
           setStatus(`回流失败：${String(e)}`);
         }
@@ -1134,10 +1145,26 @@ export default function MainWorkbench({
         { confirmLabel: "采用并回写" },
       );
       if (!ok) return;
-      await appendOplog(getFs(), project.ref.root, "adopt", tab.rel, session?.id ?? "");
-      await sendUserMessage(adoptMessage(tab.rel));
+      // 采用当前编辑内容：保存失败时保持编辑态，不把磁盘上的旧稿交给 AI。
+      // 不调用 toggleEditing，它会启动独立候选回流并抢占生成槽。
+      await adoptAfterSave(() => saveTabAs(tab, "采用前保存"), async () => {
+        if (tab.editing) {
+          const diff = diffLines(tab.editBase ?? tab.baseContent, tab.content);
+          await appendOplog(getFs(), project.ref.root, "edit_end", tab.rel, session?.id ?? "", {
+            changedChars: diff.changedChars,
+            addedLines: diff.added.length,
+            removedLines: diff.removed.length,
+            digitsChanged: diff.digitsChanged,
+            reflowTriggered: false,
+            note: "采用前结束编辑，直接按最终稿执行采用回写",
+          });
+          setTabs((prev) => prev.map((t) => t.rel === tab.rel ? { ...t, editing: false, editBase: null } : t));
+        }
+        await appendOplog(getFs(), project.ref.root, "adopt", tab.rel, session?.id ?? "");
+        await sendUserMessage(adoptMessage(tab.rel));
+      });
     },
-    [project, session, askConfirm, sendUserMessage],
+    [project, session, askConfirm, sendUserMessage, saveTabAs],
   );
 
   /** 冷读：独立会话（零工具、零设定、零作者上下文），报告自动存入 小说资料\审核\ */

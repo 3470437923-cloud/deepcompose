@@ -363,6 +363,8 @@ describe("候选区与通用内容树", () => {
 
   it("kindForRel 按路径判类；chapterLabelOf 提取章号标签", () => {
     expect(kindForRel("章节内容\\第3章.md")).toBe("chapter");
+    expect(kindForRel("待确认/第3章-候选.md")).toBe("candidate");
+    expect(chapterLabelOf("第3章-候选.md")).toBe("第3章");
     expect(kindForRel("待确认/第3章-v2-候选.md")).toBe("candidate");
     expect(kindForRel("待确认\\已处理\\第1章-v1-初稿.md")).toBe("candidate");
     expect(kindForRel("小说资料\\00-项目状态.md")).toBe("doc");
