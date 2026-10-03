@@ -1,7 +1,7 @@
 # AGENTS.md —— DeepCompose 维护手册（给接手 agent）
 
 本文件是**接手即读**的一页纸：契约、代码地图、闸门、环境坑。细节在
-`README.md`（产品与磁盘契约）、`docs/DEVELOPMENT.md`（构建与验收）、`DESIGN.md`（视觉体系）、`PRODUCT.md`（产品定位）。
+`README.md`（产品与磁盘契约）、`docs/DEVELOPMENT.md`（构建与验收）、`docs/MATERIALS-STYLE.md`（小说资料的写法与体量契约）、`DESIGN.md`（视觉体系）、`PRODUCT.md`（产品定位）。
 
 ## 0. 一句话产品
 
@@ -36,6 +36,7 @@ src/core/ai/        双协议 SSE 解析(protocol) · 工具循环(agent) · 会
 src/core/store/     作品目录协议(project) · 14 件套模板(templates) · 开书引导填充(onboarding)
                     操作日志+diff(oplog) · 清单(manifest) · 格式优先回写(markdown，回归锁)
                     章号解析(chapter) · 写前快照(snapshot) · 会话(session) · 备忘录(memo)
+                    状态文档结构化读取(status) · 伏笔统计核对(tracking) · 资料形态体检(style，D-038)
 src/core/tools/     工具 schema(spec) · 执行(exec) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
@@ -116,6 +117,7 @@ B12 全量修复进度见 `docs/FIX-LEDGER-2026-10-02.md`。
 5. 零 UI 运行时依赖：只允许 react / react-dom / @tauri-apps/*；图标自绘内联 SVG，字体本地自托管。
 6. 只展示已实现的功能；占位按钮（"后续批次提供"）视为缺陷。
 7. 注释口径：中文；说"为什么"与契约，不逐行复述代码；过时注释随实现一起改。
+8. 小说资料形态：写 `小说资料/` 下任何文档遵守 `docs/MATERIALS-STYLE.md`（预算与判定在 `src/core/store/style.ts`）；过程记录（导入说明/核对证据/遗疵/待办）放 `小说资料/审核/`；**已超标的文件先瘦身再写新内容**；体检只报告不改写。
 
 ## 5. 环境坑（本机实测）
 

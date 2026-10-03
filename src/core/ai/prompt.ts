@@ -8,7 +8,7 @@
  * 系统提示词本体：**自写、语义等价**，见 prefs.DEFAULT_SYSTEM_PROMPT。
  *
  * 装配顺序（buildSystemPrompt）：本体 → 项目路径块 → 未启用工具声明 → 技能清单块
- * → 技能根路径块（I-10）。
+ * → 技能根路径块（I-10）→ 资料形态契约短版（L1）。
  * 冷读（sendIsolated）不走本模块——隔离系统提示词由 coldread.ts 独立给出。
  */
 
@@ -27,6 +27,20 @@ export const PROJECT_UNBOUND_NOTE =
 export function toolDisabledNote(tool: string): string {
   return `未启用，${tool} 工具当前不可用（调用会被拒绝），请勿声称具备该能力或尝试调用`;
 }
+
+/**
+ * 资料形态契约的**短版**（L1 / D-038）：完整契约见 `docs/MATERIALS-STYLE.md`，
+ * 判据在 `src/core/store/style.ts`。放在系统提示词里的原因很实际 —— 技能是
+ * **按需加载**的，模型写资料时不一定会去 `skill_lookup`；而这四条是每次写盘都要遵守的。
+ * 这里只写"禁止什么/放哪/多长"，不重复契约全文。
+ */
+export const MATERIALS_STYLE_NOTE =
+  "\n\n写作资料（小说资料/ 下的维护文档）的形态契约（完整版见项目文档 docs/MATERIALS-STYLE.md）：\n" +
+  "- 一份文档只写它的职责；过程记录（导入说明、核对证据、遗疵、待办、文档归位表）一律放 小说资料/审核/ 的归档文件，不进内容文件。\n" +
+  "- 只用标题层级、`- 键：值`/`- 条目`，以及**仅用于二维矩阵数据**的表格；不要框线或 ASCII 图、不要 emoji 与装饰符号、不要 `---` 分节线、不要用箭头代替文字、不要 `**粗体**` 当字段标签。\n" +
+  "- 一条事实一行，句子说完整；不写「为什么这么设计」，不写「（约N字）」这类施工标注；人物库一人不超过 6 个字段行。\n" +
+  "- 遵守单文件体量预算（00-项目状态 1500 字符、04-分卷大纲 14000、人物库 18000…）；**已经超标的文件先瘦身再写新内容**，不要把新内容继续堆上去。\n" +
+  "- 04-分卷大纲 只放全书节拍（每卷目标 + 每章一行），逐场次细节放 05-滚动细纲（只留未来 5–12 章）或审核/ 归档。";
 
 /**
  * 「已启用」工具的逐字声明表（预留契约：web_search / rank_data_query 实现并注册后，
@@ -82,6 +96,9 @@ export function buildSystemPrompt(input: PromptInput): string {
   if (input.skillsDir) {
     out += `\n\n技能目录（全部技能的根目录，可用 file_write 直接创建/修改，写入无需确认）："${input.skillsDir}"`;
   }
+
+  // 资料形态契约短版（L1 / D-038）：静态文本，与项目是否绑定无关（新建作品时同样要遵守）
+  out += MATERIALS_STYLE_NOTE;
 
   return out;
 }
