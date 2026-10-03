@@ -53,7 +53,7 @@ import {
   COLD_READ_GOAL_LABEL,
   buildColdReadUserMessage,
   coldReadReportBody,
-  coldReadReportRel,
+  nextColdReadReportRel,
   coldReadSessionTitle,
   coldReadSystem,
   type ColdReadGoal,
@@ -1194,16 +1194,27 @@ export default function MainWorkbench({
         const aiText =
           [...res.session.messages].reverse().find((m) => m.role === "assistant")?.text ?? "";
         if (aiText.trim()) {
-          const rel = coldReadReportRel(label, goal).replace(/\//g, "\\");
+          const rel = (
+            await nextColdReadReportRel(
+              label,
+              goal,
+              new Date(),
+              async (candidate) =>
+                (await fs.stat(join(project.ref.root, candidate.replace(/\//g, "\\")))) !== null,
+            )
+          ).replace(/\//g, "\\");
           const abs = join(project.ref.root, rel);
+          const previousStat = await fs.stat(abs);
+          const previousContent = previousStat && !previousStat.isDir ? await fs.readText(abs) : null;
           await fs.mkdir(dirname(abs));
           await recordSnapshot(fs, b.dirs.snapshotsDir, {
             sessionId: res.session.id,
             callId: `coldread_${Date.now()}`,
             operation: "write",
             relativePath: rel.replace(/\\/g, "/"),
-            previousContent: null,
-            previousExists: false,
+            previousContent,
+            previousExists: previousStat !== null,
+            previousType: previousStat?.isDir ? "directory" : previousStat ? "file" : "none",
           });
           await fs.writeText(abs, coldReadReportBody(label, goal, priors, aiText));
           await appendOplog(fs, project.ref.root, "coldread", rel, res.session.id, { note: goal });

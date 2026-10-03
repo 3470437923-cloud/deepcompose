@@ -12,6 +12,7 @@ import {
   buildColdReadUserMessage,
   coldReadReportBody,
   coldReadReportRel,
+  nextColdReadReportRel,
   coldReadSessionTitle,
   coldReadSystem,
 } from "../../src/core/ai/coldread";
@@ -102,9 +103,18 @@ describe("用户消息装配", () => {
 
 describe("报告落盘", () => {
   it("路径：小说资料/审核/<章标签>-冷读-<目标>-<时间戳>.md", () => {
-    // 小说资料/审核 为磁盘契约目录名；时间戳 YYYYMMDD-HHmm（本地时间）
     const rel = coldReadReportRel("第3章", "clarity", new Date(2026, 4, 6, 9, 5));
     expect(rel).toBe("小说资料/审核/第3章-冷读-clarity-20260506-0905.md");
+  });
+  it("同一分钟重复冷读不覆盖上一份报告", async () => {
+    const used = new Set(["小说资料/审核/第3章-冷读-clarity-20260506-0905.md"]);
+    const rel = await nextColdReadReportRel(
+      "第3章",
+      "clarity",
+      new Date(2026, 4, 6, 9, 5),
+      async (candidate) => used.has(candidate),
+    );
+    expect(rel).toBe("小说资料/审核/第3章-冷读-clarity-20260506-0905-2.md");
   });
 
   it("报告体：CRLF、元信息头、AI 输出原文", () => {

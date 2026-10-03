@@ -163,6 +163,7 @@
 | R-28 tokens.css 注释与 DESIGN.md 冲突 | ✅ | 按 WCAG 公式实算：`#4d6bfe` 白字 4.33:1、88% 混黑 `#445ee0` 为 **5.35:1**（原注释写 6.5:1，错）→ 改为 5.35:1；圆角段"收到 8px"改为 10px（`--r-xl`，与 DESIGN.md 一致） |
 | R-29 `_a11y_check` 27 条假红（探针自欺） | ✅ | **我在验证阶段实测发现**：① 任何分组都跑一遍 stream 流程 → 空态探针的 `.cw-tip` 被自己发的消息顶掉、生成态探针的 `.streaming` 被 1.2s 等待耗掉（12 条恒 `__missing__`）② 无头 Edge 的 `prefers-reduced-motion` 默认就是 reduce，而 CSS 在 reduce 下把过渡压到 0.01ms → 过渡存活 15 条全红。修法：前置状态按 empty/chat/streaming 精确准备 + 生成态轮询；所有基准测量显式 `Emulation.setEmulatedMedia(DEFAULT_FEATURES)` 并断言 reduce 未命中（不成立报 TOOL-ERROR 且 exit 2）。修复后实测 **exit 0 全部通过** |
 | R-30 DEVELOPMENT 的 _style_audit 命令漏 about | ✅ | 文档命令改为不带 `--flows`（跑默认全集，含 A-1 刚修正的 about 第 6 项），或在收窄时显式列出 `…,about` |
+| R-31 冷读报告同分钟覆盖且快照误报新文件 | ✅ | 复审确认：报告名仅精确到分钟，重复冷读会覆盖上一份；写前快照硬编码 `previousExists:false`，无法恢复旧报告。新增 `nextColdReadReportRel`，冲突时使用 `-2/-3` 后缀；写入前读取真实旧状态并记录 `previousContent/previousExists/previousType`；回归锁 `tests/ai/coldread.test.ts`。 |
 
 ---
 **提交记录**：`603ef18` 基线保护 → `16c9a79` 批次1（tools/AI 核心：N-01/02/03/12/13/14/15/27/30 + B-1/B-4 核心侧）
