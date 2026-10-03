@@ -109,7 +109,7 @@ describe("createProject + overrides（落盘集成）", () => {
     const ref = await createProject(fs, booksRoot, "引导书", onboardingOverrides(answers));
     const pos = await fsp.readFile(path.join(ref.root, "小说资料", POSITIONING_DOC), "utf8");
     expect(pos).toContain("- 一句话故事：少年下山复仇");
-    expect(pos).toContain("- 暂定书名：引导书"); // {书名} 占位仍被替换
+    expect(pos).toMatch(/^暂定书名：引导书\r?$/m); // 非引导字段用自然段，{书名} 仍须替换
     expect(pos).toContain("- 目标平台与读者：待填写"); // 没答的保持占位
     expect(pos).toContain("\r\n"); // 磁盘格式：CRLF
     expect(pos).not.toMatch(/[^\r]\n/); // 没有孤 LF
