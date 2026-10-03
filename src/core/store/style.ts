@@ -25,7 +25,7 @@ export interface MaterialIssue {
 export interface MaterialBudget {
   /** 单文件字符数上限 */
   maxChars: number;
-  /** 表格行占比上限（0–1）。二维矩阵数据（追踪表）允许高，叙述性文档应当低 */
+  /** 表格行占比上限（0–1）。保留对旧版追踪表的宽容，不代表推荐表格 */
   maxTableRatio: number;
   /** 一句话职责（体检提示里回显，帮作者判断"这份该装什么"） */
   role: string;
@@ -33,9 +33,9 @@ export interface MaterialBudget {
 
 /** 状态入口：指针 + 下一步，几乎不该出现表格 */
 const STATUS_RATIO = 0.25;
-/** 其余叙述与设定类文档：表格只用于真正的二维数据 */
+/** 其余叙述与设定类文档：既有诊断阈值，新资料默认自然段 */
 const NARRATIVE_RATIO = 0.3;
-/** 追踪表：本质就是矩阵，**不做占比判定**（1 = 不设限；配合 checkMaterial 的 `< 1` 判据） */
+/** 兼容用户既有追踪矩阵，**不做占比判定**（1 = 不设限；配合 checkMaterial 的 `< 1` 判据） */
 const MATRIX_RATIO = 1;
 
 /**
@@ -48,15 +48,15 @@ export const MATERIAL_BUDGETS: Record<string, MaterialBudget> = {
   "01-开书定位.md": { maxChars: 2500, maxTableRatio: NARRATIVE_RATIO, role: "开书定位：类型、读者、一句话故事" },
   "02-核心设定.md": { maxChars: 3000, maxTableRatio: NARRATIVE_RATIO, role: "世界规则、能力边界、主线" },
   "03-全书大纲.md": { maxChars: 6000, maxTableRatio: NARRATIVE_RATIO, role: "重大转折与结局方向，不写逐场次" },
-  "04-分卷大纲.md": { maxChars: 14000, maxTableRatio: 0.5, role: "全书节拍表：每卷目标/卷末新局面 + 每章一行；逐场细节放 05 或归档" },
-  "05-滚动细纲.md": { maxChars: 10000, maxTableRatio: 0.5, role: "近期场景细纲：只放未来3—5章，每章约四项" },
+  "04-分卷大纲.md": { maxChars: 14000, maxTableRatio: 0.5, role: "卷章概览：每卷目标与卷末新局面，每章一句；逐场细节放 05 或归档" },
+  "05-滚动细纲.md": { maxChars: 10000, maxTableRatio: 0.5, role: "近期场景细纲：只放未来3至5章，每章约四段自然段" },
   "06-写作规则.md": { maxChars: 4000, maxTableRatio: NARRATIVE_RATIO, role: "本书写作要求与个人文风沉淀" },
   "人物库.md": { maxChars: 18000, maxTableRatio: NARRATIVE_RATIO, role: "只存稳定特征；动态状态在追踪表" },
   "章节摘要.md": { maxChars: 15000, maxTableRatio: NARRATIVE_RATIO, role: "历史归档索引：每章一条简短摘要" },
-  "追踪-伏笔.md": { maxChars: 20000, maxTableRatio: MATRIX_RATIO, role: "伏笔矩阵：F 编号 + 埋设/回收章 + 状态" },
-  "追踪-角色状态.md": { maxChars: 12000, maxTableRatio: MATRIX_RATIO, role: "角色动态状态矩阵" },
-  "追踪-时间线.md": { maxChars: 10000, maxTableRatio: MATRIX_RATIO, role: "事件时间线矩阵" },
-  "追踪-资源与权限.md": { maxChars: 10000, maxTableRatio: MATRIX_RATIO, role: "资源与权限当前值矩阵" },
+  "追踪-伏笔.md": { maxChars: 20000, maxTableRatio: MATRIX_RATIO, role: "伏笔记录：F 编号、埋设与回收章节、状态" },
+  "追踪-角色状态.md": { maxChars: 12000, maxTableRatio: MATRIX_RATIO, role: "角色动态状态记录" },
+  "追踪-时间线.md": { maxChars: 10000, maxTableRatio: MATRIX_RATIO, role: "事件时间线记录" },
+  "追踪-资源与权限.md": { maxChars: 10000, maxTableRatio: MATRIX_RATIO, role: "资源与权限当前值记录" },
   "追踪-废弃设定.md": { maxChars: 6000, maxTableRatio: MATRIX_RATIO, role: "禁止恢复的旧设定（D 编号）" },
 };
 
@@ -163,7 +163,7 @@ export function checkMaterial(name: string, text: string): MaterialIssue[] {
       level: "warn",
       check: "material-box-drawing",
       label: `框线字符 ${m.boxDrawing} 个`,
-      message: `${name}${kind} 含 ${m.boxDrawing} 个框线字符（ASCII 图/框线表）：编辑器是比例字体，必然错位，且任何编辑都会破图。请改成「一行一实体」的文字或表格`,
+      message: `${name}${kind} 含 ${m.boxDrawing} 个框线字符（ASCII 图/框线表）：编辑器是比例字体，必然错位，且任何编辑都会破图。经授权整理时改成自然段，保留必要标题与机器字段`,
     });
   }
   if (m.emoji > 0) {
@@ -182,13 +182,13 @@ export function checkMaterial(name: string, text: string): MaterialIssue[] {
       message: `${name}${kind} 含 ${m.processNotes} 处过程性标注（导入说明/核对证据/遗疵/文档归位表）：流程记录属于 小说资料/审核/ 的归档，不放进内容文件`,
     });
   }
-  // 矩阵文档（追踪表）maxTableRatio = 1：按设计就该全是表格，不做占比判定
+  // 旧版追踪矩阵 maxTableRatio = 1：兼容存量格式，不据此推荐新表格
   if (b.maxTableRatio < 1 && m.tableRatio > b.maxTableRatio) {
     out.push({
       level: "warn",
       check: "material-table-ratio",
       label: `表格行占比 ${(m.tableRatio * 100).toFixed(0)}%`,
-      message: `${name}${kind} 表格行占比 ${(m.tableRatio * 100).toFixed(0)}%（上限 ${(b.maxTableRatio * 100).toFixed(0)}%）：表格只用于二维数据，叙述内容请用条目或段落`,
+      message: `${name}${kind} 表格行占比 ${(m.tableRatio * 100).toFixed(0)}%（上限 ${(b.maxTableRatio * 100).toFixed(0)}%）：新资料默认自然段和必要标题；存量整理先保留事实与来源，机器字段不改成表格`,
     });
   }
   if (m.hrLines > 2) {
@@ -204,15 +204,14 @@ export function checkMaterial(name: string, text: string): MaterialIssue[] {
       level: "info",
       check: "material-long-line",
       label: `最长行 ${m.longestLine} 字符`,
-      message: `${name}${kind} 最长一行 ${m.longestLine} 字符：过长的行不利于检索与节内替换，建议按一条事实一行拆开`,
+      message: `${name}${kind} 最长一行 ${m.longestLine} 字符：过长的行不利于检索与节内替换，建议按语意分成自然段，不截断路径或链接`,
     });
   }
   return out;
 }
 
-/** 人物库的单条目字段行数上限（"一人一块、一块六字段"；超过说明把动态信息混进了稳定特征）。
- *  只数 `- ` 字段行：模板条目末尾还有一句体裁说明（"这里只管动态状态…"），
- *  把它算进去会让模板自己误报 —— 契约的基准形态必须零提示。 */
+/** 旧版人物卡的字段行诊断上限。新模板使用自然段，不按段数判错。
+ *  只数旧版 `- ` 字段行；超限仅提示核对职责，不自动删事实。 */
 export const CAST_ENTRY_MAX_LINES = 6;
 
 /** 人物库逐条目检查：`## 名字` 起头，块内字段行（`- `）数超过上限即提示 */
@@ -229,7 +228,7 @@ function checkCastEntries(name: string, text: string): MaterialIssue[] {
         level: "info",
         check: "material-cast-entry-long",
         label: `超长条目 ${long}`,
-        message: `人物库.md 的「${cur}」条目 ${count} 个字段行（上限 ${CAST_ENTRY_MAX_LINES}）：建议用六项记录稳定特征与人物特有表达，位置/伤势/知情/资源另查追踪表；整理须保留事实`,
+        message: `人物库.md 的「${cur}」条目 ${count} 个字段行（上限 ${CAST_ENTRY_MAX_LINES}）：可用自然段记录稳定特征与人物特有表达，位置、伤势、知情和资源另查追踪表；整理须保留事实`,
       });
     }
   };
@@ -268,7 +267,7 @@ export function auditMaterials(files: { name: string; text: string }[]): Materia
           level: "info",
           check: "material-cast-entry-long",
           label: `超长条目 ${n} 个`,
-          message: `人物库.md 有 ${n} 个条目超过 ${CAST_ENTRY_MAX_LINES} 行：建议用六项记录稳定特征与人物特有表达，位置/伤势/知情/资源另查追踪表；整理须保留事实`,
+          message: `人物库.md 有 ${n} 个条目超过 ${CAST_ENTRY_MAX_LINES} 行：可用自然段记录稳定特征与人物特有表达，位置、伤势、知情和资源另查追踪表；整理须保留事实`,
         });
       }
     }

@@ -21,6 +21,9 @@ import {
   measureMaterial,
 } from "../../src/core/store/style";
 import { DOC_TEMPLATES } from "../../src/core/store/templates";
+import { parseProjectStatus } from "../../src/core/store/status";
+import { countForeshadowing } from "../../src/core/store/tracking";
+import { sectionBody } from "../../src/core/store/markdown";
 import { createProject, validateProject } from "../../src/core/store/project";
 
 const ASCII_ART = [
@@ -100,7 +103,7 @@ describe("checkMaterial：逐条判据", () => {
     ).toBe(true);
   });
 
-  it("追踪表允许基本全是表格（矩阵文档不误报）", () => {
+  it("追踪表兼容存量矩阵，不因新模板默认自然段而误报", () => {
     const matrix = "# 追踪-伏笔\n" + Array.from({ length: 40 }, (_, i) => `| F00${i} | 第1章 | 第9章 | 已回收 |`).join("\n");
     expect(checkMaterial("追踪-伏笔.md", matrix).some((i) => i.check === "material-table-ratio")).toBe(false);
   });
@@ -110,6 +113,32 @@ describe("checkMaterial：逐条判据", () => {
     const issues = checkMaterial("01-开书定位.md", doc);
     expect(issues.find((i) => i.check === "material-hr-lines")?.level).toBe("info");
     expect(issues.find((i) => i.check === "material-long-line")?.level).toBe("info");
+  });
+
+  it("自然段模板不带非必需列表或装饰，固定字段例外保留", () => {
+    for (const { name, content } of DOC_TEMPLATES) {
+      expect(content, name).toMatch(/^# /);
+      expect(content, name).not.toMatch(/^>|^\||\*\*|[→←／]|^---$/m);
+      const machineFields = /^(00-|01-|02-|追踪-)/.test(name);
+      if (!machineFields) expect(content, name).not.toMatch(/^[-*+] /m);
+    }
+    expect(DOC_TEMPLATES.find((t) => t.name === "01-开书定位.md")!.content.match(/^- /gm)).toHaveLength(7);
+    expect(DOC_TEMPLATES.find((t) => t.name === "02-核心设定.md")!.content.match(/^- /gm)).toHaveLength(3);
+  });
+
+  it("新模板仍可读状态、计伏笔、按标题定位自然段", () => {
+    const textOf = (name: string) => DOC_TEMPLATES.find((t) => t.name === name)!.content;
+    expect(parseProjectStatus(textOf("00-项目状态.md"))).toMatchObject({
+      stage: "开书准备", chapter: "第000章", progress: "未开始",
+    });
+    const foreshadow = textOf("追踪-伏笔.md");
+    expect(countForeshadowing(foreshadow)).toMatchObject({ open: 0, collected: 0, dropped: 0, unclassified: 1 });
+    const active = foreshadow.replace(/^- 状态：.*$/m, "- 状态：开放");
+    expect(countForeshadowing(active)).toMatchObject({ open: 1, unclassified: 0 });
+    expect(sectionBody(textOf("人物库.md"), "人物名（模板，新建人物时复制本条目）"))
+      .toContain("说话习惯与压力反应：待填写");
+    expect(sectionBody(textOf("05-滚动细纲.md"), "第N章：章名待定"))
+      .toContain("主要场面：待填写");
   });
 
   it("模板形态本身零提示（这是契约的基准形态）", () => {
