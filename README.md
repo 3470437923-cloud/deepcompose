@@ -48,6 +48,7 @@ npm.cmd run package             # 打包：tsc 类型闸门 → vite build → c
 
 更细的构建、验收与环境坑见 [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)；
 给维护 agent 的契约与代码地图见 [`AGENTS.md`](AGENTS.md)；
+**小说资料的写法与体量契约见 [`docs/MATERIALS-STYLE.md`](docs/MATERIALS-STYLE.md)**（判据在 `src/core/store/style.ts`）；
 已知边界与缺陷账本见 [`docs/KNOWN-LIMITS.md`](docs/KNOWN-LIMITS.md)；
 改造裁决与 DeepSeek 接口事实基线见 [`docs/DECISIONS.md`](docs/DECISIONS.md)。
 
@@ -108,3 +109,4 @@ DeepCompose/
 9. **用户手改是最高权威**：回流审稿只出报告，动用户文字必须过 `question`；AI 永不静默改写用户稿。
 10. **冷读隔离是代码保证**：`sendIsolated` 零工具、零项目块、零技能（`coldread.ts` 有回归锁），不得为"方便"给它加任何工具或上下文。
 11. **只展示已实现的功能**：不写「后续批次提供」式占位按钮；做不了就不放入口。
+12. **资料形态契约**：写 `小说资料/` 下任何文档前先看 [`docs/MATERIALS-STYLE.md`](docs/MATERIALS-STYLE.md)——体量预算与判定在 `src/core/store/style.ts`，作品校验会在打开作品时逐份体检并在状态条提示（**只报告、绝不改写**）。

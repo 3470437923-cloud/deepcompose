@@ -30,6 +30,7 @@ import { DOC_TEMPLATES, FORESHADOW_DOC, renderTemplate, STATE_DOC } from "./temp
 import { childNameProblem } from "./names";
 import { parseProjectStatus, statusChapterNo, type ProjectStatus } from "./status";
 import { countForeshadowing } from "./tracking";
+import { auditMaterials } from "./style";
 
 export interface ProjectRef {
   /** 作品根绝对路径 */
@@ -386,7 +387,8 @@ export interface ProjectIssue {
  * 作品结构校验（I-12：把外部内容放进作品根之后，软件第一次有了"看一看"的入口）。
  * **只读不判**的纪律不变：本函数只报告、不修复、不补建任何文件。
  * 覆盖：清单存在性与可解析性、基础目录、14 件套、章节文件可读性与编号连续性、
- * 状态文档与正文的进度一致性（I-3）、伏笔自述统计与条目数的一致性（I-4）。
+ * 状态文档与正文的进度一致性（I-3）、伏笔自述统计与条目数的一致性（I-4）、
+ * 资料形态体检（L2 / D-038：体量预算、装饰符号、表格占比、过程标注 —— 只报告不改写）。
  */
 export async function validateProject(fs: FsBridge, projectRoot: string): Promise<ProjectIssue[]> {
   const issues: ProjectIssue[] = [];
@@ -435,6 +437,19 @@ export async function validateProject(fs: FsBridge, projectRoot: string): Promis
       message: `14 件套缺 ${missing.length} 份：${missing.slice(0, 3).join("、")}${missing.length > 3 ? " 等" : ""}`,
     });
   }
+
+  // L2 资料形态体检（D-038 / docs/MATERIALS-STYLE.md）：体量、装饰符号、表格占比、过程标注。
+  // 纪律与「格式优先」一致：**只报告、绝不改写**；单个文件读不出就跳过，不阻断体检。
+  const materialFiles: { name: string; text: string }[] = [];
+  for (const name of docNames) {
+    if (!name.toLowerCase().endsWith(".md")) continue;
+    try {
+      materialFiles.push({ name, text: await fs.readText(join(docsDir, name)) });
+    } catch {
+      /* 读失败静默：可读性本身由 chapter/doc 检查负责，形态体检不因一个坏文件中断 */
+    }
+  }
+  issues.push(...auditMaterials(materialFiles));
 
   // 章节：文件必须可读（非 UTF-8 会在编辑回路里炸）；编号只报告断档，不判对错
   const chapters = await listChapters(fs, projectRoot);
