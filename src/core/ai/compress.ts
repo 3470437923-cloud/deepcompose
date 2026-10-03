@@ -222,16 +222,27 @@ async function summarize(
   const req = buildRequest({ ...cfg, temperature: 0.3 }, [promptMsg], [], "");
   const parser = new StreamParser(cfg.useAnthropicFormat);
   let text = "";
-  await transport.stream(req, {
-    onLine: (line) => {
-      for (const e of parser.feed(line)) {
-        if (e.type === "text_delta") text += e.text;
-      }
-    },
-    // 摘要失败不抛：空文本会被 maybeCompress 的校验拦下并回退为不压缩
-    onError: () => {},
-  });
-  return text;
+  let stopped = false;
+  let failed = false;
+  try {
+    await transport.stream(req, {
+      onLine: (line) => {
+        for (const e of parser.feed(line)) {
+          if (e.type === "text_delta") text += e.text;
+          if (e.type === "stop") {
+            stopped = true;
+            // [DONE] 不能覆盖此前的截断/拒绝原因；半截摘要不能替代历史。
+            if (!["stop", "end_turn", "stop_sequence", "done"].includes(e.reason)) failed = true;
+          }
+        }
+      },
+      onError: () => { failed = true; },
+    });
+  } catch {
+    failed = true;
+  }
+  // 传输结束不等于模型完成：断流、取消、IPC 异常统一走现有回退提示。
+  return stopped && !failed ? text : "";
 }
 
 /**
