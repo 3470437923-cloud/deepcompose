@@ -83,6 +83,9 @@ type Args = Record<string, unknown>;
 function err(message: string): string {
   return JSON.stringify({ error: message });
 }
+function linkError(path: string): string {
+  return `拒绝访问链接或 junction：${path}`;
+}
 
 /**
  * N-42：工具失败判定 —— 只认 err() 的**结构**：整串是一个 JSON 对象、
@@ -242,6 +245,7 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
   // 路径不存在时统一报 "Directory not found"（既有逐字文案，read 文件缺失也用它，回归锁）
   const st = await ctx.fs.stat(abs);
   if (st === null) return err(`Directory not found: ${reported}`);
+  if (st.isLink) return err(linkError(reported));
 
   if (operation === "list") {
     if (!st.isDir) return err(`Not a directory: ${reported}`);
@@ -313,7 +317,9 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   const reported = slashPath(reportPath(g.resolved));
 
   // 写前先取旧内容与存在性：既是 append/replace/insert/delete_lines 的输入，也是快照的"写前"半段
-  const exists = await ctx.fs.exists(abs);
+  const st = await ctx.fs.stat(abs);
+  if (st?.isLink) return err(linkError(reported));
+  const exists = st !== null;
   const previous = exists ? await ctx.fs.readText(abs) : null;
 
   let next: string;
@@ -463,6 +469,7 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
         }
         for (const e of entries) {
           const childRel = rel === "" ? e.name : join(rel, e.name);
+          if (e.isLink) continue;
           if (e.isDir) {
             if (e.name.startsWith(".")) continue;
             await walk(e.path, childRel, depth + 1);
