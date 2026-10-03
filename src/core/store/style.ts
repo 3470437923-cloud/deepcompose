@@ -1,11 +1,8 @@
 /**
  * 资料形态体检（L2：把"文档胖不胖、符号脏不脏"变成可核的数字）。
  *
- * 背景（实测，见 docs/MATERIALS-STYLE.md 的现状表）：一部导入作品的 17 份资料
- * 共 173,888 字符，其中 04-分卷大纲 50,872（模板的 205 倍）、人物库 25,156、
- * 结构符号每千字最高 133 个、框线字符 495 个全在一个 ASCII 架构图里、
- * `---` 分节线 379 条、`（约N字）` 过程标注 356 处。膨胀与装饰不是"风格问题"：
- * 它们直接抬高每次"最小读取"的成本，并让格式优先的增量回写越来越难命中。
+ * 短段落、少量字段与明确职责降低读取和增量回写的成本。
+ * 形态只作诊断；场景篇幅计划是写作信息，不等于过程记录。
  *
  * 纪律（与「格式优先」同一条）：
  *  - **只报告，绝不改写**：本模块只产出提示，不动用户一个字符；
@@ -24,7 +21,7 @@ export interface MaterialIssue {
   label?: string;
 }
 
-/** 单份资料的形态预算（字符数为上限，不是目标；模板体量是理想形态） */
+/** 单份资料的形态预算（诊断阈值，不是写作目标或自动清理依据） */
 export interface MaterialBudget {
   /** 单文件字符数上限 */
   maxChars: number;
@@ -52,7 +49,7 @@ export const MATERIAL_BUDGETS: Record<string, MaterialBudget> = {
   "02-核心设定.md": { maxChars: 3000, maxTableRatio: NARRATIVE_RATIO, role: "世界规则、能力边界、主线" },
   "03-全书大纲.md": { maxChars: 6000, maxTableRatio: NARRATIVE_RATIO, role: "重大转折与结局方向，不写逐场次" },
   "04-分卷大纲.md": { maxChars: 14000, maxTableRatio: 0.5, role: "全书节拍表：每卷目标/卷末新局面 + 每章一行；逐场细节放 05 或归档" },
-  "05-滚动细纲.md": { maxChars: 10000, maxTableRatio: 0.5, role: "近期施工图：只放未来 5–12 章的场景细纲" },
+  "05-滚动细纲.md": { maxChars: 10000, maxTableRatio: 0.5, role: "近期场景细纲：只放未来3—5章，每章约四项" },
   "06-写作规则.md": { maxChars: 4000, maxTableRatio: NARRATIVE_RATIO, role: "本书写作要求与个人文风沉淀" },
   "人物库.md": { maxChars: 18000, maxTableRatio: NARRATIVE_RATIO, role: "只存稳定特征；动态状态在追踪表" },
   "章节摘要.md": { maxChars: 15000, maxTableRatio: NARRATIVE_RATIO, role: "历史归档索引：每章一条简短摘要" },
@@ -95,7 +92,7 @@ export interface MaterialMetrics {
   hrLines: number;
   /** 箭头（当连接词使用） */
   arrows: number;
-  /** 过程性标注：`（约N字）`、导入说明、核对证据、遗疵 … */
+  /** 过程性标注：导入说明、核对证据、遗疵等；场景篇幅计划不算过程记录 */
   processNotes: number;
   /** 每千字结构符号数（框线+emoji+粗体×2+表格行+分节线+箭头），仅作密度提示 */
   structPer1000: number;
@@ -106,7 +103,7 @@ const BOX_RE = /[\u2500-\u257F\u2580-\u259F]/g;
 const DECOR_RE = /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{25A0}-\u{25FF}\u{2B00}-\u{2BFF}\u{203B}\u{FE0F}\u{200D}]/gu;
 const ARROW_RE = /[\u2192\u2190\u2191\u2193\u21D2\u21D0]/g;
 /** 过程性标注：与"作品事实"无关的流程记录痕迹 */
-const PROCESS_RE = /（约?\s*\d+\s*字）|导入说明|导入核对|核对证据|遗疵|文档归位表/g;
+const PROCESS_RE = /导入说明|导入核对|核对证据|遗疵|文档归位表/g;
 const HR_RE = /^\s*(?:-{3,}|={3,}|\*{3,})\s*$/;
 
 /** 量一份资料（纯函数，任何输入都安全返回） */
@@ -158,7 +155,7 @@ export function checkMaterial(name: string, text: string): MaterialIssue[] {
       level: "warn",
       check: "material-over-budget",
       label: `超预算 ${times} 倍（${m.chars}/${b.maxChars} 字符）`,
-      message: `${name}${kind} 体量 ${m.chars} 字符，超出预算 ${b.maxChars}（${times} 倍）：${b.role}。建议先瘦身或把细节迁到 小说资料/审核/ 的归档文件，再写新内容`,
+      message: `${name}${kind} 体量 ${m.chars} 字符，超出预算 ${b.maxChars}（${times} 倍）：${b.role}。预算只用于诊断，不自动删除或改写；如需整理，先确认授权并保留事实、来源与可检索归档`,
     });
   }
   if (m.boxDrawing > 0) {
@@ -182,7 +179,7 @@ export function checkMaterial(name: string, text: string): MaterialIssue[] {
       level: "warn",
       check: "material-process-notes",
       label: `过程性标注 ${m.processNotes} 处`,
-      message: `${name}${kind} 含 ${m.processNotes} 处过程性标注（（约N字）/导入说明/核对证据/遗疵/文档归位表）：流程记录属于 小说资料/审核/ 的归档，不放进内容文件`,
+      message: `${name}${kind} 含 ${m.processNotes} 处过程性标注（导入说明/核对证据/遗疵/文档归位表）：流程记录属于 小说资料/审核/ 的归档，不放进内容文件`,
     });
   }
   // 矩阵文档（追踪表）maxTableRatio = 1：按设计就该全是表格，不做占比判定
@@ -232,7 +229,7 @@ function checkCastEntries(name: string, text: string): MaterialIssue[] {
         level: "info",
         check: "material-cast-entry-long",
         label: `超长条目 ${long}`,
-        message: `人物库.md 的「${cur}」条目 ${count} 个字段行（上限 ${CAST_ENTRY_MAX_LINES}）：稳定特征留 3–5 行，位置/伤势/知情/资源请放追踪表`,
+        message: `人物库.md 的「${cur}」条目 ${count} 个字段行（上限 ${CAST_ENTRY_MAX_LINES}）：建议用六项记录稳定特征与人物特有表达，位置/伤势/知情/资源另查追踪表；整理须保留事实`,
       });
     }
   };
@@ -271,7 +268,7 @@ export function auditMaterials(files: { name: string; text: string }[]): Materia
           level: "info",
           check: "material-cast-entry-long",
           label: `超长条目 ${n} 个`,
-          message: `人物库.md 有 ${n} 个条目超过 ${CAST_ENTRY_MAX_LINES} 行：稳定特征留 3–5 行，位置/伤势/知情/资源请放追踪表`,
+          message: `人物库.md 有 ${n} 个条目超过 ${CAST_ENTRY_MAX_LINES} 行：建议用六项记录稳定特征与人物特有表达，位置/伤势/知情/资源另查追踪表；整理须保留事实`,
         });
       }
     }

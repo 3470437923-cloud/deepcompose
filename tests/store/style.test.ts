@@ -54,7 +54,7 @@ describe("measureMaterial", () => {
         "导入说明：本文件由源细纲重建。",
       ].join("\n"),
     );
-    expect(mixed.processNotes).toBe(3); // 两处（约N字） + 一处「导入说明」
+    expect(mixed.processNotes).toBe(1); // 只计导入说明，场景篇幅计划不是过程记录
     expect(mixed.hrLines).toBe(1);
     expect(mixed.tableLines).toBe(2);
     expect(mixed.arrows).toBe(1);
@@ -77,6 +77,15 @@ describe("checkMaterial：逐条判据", () => {
     const over = issues.find((i) => i.check === "material-over-budget");
     expect(over?.level).toBe("warn");
     expect(over?.message).toContain("超出预算 1500");
+    expect(over?.message).toContain("不自动删除或改写");
+  });
+
+  it("场景篇幅计划不被当成过程记录，真正导入记录仍提示", () => {
+    const plan = "# 滚动细纲\n## 第2章\n- 主要场面：门口争执（约1200字），返家（300字）。";
+    expect(checkMaterial("05-滚动细纲.md", plan)).toEqual([]);
+    expect(measureMaterial(plan).processNotes).toBe(0);
+    expect(checkMaterial("05-滚动细纲.md", plan + "\n核对证据：源文件第2章")
+      .some((issue) => issue.check === "material-process-notes")).toBe(true);
   });
 
   it("框线图 / emoji / 过程标注 / 表格占比 各自成条", () => {
@@ -128,7 +137,7 @@ describe("人物库条目与汇总", () => {
   });
 
   it("按文件聚合：一份文件最多一条，明细进短标签", () => {
-    const issues = auditMaterials([{ name: "世界观.md", text: ASCII_ART + "\n✅ 完成\n（约1200字）" }]);
+    const issues = auditMaterials([{ name: "世界观.md", text: ASCII_ART + "\n✅ 完成\n导入说明：由旧资料核对。" }]);
     expect(issues).toHaveLength(1);
     expect(issues[0].check).toBe("material-shape");
     expect(issues[0].level).toBe("warn");
