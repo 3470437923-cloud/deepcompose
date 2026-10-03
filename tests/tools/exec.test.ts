@@ -526,10 +526,27 @@ describe("路径分级授权", () => {
     expect(r.content).toBe("ok");
   });
 
+  it("授权根内的链接目标也拒绝直读，避免穿透到根外", async () => {
+    const linkPath = path.join(root, "章节内容", "外部链接.md");
+    const linked = {
+      ...fs,
+      async stat(p: string) {
+        if (p === linkPath) return { isDir: false, isLink: true, size: 6, mtimeMs: 1 };
+        return fs.stat(p);
+      },
+      async readText(p: string) {
+        if (p === linkPath) return "secret";
+        return fs.readText(p);
+      },
+    };
+    const r = JSON.parse(await executeTool(ctx({ fs: linked }), "file_read", { operation: "read", path: "章节内容\\外部链接.md" }));
+    expect(r.error).toContain("链接");
+  });
   it("盘符根（C:\\）→ 一律需确认（范围过大，即使形似授权根祖先也不放行）", async () => {
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "list", path: "C:\\" }));
     expect(String(r.error).startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
   });
+
 
   it("'..' 穿越到授权根外 → 需确认（归一化判定拦截）", async () => {
     const r = JSON.parse(
