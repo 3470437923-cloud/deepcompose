@@ -108,6 +108,25 @@ export function coldReadReportRel(
 }
 
 /**
+ * 为冷读报告分配不冲突的路径。报告名保持既有分钟级格式；同一分钟重复冷读
+ * 使用 -2、-3 等后缀，避免覆盖上一份诊断报告。
+ */
+export async function nextColdReadReportRel(
+  chapterLabel: string,
+  goal: ColdReadGoal,
+  now: Date,
+  exists: (relativePath: string) => Promise<boolean>,
+): Promise<string> {
+  const base = coldReadReportRel(chapterLabel, goal, now);
+  if (!(await exists(base))) return base;
+  const dot = base.lastIndexOf(".md");
+  for (let n = 2; ; n++) {
+    const candidate = `${base.slice(0, dot)}-${n}.md`;
+    if (!(await exists(candidate))) return candidate;
+  }
+}
+
+/**
  * 报告文件内容（含元信息头，正文为 AI 输出原文）。
  * 落盘格式契约：全文 CRLF（Windows 记事本友好）；AI 输出的换行统一归一为 CRLF；
  * 正文不做任何改写（冷读报告是诊断原文，允许原样引用）。
