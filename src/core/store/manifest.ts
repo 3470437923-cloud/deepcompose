@@ -34,6 +34,10 @@ export interface ProjectManifest {
   /** 父目录相对路径 → 有序的条目引用（条目 id 或 "legacy:<物理路径>"） */
   orders: Record<string, string[]>;
   manualOrderParents: string[];
+  /** 该书的回流模式（D-043：all/facts/style/off；缺省 = 老作品，按 all 处理） */
+  reflowMode?: string;
+  /** 该书的资料默认视图（B7：original/table；缺省 = 按文件类型的默认） */
+  viewMode?: string;
 }
 
 /** 清单版本号（磁盘契约：实测样本 version=1，不随产品演进改动） */
@@ -61,13 +65,17 @@ export function parseManifest(text: string, now: Date = new Date()): ProjectMani
   const raw: unknown = JSON.parse(text);
   if (typeof raw !== "object" || raw === null) throw new Error("manifest 不是对象");
   const m = raw as Partial<ProjectManifest>;
-  return {
+  const out: ProjectManifest = {
     version: typeof m.version === "number" ? m.version : MANIFEST_VERSION,
     updatedAt: typeof m.updatedAt === "string" ? m.updatedAt : isoMicros(now),
     items: (m.items as Record<string, ManifestItem>) ?? {},
     orders: (m.orders as Record<string, string[]>) ?? {},
     manualOrderParents: Array.isArray(m.manualOrderParents) ? m.manualOrderParents : [],
   };
+  // 扩展字段（D-043）：类型不对一律丢弃（宁缺毋滥，不把垃圾写回磁盘）
+  if (typeof m.reflowMode === "string" && m.reflowMode !== "") out.reflowMode = m.reflowMode;
+  if (typeof m.viewMode === "string" && m.viewMode !== "") out.viewMode = m.viewMode;
+  return out;
 }
 
 /** 序列化为单行 JSON（实测样本即单行，无缩进——磁盘契约） */

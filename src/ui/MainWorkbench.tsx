@@ -19,7 +19,7 @@ import { FOLLOW_SPRING, isNearBottom, springScrollCancel, springScrollToBottom }
 import logo from "../assets/logo.png";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, onBootReplaced, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
-import { PROJECT_DIRS, dirname, join } from "../core/dirs";
+import { PROJECT_DIRS, dirname, join, projectManifestFile } from "../core/dirs";
 import { isoMicros } from "../core/ids";
 import {
   chapterLabelOf,
@@ -36,7 +36,7 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { parseChapterName, stripMd } from "../core/store/chapter";
-import { appendOplog, diffLines, isLightEdit, type DiffResult } from "../core/store/oplog";
+import { appendOplog, diffLines, isLightEdit, pendingRefrows, readOplog, type DiffResult } from "../core/store/oplog";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
 import TitlebarWhale from "./TitlebarWhale";
@@ -48,7 +48,7 @@ import {
   thinkingSupportedFor,
   type ThinkingLevel,
 } from "../core/ai/thinking";
-import { buildReflowPrompt, reflowSessionTitle } from "../core/ai/reflow";
+import { buildReflowPrompt, buildStyleReflowPrompt, newReflowId, normalizeReflowMode, reflowSessionTitle, reflowTracksFor, REFLOW_MODES, type ReflowMode } from "../core/ai/reflow";
 import {
   COLD_READ_GOAL_LABEL,
   buildColdReadUserMessage,
@@ -71,6 +71,7 @@ import {
   type SessionListEntry,
 } from "../core/store/session";
 import { recordSnapshot } from "../core/store/snapshot";
+import { serializeManifest } from "../core/store/manifest";
 import { scanSkills, mergeSkillList } from "../core/skills/scan";
 import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
@@ -300,8 +301,14 @@ export default function MainWorkbench({
   const transport = useMemo(() => createTauriTransport(), []);
   /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
   const busyRef = useRef(false);
-  /** 回流任务队列（单生成并发：忙时排队，空闲即跑） */
-  const reflowQueue = useRef<{ prompt: string; title: string }[]>([]);
+  /** 回流任务队列（单生成并发：忙时排队，空闲即跑）。reflowId 与 oplog 的 pending/完成行配对 */
+  const reflowQueue = useRef<{ prompt: string; title: string; reflowId: string }[]>([]);
+  /** 回流模式（D-043 四态；按书记住，读不到按 all） */
+  const [reflowMode, setReflowMode] = useState<ReflowMode>("all");
+  /** 回流模式下拉的开合 */
+  const [reflowMenu, setReflowMenu] = useState(false);
+  const reflowRef = useRef<HTMLDivElement | null>(null);
+  useDismiss(reflowMenu, reflowRef, () => setReflowMenu(false));
 
   // ── 备忘录与应用内对话框 ──
   const [memoOpen, setMemoOpen] = useState(false);
@@ -311,6 +318,9 @@ export default function MainWorkbench({
   /** 回收站模态 + 条目数（书下拉菜单的角标） */
   const [recycleOpen, setRecycleOpen] = useState(false);
   const [recycleItems, setRecycleItems] = useState(0);
+
+  /** 补跑回流的间接引用（函数声明在组件后段，openProject 在前段 —— 用 ref 打通顺序） */
+  const resumePendingRef = useRef<(root: string) => void>(() => {});
 
   /** 应用内输入框（替代 window.prompt；resolve 时同步关闭对话框） */
   const askText = useCallback(
@@ -501,6 +511,8 @@ export default function MainWorkbench({
       setTabs([]);
       setActiveRel(null);
       setTreeFolders(defaultTreeFolders(data.tree));
+      // D-043：读该书记住的回流模式（老作品清单里没有这个字段 → 默认 all）
+      setReflowMode(normalizeReflowMode(data.manifest.reflowMode) ?? "all");
       // I-3：状态条直接显示"写作进度"（读 00-项目状态.md 的头部字段），
       // 不再只报文件计数 —— 应用自己就能回答"现在到哪一步了"。
       let statusNote = "";
@@ -526,6 +538,8 @@ export default function MainWorkbench({
         /* 校验本身出错不打扰打开 */
       }
       await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
+      // D-043：补跑关窗时丢掉的回流（oplog 的 pending 行驱动）
+      resumePendingRef.current(ref.root);
     },
     [autoSaveAllTabs, session],
   );
@@ -605,8 +619,12 @@ export default function MainWorkbench({
       setTabs([]);
       setActiveRel(null);
       setTreeFolders(defaultTreeFolders(data.tree));
+      // D-043：读该书记住的回流模式（老作品清单里没有这个字段 → 默认 all）
+      setReflowMode(normalizeReflowMode(data.manifest.reflowMode) ?? "all");
       setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
       await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
+      // D-043：补跑关窗时丢掉的回流（oplog 的 pending 行驱动）
+      resumePendingRef.current(ref.root);
       const b = currentBoot();
       if (b && b.prefs.currentNovelProject !== ref.root) {
         const next = { ...b.prefs, currentNovelProject: ref.root };
@@ -917,6 +935,23 @@ export default function MainWorkbench({
     setTreeFolders((f) => ({ ...defaultTreeFolders(data.tree), ...f }));
   }, [project]);
 
+  /** 回流入队：先写 oplog 的 pending 行（关窗丢队列的补跑依据），再进内存队列 */
+  const enqueueReflow = useCallback(
+    async (task: { prompt: string; title: string; reflowId: string; track: "facts" | "style" }) => {
+      reflowQueue.current.push({ prompt: task.prompt, title: task.title, reflowId: task.reflowId });
+      if (project) {
+        await appendOplog(getFs(), project.ref.root, "reflow", "", session?.id ?? "", {
+          reflowId: task.reflowId,
+          reflowPending: true,
+          reflowTrack: task.track,
+          prompt: task.prompt,
+          title: task.title,
+        });
+      }
+    },
+    [project, session],
+  );
+
   /** 回流队列排空：专属会话运行（不切换用户当前视图）；单生成并发 */
   const drainReflow = useCallback(async () => {
     if (busyRef.current || reflowQueue.current.length === 0) return;
@@ -947,9 +982,11 @@ export default function MainWorkbench({
             // 回流是后台整理任务：强制关闭思考（不需要推理，也不该为此付费）
             thinking: "off",
           });
-          await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title });
+          // 完成标记：与入队时的 pending 行按 reflowId 配对（补跑扫描据此跳过它）
+          await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title, reflowId: task.reflowId });
           setStatus(`回流任务结束：${task.title}（结果见对应回流会话）`);
         } catch (e) {
+          // 失败不写完成标记 —— pending 行保留，下次打开作品会补跑
           setStatus(`回流失败：${String(e)}`);
         }
         await refreshSessions();
@@ -960,6 +997,49 @@ export default function MainWorkbench({
       await refreshProject();
     }
   }, [project, transport, askQuestions, refreshSessions, refreshProject]);
+
+  /** 打开作品时补跑未完成的回流（D-043：队列落盘的消费端） */
+  const resumePendingRefrows = useCallback(
+    async (projectRoot: string) => {
+      let entries;
+      try {
+        entries = await readOplog(getFs(), projectRoot, 500);
+      } catch {
+        return; // 日志读不出不阻断打开
+      }
+      const known = new Set(reflowQueue.current.map((t) => t.reflowId));
+      const fresh = pendingRefrows(entries).filter((p) => !known.has(p.reflowId));
+      if (fresh.length === 0) return;
+      for (const p of fresh) {
+        reflowQueue.current.push({ prompt: p.prompt, title: p.title, reflowId: p.reflowId });
+      }
+      setStatus(`检测到 ${fresh.length} 条未完成的回流任务，开始补跑…`);
+      void drainReflow();
+    },
+    [drainReflow],
+  );
+  // 前段的 openProject 通过 ref 调它（函数声明顺序问题，见 resumePendingRef 声明处）
+  useEffect(() => {
+    resumePendingRef.current = (root: string) => void resumePendingRefrows(root);
+  }, [resumePendingRefrows]);
+
+  /** 回流模式切换：本地生效 + 写进作品清单（按书记住；清单写失败则本次会话内有效） */
+  const persistReflowMode = useCallback(
+    async (mode: ReflowMode) => {
+      setReflowMode(mode);
+      if (!project) return;
+      try {
+        const file = projectManifestFile(project.ref.root);
+        const m = { ...project.manifest, reflowMode: mode, updatedAt: isoMicros() };
+        await getFs().writeText(file, serializeManifest(m));
+        setProject({ ...project, manifest: m });
+        setStatus(`回流方式：${REFLOW_MODES.find((m) => m.id === mode)?.label ?? mode}（已按本书记住）`);
+      } catch {
+        setStatus("回流方式已应用（本次会话内有效，写入清单失败）");
+      }
+    },
+    [project],
+  );
 
   /** 「修改/完成」按钮：正文与候选默认只读，点击后进入/结束编辑态。
    *  返回值 = 结束编辑是否落盘成功（N-06：失败时 editing/dirty 原样保留，
@@ -989,31 +1069,41 @@ export default function MainWorkbench({
       const light = noChange || isLightEdit(diff);
       const kind = latest.kind === "candidate" ? "candidate" : "chapter";
       const label = chapterLabelOf(latest.name);
+      // D-043 四态路由：off 不排；facts 轻改动不审；style 轻改动也排（词级改动是最纯的文风证据）
+      const tracks = noChange ? [] : reflowTracksFor(reflowMode, light);
       await appendOplog(fs, project.ref.root, "edit_end", latest.rel, session?.id ?? "", {
         changedChars: diff.changedChars,
         addedLines: diff.added.length,
         removedLines: diff.removed.length,
         digitsChanged: diff.digitsChanged,
-        reflowTriggered: !light,
+        reflowTriggered: tracks.length > 0,
       });
       if (noChange) {
         setStatus(`${latest.name} 无实质改动，已退出编辑`);
         return true;
       }
-      if (light) {
-        setStatus(`${latest.name} 已保存 · 改动较小未触发回流（已记录日志）`);
+      if (tracks.length === 0) {
+        setStatus(
+          reflowMode === "off"
+            ? `${latest.name} 已保存（当前设置为不回流，已记录日志）`
+            : `${latest.name} 已保存 · 改动较小未触发回流（已记录日志）`,
+        );
         return true;
       }
-      reflowQueue.current.push({
-        prompt: buildReflowPrompt({
-          relPath: latest.rel.replace(/\\/g, "/"),
-          kind,
-          chapterLabel: label,
-          diff,
-        }),
-        title: reflowSessionTitle(label, kind),
-      });
-      setStatus(`${latest.name} 已保存，回流排队中…`);
+      for (const track of tracks) {
+        await enqueueReflow({
+          prompt: (track === "facts" ? buildReflowPrompt : buildStyleReflowPrompt)({
+            relPath: latest.rel.replace(/\\/g, "/"),
+            kind,
+            chapterLabel: label,
+            diff,
+          }),
+          title: reflowSessionTitle(label, kind, track),
+          reflowId: newReflowId(),
+          track,
+        });
+      }
+      setStatus(`${latest.name} 已保存，回流排队中（${tracks.map((t) => (t === "facts" ? "资料" : "风格")).join(" + ")}）…`);
       void drainReflow();
       return true;
     },
@@ -1833,6 +1923,41 @@ export default function MainWorkbench({
                   </span>
                 ) : (
                   <div className="editor-tools">
+                    {/* 回流四态（D-043）：结束编辑时按它路由资料/风格两路回流，按本书记住 */}
+                    <div className="think-wrap" ref={reflowRef}>
+                      <button
+                        className="chip"
+                        title="回流方式：结束编辑后按本书记住的这个模式触发回流"
+                        aria-haspopup="true"
+                        aria-expanded={reflowMenu}
+                        onClick={() => setReflowMenu((v) => !v)}
+                      >
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <path d="M4 10a6 6 0 0 1 10.5-4M16 10a6 6 0 0 1-10.5 4" />
+                          <path d="M14.5 3v3h-3M5.5 17v-3h3" />
+                        </svg>
+                        <span className="lbl">{REFLOW_MODES.find((m) => m.id === reflowMode)?.label ?? "全部回流"}</span>
+                      </button>
+                      {reflowMenu ? (
+                        <div className="think-pop surface-raised" role="group" aria-label="回流方式">
+                          {REFLOW_MODES.map((m) => (
+                            <button
+                              key={m.id}
+                              type="button"
+                              className={`think-stop ${m.id === reflowMode ? "on" : ""}`}
+                              aria-pressed={m.id === reflowMode}
+                              onClick={() => {
+                                setReflowMenu(false);
+                                void persistReflowMode(m.id);
+                              }}
+                            >
+                              <span className="ts-label">{m.label}</span>
+                              <span className="ts-hint">{m.hint}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
                     {!activeTab.editing ? (
                       <span className="mode-badge" title="正文与候选默认只读，点「修改」后可编辑；结束时自动保存并触发回流">
                         只读
