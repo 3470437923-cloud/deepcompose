@@ -4,7 +4,7 @@
  * 锁定的契约：
  *  - 端点拼接（/v1 后缀两种习惯都兼容）与鉴权头（Bearer vs x-api-key + 版本头）；
  *  - OpenAI 形态：system 首条消息、tool_calls 展开 + tool 结果消息、stream_options；
- *  - Anthropic 形态：system 顶层字段、tool_use/tool_result 块、max_tokens 默认 32000；
+ *  - Anthropic 形态：system 顶层字段、tool_use/tool_result 块、max_tokens 默认 128000（D-040）；
  *  - SSE：event:/data: 行解析、[DONE]、工具调用分片按 index 归并、
  *    Anthropic event 行缺失时回退 data JSON 的 type 字段。
  */
@@ -300,11 +300,11 @@ describe("Anthropic 请求体", () => {
     expect(req.headers.authorization).toBeUndefined();
   });
 
-  it("system 走顶层字段；max_tokens 默认 32K（32000）", () => {
+  it("system 走顶层字段；max_tokens 默认 128K（D-040）", () => {
     const b = req.body as Record<string, unknown>;
     expect(b.system).toBe("系统提示");
     expect(b.max_tokens).toBe(DEFAULT_MAX_TOKENS);
-    expect(b.max_tokens).toBe(32000);
+    expect(b.max_tokens).toBe(128000);
     // system 不再出现在 messages 里（顶层字段唯一）
     const list = b.messages as Record<string, unknown>[];
     expect(list.some((m) => m.role === "system")).toBe(false);

@@ -179,7 +179,8 @@ export const DEFAULT_PREFS: Prefs = {
   reservedOutputTokens: 16000,
   autoClearContext: true,
   toolRoundLimit: 12,
-  maxOutputTokens: 32000,
+  // D-040：默认 128K（上限非目标，按实际产出计费；让长章/长复盘一次写完）
+  maxOutputTokens: 128000,
 
   panelSessionWidth: 220.0,
   panelChatWidth: 523.0,

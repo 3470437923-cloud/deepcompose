@@ -7,7 +7,7 @@
  *   鉴权：          authorization: Bearer <key>   |   x-api-key: <key>
  *   Anthropic 版本头：anthropic-version: 2023-06-01
  *   协议开关：      use_anthropic_format
- * 参数默认值：max_tokens 两种协议都发送，默认 32000（DEFAULT_MAX_TOKENS，
+ * 参数默认值：max_tokens 两种协议都发送，默认 128000（DEFAULT_MAX_TOKENS，D-040，
  *   可经 ProviderConfig.maxTokens 覆盖；上游拒绝时由 errors.ts 给出 max_tokens 文案）。
  */
 
@@ -54,7 +54,7 @@ export interface ProviderConfig {
   model: string;
   temperature: number;
   useAnthropicFormat: boolean;
-  /** 单次回复 max_tokens（两种协议都发送）；缺省用 DEFAULT_MAX_TOKENS（32000） */
+  /** 单次回复 max_tokens（两种协议都发送）；缺省用 DEFAULT_MAX_TOKENS（128000，D-040） */
   maxTokens?: number;
   reservedOutputTokens?: number;
   /**
@@ -127,8 +127,9 @@ function applyThinkingAnthropic(body: Record<string, unknown>, cfg: ProviderConf
   body.thinking = { type: cfg.thinking ? "enabled" : "disabled" };
   if (cfg.thinking) body.output_config = { effort: cfg.reasoningEffort ?? "high" };
 }
-/** max_tokens 缺省值（既有默认 32K；测试锁定 32000） */
-export const DEFAULT_MAX_TOKENS = 32000;
+/** max_tokens 缺省值（D-040：128K。它是上限不是目标——上游按实际产出计费，
+ *  官方实测接受 384000；默认给足，让长章/长复盘一次写完，截断由 agent 的自动续写兜底） */
+export const DEFAULT_MAX_TOKENS = 128000;
 
 /** 去掉 baseUrl 末尾的连续 '/'，避免拼出 //v1 */
 function trimSlash(u: string): string {

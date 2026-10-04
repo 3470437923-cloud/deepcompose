@@ -18,6 +18,7 @@ import { isoMicros } from "../ids";
 import {
   StreamParser,
   buildRequest,
+  isTruncatedReason,
   type ChatMessage,
   type ProviderConfig,
 } from "./protocol";
@@ -205,7 +206,13 @@ export interface CompressResult {
   block: string;
 }
 
-/** 单次非流式摘要调用：把转写发给模型，收回纯文本摘要 */
+/** 摘要续写上限（D-041 同纪律）：摘要被 max_tokens 截断时自动以「继续」补完；
+ *  用尽仍截断则回退不压缩（半截摘要不得替代历史——这条不变） */
+const SUMMARY_MAX_CONTINUATIONS = 3;
+
+/** 单次非流式摘要调用：把转写发给模型，收回纯文本摘要。
+ *  截断续写：一程被 max_tokens 截断时，把已收到的半截摘要作为 assistant 部分、
+ *  随合成「继续」再发一程，正文拼接；续写消息只进请求序列。 */
 async function summarize(
   cfg: ProviderConfig,
   transport: StreamTransport,
@@ -219,30 +226,45 @@ async function summarize(
     createdAt: isoMicros(),
   };
   // 低温采样求稳定摘要；无工具、无系统提示词（摘要任务不需要身份装配）
-  const req = buildRequest({ ...cfg, temperature: 0.3 }, [promptMsg], [], "");
-  const parser = new StreamParser(cfg.useAnthropicFormat);
+  const messages: ChatMessage[] = [promptMsg];
   let text = "";
-  let stopped = false;
-  let failed = false;
-  try {
-    await transport.stream(req, {
-      onLine: (line) => {
-        for (const e of parser.feed(line)) {
-          if (e.type === "text_delta") text += e.text;
-          if (e.type === "stop") {
-            stopped = true;
-            // [DONE] 不能覆盖此前的截断/拒绝原因；半截摘要不能替代历史。
-            if (!["stop", "end_turn", "stop_sequence", "done"].includes(e.reason)) failed = true;
+
+  for (let cont = 0; ; cont++) {
+    const req = buildRequest({ ...cfg, temperature: 0.3 }, messages, [], "");
+    const parser = new StreamParser(cfg.useAnthropicFormat);
+    let stopped = false;
+    let truncatedHere = false;
+    let failed = false;
+    try {
+      await transport.stream(req, {
+        onLine: (line) => {
+          for (const e of parser.feed(line)) {
+            if (e.type === "text_delta") text += e.text;
+            if (e.type === "stop") {
+              stopped = true;
+              // [DONE] 不能覆盖此前的截断/拒绝原因；半截摘要不能替代历史
+              if (isTruncatedReason(e.reason)) truncatedHere = true;
+              else if (!["stop", "end_turn", "stop_sequence", "done"].includes(e.reason)) failed = true;
+            }
           }
-        }
-      },
-      onError: () => { failed = true; },
-    });
-  } catch {
-    failed = true;
+        },
+        onError: () => { failed = true; },
+      });
+    } catch {
+      failed = true;
+    }
+    // 传输结束不等于模型完成：断流、取消、IPC 异常统一走现有回退提示
+    if (failed || !stopped) return "";
+    if (!truncatedHere) return text;
+    if (cont >= SUMMARY_MAX_CONTINUATIONS) return "";
+    // 续写：半截摘要作为 assistant 部分 + 合成「继续」（只进请求序列）；
+    // 每次续写重放**累计全文**，上一次的半截部分整体替换（不残留旧半截重复段）
+    messages.length = 1;
+    messages.push(
+      { id: `compress_a_${cont}`, role: "assistant", text, createdAt: isoMicros() },
+      { id: `compress_c_${cont}`, role: "user", text: "继续", createdAt: isoMicros() },
+    );
   }
-  // 传输结束不等于模型完成：断流、取消、IPC 异常统一走现有回退提示。
-  return stopped && !failed ? text : "";
 }
 
 /**

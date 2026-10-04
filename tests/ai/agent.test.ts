@@ -71,6 +71,8 @@ function baseOpts(transport: StreamTransport, onEvent: (e: AgentEvent) => void):
     userText: "看看目录里有什么",
     transport,
     onEvent,
+    // 重试退避置零：错误路径用例不等真实退避（生产默认 1s/3s，见 DEFAULT_RETRY_DELAYS_MS）
+    retryDelaysMs: [0, 0],
     toolCtx: {
       fs,
       roots: { projectRoot: root, skillsDir: path.join(root, "..", "skills"), booksRoot: path.join(root, "..") },
@@ -181,14 +183,17 @@ describe("截断可见性（KL-DF：撞上 max_tokens 不能装作写完了）",
     ];
   }
 
-  it("OpenAI finish_reason=length → truncated=true 且事件透传", async () => {
+  it("OpenAI finish_reason=length → 自动续写 3 次仍截断才标 truncated（D-041）", async () => {
     const events: AgentEvent[] = [];
-    const { transport } = fakeTransport([truncatedScript()]);
+    const { transport, requests } = fakeTransport([truncatedScript()]);
     const res = await runAgent(baseOpts(transport, (e) => events.push(e)));
     expect(res.truncated).toBe(true);
     expect(events.some((e) => e.type === "truncated" && e.reason === "length")).toBe(true);
-    // 正文照常入库（截断的语义是"少了个尾巴"，不是丢弃）
-    expect(res.added.some((m) => m.text === "开头部分")).toBe(true);
+    // D-041：截断不再直接收尾 —— 自动续写至多 3 次（首发 + 3 程 = 4 次请求），
+    // 全部仍被截断才标记；四程正文拼成同一条 assistant 消息（不是四条）
+    expect(requests).toHaveLength(4);
+    const last = res.added[res.added.length - 1];
+    expect(last.text).toBe("开头部分".repeat(4));
   });
 
   it("Anthropic stop_reason=max_tokens → truncated=true", async () => {
@@ -215,6 +220,127 @@ describe("截断可见性（KL-DF：撞上 max_tokens 不能装作写完了）",
     const { transport } = fakeTransport([textScript("写完了")]);
     const res = await runAgent(baseOpts(transport, () => {}));
     expect(res.truncated).toBe(false);
+  });
+});
+
+describe("截断自动续写（D-041）", () => {
+  it("截断后自动续写：两程拼成一整条，请求带部分正文 + 合成「继续」", async () => {
+    const { transport, requests } = fakeTransport([
+      [
+        'data: {"choices":[{"delta":{"content":"前半章"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+        "data: [DONE]",
+      ],
+      [
+        'data: {"choices":[{"delta":{"content":"后半章"}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+        "data: [DONE]",
+      ],
+    ]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBeUndefined();
+    // 续写补完了就不算截断
+    expect(res.truncated).toBe(false);
+    expect(requests).toHaveLength(2);
+    // 一整条 assistant 消息（不是两条），用户视角不间断
+    expect(res.added.filter((m) => m.role === "assistant")).toHaveLength(1);
+    expect(res.added[res.added.length - 1].text).toBe("前半章后半章");
+    // 续写请求 = 历史 + 部分 assistant + 合成 user「继续」；合成消息不落盘
+    const msgs = (requests[1].body as Record<string, unknown>).messages as Record<string, unknown>[];
+    expect(msgs[msgs.length - 1]).toEqual({ role: "user", content: "继续" });
+    expect(msgs[msgs.length - 2]).toEqual({ role: "assistant", content: "前半章" });
+    expect(res.added.some((m) => m.role === "user" && m.text === "继续")).toBe(false);
+  });
+
+  it("截断但有待执行工具 → 不续写，照常执行工具进入下一回合", async () => {
+    // 模型已给出完整工具调用时被截断：续写会把「继续」塞在工具配对中间，污染语义；
+    // 这种回合直接执行工具。截断如实标记（用户该知道这回合被截过）
+    const { transport, requests } = fakeTransport([
+      [
+        'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c_t","function":{"name":"file_read","arguments":"{\\"operation\\":\\"list\\",\\"path\\":\\"章节内容\\"}"}}]}}]}',
+        'data: {"choices":[{"delta":{},"finish_reason":"length"}]}',
+        "data: [DONE]",
+      ],
+      textScript("读完了"),
+    ]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBeUndefined();
+    expect(res.truncated).toBe(true);
+    expect(requests).toHaveLength(2); // 1 程截断 + 1 程工具结果回合，无续写请求
+    const msgs = (requests[1].body as Record<string, unknown>).messages as Record<string, unknown>[];
+    expect(msgs.some((m) => m.role === "tool")).toBe(true);
+  });
+
+  it("续写期间点「停止」：立即收尾，已拼内容保留", async () => {
+    const signal = { aborted: false };
+    let calls = 0;
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        if (calls === 1) {
+          handlers.onLine('data: {"choices":[{"delta":{"content":"前半"}}]}');
+          handlers.onLine('data: {"choices":[{"delta":{},"finish_reason":"length"}]}');
+          handlers.onLine("data: [DONE]");
+        } else {
+          // 续写流途中用户点「停止」：上游被截断，已收到的续写片段保留
+          handlers.onLine('data: {"choices":[{"delta":{"content":"后半的一部分"}}]}');
+          signal.aborted = true;
+        }
+      },
+    };
+    const res = await runAgent({ ...baseOpts(transport, () => {}), signal });
+    expect(res.error).toBe("已中止");
+    expect(calls).toBe(2); // 首发截断 + 1 程续写被中止，不再续第二程
+    expect(res.added[res.added.length - 1].text).toBe("前半后半的一部分");
+  });
+});
+
+describe("瞬时错误自动重试（D-042：仅空回合）", () => {
+  it("429 后自动重试成功", async () => {
+    const { transport, requests } = fakeTransport([["__HTTP_ERROR__429|{}"], textScript("好了")]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBeUndefined();
+    expect(res.added[res.added.length - 1].text).toBe("好了");
+    expect(requests).toHaveLength(2);
+  });
+
+  it("持续 429：重试 2 次后报逐字限流文案（共 3 次尝试）", async () => {
+    const { transport, requests } = fakeTransport([["__HTTP_ERROR__429|{}"]]);
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(res.error).toBe(AI_ERRORS.rateLimited);
+    expect(requests).toHaveLength(3);
+  });
+
+  it("400/404 不重试（配置问题重试只会原样再败一次）", async () => {
+    const a = fakeTransport([['__HTTP_ERROR__400|{"error":{"message":"temperature is not supported"}}']]);
+    expect((await runAgent(baseOpts(a.transport, () => {}))).error).toBe(AI_ERRORS.temperatureUnsupported);
+    expect(a.requests).toHaveLength(1);
+    const b = fakeTransport([["__HTTP_ERROR__404|{}"]]);
+    expect((await runAgent(baseOpts(b.transport, () => {}))).error).toBe(AI_ERRORS.modelNotFound);
+    expect(b.requests).toHaveLength(1);
+  });
+
+  it("已流出正文的断流不重试（已 emit 的 delta 收不回，重试会重复一份）", async () => {
+    let calls = 0;
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"半截正文"}}]}');
+        handlers.onError("socket hang up");
+      },
+    };
+    const res = await runAgent(baseOpts(transport, () => {}));
+    expect(calls).toBe(1);
+    expect(res.error).toBe("socket hang up");
+    expect(res.added.some((m) => m.text === "半截正文")).toBe(true);
+  });
+
+  it("重试进行中经 error 事件上浮提示（用户看得见在重试）", async () => {
+    const events: AgentEvent[] = [];
+    const { transport } = fakeTransport([["__HTTP_ERROR__503|{}"], textScript("恢复")]);
+    const res = await runAgent(baseOpts(transport, (e) => events.push(e)));
+    expect(res.error).toBeUndefined();
+    expect(events.some((e) => e.type === "error" && e.message.includes("自动重试"))).toBe(true);
   });
 });
 
@@ -464,7 +590,10 @@ describe("用量合计（token 统计的数据源）", () => {
     const { transport } = fakeTransport([
       ['data: {"choices":[],"usage":{"prompt_tokens":40,"completion_tokens":2}}', "__HTTP_ERROR__429|{\"error\":1}"],
     ]);
-    const res = await runAgent(baseOpts(transport, () => {}));
+    const opts = baseOpts(transport, () => {});
+    // 本用例锁定「单次失败回合的用量计入」：关掉重试，否则同一脚本会按重试次数重复计费
+    opts.retryDelaysMs = [];
+    const res = await runAgent(opts);
     expect(res.error).toBeTruthy();
     expect(res.usage.inputTokens).toBe(40);
     expect(res.usage.outputTokens).toBe(2);
