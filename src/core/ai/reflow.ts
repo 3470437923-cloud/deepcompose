@@ -16,6 +16,44 @@
 
 import { diffSummaryText, type DiffResult } from "../store/oplog";
 
+/** 解析持久化的回流模式；非法值返回 null（调用方回落默认 all） */
+export function normalizeReflowMode(v: unknown): ReflowMode | null {
+  return typeof v === "string" && REFLOW_MODES.some((m) => m.id === v) ? (v as ReflowMode) : null;
+}
+
+/** 回流任务 id（oplog 的 pending/完成两行按它配对） */
+export function newReflowId(): string {
+  return `rfl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/** 回流通道（D-043：facts = 审稿 + 事实回写；style = 对照学习，不动事实） */
+export type ReflowTrack = "facts" | "style";
+
+/** 用户可选的回流模式（编辑器四态；按书记住，默认 all） */
+export type ReflowMode = "all" | "facts" | "style" | "off";
+
+/** 四态的展示信息（顺序即界面顺序） */
+export const REFLOW_MODES: readonly { id: ReflowMode; label: string; hint: string }[] = [
+  { id: "all", label: "全部回流", hint: "审稿与事实回写 + 文风对照学习" },
+  { id: "facts", label: "仅资料回流", hint: "只审稿与回写追踪表，不做文风学习" },
+  { id: "style", label: "仅风格回流", hint: "只做文风对照学习，不动追踪表与事实" },
+  { id: "off", label: "不回流保存", hint: "只保存与记日志，不触发任何回流" },
+];
+
+/**
+ * 一次结束编辑该排哪些回流通道（D-043 路由表）：
+ *  - off → 什么都不排；
+ *  - facts → 只排资料回流；轻改动（≤24 字符且数字未变）不审事实，照旧不排；
+ *  - style → 只排风格回流（轻改动也排——词级/标点级恰是最纯的文风证据）；
+ *  - all → 实质改动双通道都排；轻改动只排风格通道。
+ */
+export function reflowTracksFor(mode: ReflowMode, light: boolean): ReflowTrack[] {
+  if (mode === "off") return [];
+  if (mode === "facts") return light ? [] : ["facts"];
+  if (mode === "style") return ["style"];
+  return light ? ["style"] : ["facts", "style"];
+}
+
 /** 回流任务的输入（由 UI 在「结束编辑」时装配） */
 export interface ReflowInput {
   /** 被编辑文件相对作品根路径（'/' 分隔） */
@@ -34,7 +72,7 @@ export interface ReflowInput {
 }
 
 /**
- * 装配回流任务文本（作为回流会话的首条用户消息）。
+ * 装配回流任务文本（资料通道，作为回流会话的首条用户消息）。
  * 结构：变更概况与 diff 摘要 → 审稿与按需学习→
  * 按候选/正文分路的第 3 步（事实回写纪律）→ 收尾汇报要求。
  */
@@ -59,7 +97,7 @@ export function buildReflowPrompt(input: ReflowInput): string {
   // 第 3 步分路：候选稿禁止事实回写（采用后才入账）；正式正文按增量回写
   const path = isCandidate
     ? `\n3. 事实回写：本文件是候选稿，**禁止**把候选情节写入追踪表、章节摘要或任何当前事实记录（采用后才回写）。\n`
-    : `\n3. 事实回写：本文件是已采用的正式正文。只按变更增量更新受影响的追踪表与章节摘要（节内替换，注明来源章节），写前系统自动落快照；只改发生变化的当前值，不重复累计；若变更与后续章节冲突，把冲突登记到 小说资料/00-项目状态.md 的「尚未解决的冲突」，不静默修改其他正文。\n`;
+    : `\n3. 事实回写：本文件是已采用的正式正文。只按变更增量更新 00 声明启用的追踪表（节内替换，注明来源章节；00 没有「启用模块」行的老作品按盘上实际存在的追踪表工作），写前系统自动落快照；只改发生变化的当前值，不重复累计；若变更与后续章节冲突，把冲突登记到 小说资料/00-项目状态.md 的「尚未解决的冲突」，不静默修改其他正文。\n`;
 
   const tail =
     `\n无问题时简短回执；有问题才列位置、依据与建议。只汇报实际更新的文件、确实生成的学习记录与待我决定事项，不为凑报告创建记录。没有完成的步骤如实记录，不虚报。`;
@@ -67,8 +105,34 @@ export function buildReflowPrompt(input: ReflowInput): string {
   return head + common + path + tail;
 }
 
-/** 回流会话标题 */
-export function reflowSessionTitle(chapterLabel: string | null, kind: ReflowInput["kind"]): string {
+/**
+ * 风格回流任务文本（D-043：与资料回流分离的独立通道）。
+ * 只做对照学习：不审稿、不动事实、不写追踪表——把「AI/旧版 → 用户最终版」的
+ * 改动翻译成可复用的改稿判断，沉淀进 个人改稿/规则台账.md。
+ */
+export function buildStyleReflowPrompt(input: ReflowInput): string {
+  const label = input.chapterLabel ?? "（章号未识别）";
+  const summary = diffSummaryText(input.diff);
+  return (
+    `【风格回流】${label} 用户已结束手动编辑并自动保存：${input.relPath}\n` +
+    `变更规模：新增 ${input.diff.added.length} 行 / 删除 ${input.diff.removed.length} 行 / 变更 ${input.diff.changedChars} 字符\n\n` +
+    `变更摘要（- 为删除行，+ 为新增行）：\n${summary}\n\n` +
+    `请按 novel-writer 技能的「风格回流」规则执行：\n` +
+    `1. 逐条判断变更属于事实修正、编辑判断还是表达偏好；拿不准的读该文件全文与上下文再判断，不要为了凑记录硬找。\n` +
+    `2. 仅当存在可复用改稿判断时更新 小说资料/个人改稿/规则台账.md：已有同类条目则补证据并把「命中章节数」加 1，没有同类条目才新建（GL 编号只增不复用）。不复制用户原句，只记「什么问题、何时用、怎样改、做到哪里为止」，明确原因与推测原因分开标注。\n` +
+    `3. 台账里「命中章节数」达到 2 的候选条目，用 question 逐条请用户确认；确认的并入 小说资料/06-写作风格.md（禁用列表或风格规则，按条目性质；老作品里是 06-写作规则.md 的「个人文风（学习沉淀）」节），台账标「已晋升」；被否决的标「已否决」留档。\n` +
+    `4. 不做审稿、不改写用户文字、不更新追踪表与任何事实记录。没有可复用判断时只回一句简短回执，不创建或追加任何文件。\n`
+  );
+}
+
+/** 回流会话标题（facts 通道沿用旧格式；style 通道标「风格」） */
+export function reflowSessionTitle(
+  chapterLabel: string | null,
+  kind: ReflowInput["kind"],
+  track: ReflowTrack = "facts",
+): string {
   const kindLabel = kind === "candidate" ? "候选" : "正文";
-  return `回流 - ${chapterLabel ?? "稿件"}（${kindLabel}）`;
+  return track === "style"
+    ? `风格回流 - ${chapterLabel ?? "稿件"}（${kindLabel}）`
+    : `回流 - ${chapterLabel ?? "稿件"}（${kindLabel}）`;
 }

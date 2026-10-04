@@ -38,6 +38,16 @@ export interface OplogDetail {
   reflowTriggered?: boolean;
   /** 附注（如"关窗自动保存，回流顺延"） */
   note?: string;
+  /** 回流任务 id（pending/完成两行各记一次，补跑扫描按它配对） */
+  reflowId?: string;
+  /** true = 入队待跑；完成时同 id 再记一行不带 pending 的 */
+  reflowPending?: boolean;
+  /** 回流通道（facts / style） */
+  reflowTrack?: string;
+  /** 回流任务文本（pending 行携带，重启用它重建任务） */
+  prompt?: string;
+  /** 回流会话标题（pending 行携带） */
+  title?: string;
 }
 
 export interface OplogEntry {
@@ -112,6 +122,42 @@ export async function readOplog(
     }
   }
   return out.slice(Math.max(0, out.length - limit));
+}
+
+// ────────────────────────────── 回流队列持久化（D-043） ──────────────────────────────
+
+/** 一条待补跑的回流任务（从 oplog 重建） */
+export interface PendingReflow {
+  reflowId: string;
+  title: string;
+  prompt: string;
+}
+
+/**
+ * 扫描操作日志里「入队了但没跑完」的回流任务：
+ * reflowPending:true 的行是入队，同 reflowId 的后续非 pending 行是完成；
+ * 只有 pending 没有完成的 = 关窗/崩溃丢掉的任务（队列原来只在内存里）。
+ * 按出现顺序返回，供打开作品时补跑。
+ */
+export function pendingRefrows(entries: OplogEntry[]): PendingReflow[] {
+  const outstanding = new Map<string, PendingReflow>();
+  for (const e of entries) {
+    if (e.action !== "reflow") continue;
+    const d = e.detail;
+    if (!d.reflowId) continue;
+    if (d.reflowPending) {
+      if (typeof d.prompt === "string" && d.prompt !== "") {
+        outstanding.set(d.reflowId, {
+          reflowId: d.reflowId,
+          title: typeof d.title === "string" && d.title !== "" ? d.title : "回流任务",
+          prompt: d.prompt,
+        });
+      }
+    } else {
+      outstanding.delete(d.reflowId);
+    }
+  }
+  return [...outstanding.values()];
 }
 
 // ────────────────────────────── 文本 diff ──────────────────────────────
