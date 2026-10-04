@@ -383,7 +383,7 @@ describe("候选区与通用内容树", () => {
 // —— 既有目录只读集成校验（目录不存在时自动跳过；只读不写，绝不改动真实作品）——
 const REAL_BOOKS = "C:\\Users\\Administrator\\AI写小说";
 describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () => {
-  it("能列出真实作品，并读到 小说资料 里的用户自建文档", async () => {
+  it("能列出真实作品，且 14 件套与章节排序正常", async () => {
     const projects = await scanBooksRoot(fs, REAL_BOOKS);
     const names = projects.map((p) => p.name);
     // 只断言长期存在的真实作品：这条用例读的是真盘，作品会被用户增删
@@ -393,9 +393,10 @@ describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () =>
     const xiong = projects.find((p) => p.name === "和小熊同居后的日子")!;
     const data = await loadProject(fs, xiong.root);
     const docNames = data.docs.map((d) => d.name);
-    expect(docNames).toContain("世界观.md");
-    expect(docNames).toContain("写作禁忌.md");
-    expect(docNames).toContain("第八卷大纲.md");
+    // 只断言 14 件套（作品的标准形态，不受用户增删自建资料影响）；
+    // 不自断言用户自建文档（世界观.md 等会被用户整理掉，断言它们的红不是回归，
+    // 与上面不再断言「测试书籍」是同一类测试债的收口）
+    for (const t of DOC_TEMPLATES) expect(docNames).toContain(t.name);
     // 章节按章号排序，第10章 必须排在 第2章 之后
     const chNames = data.chapters.map((c) => c.name);
     expect(chNames.indexOf("第10章.md")).toBeGreaterThan(chNames.indexOf("第2章.md"));
