@@ -54,6 +54,18 @@ describe("parseProjectStatus", () => {
     expect(s.stage).toBe("连续写作");
   });
 
+  it("启用模块字段（D-043）：声明了才解析，未声明为 null（老作品按盘上文件为准）", () => {
+    const s = parseProjectStatus("- 启用模块：伏笔、角色状态\n");
+    expect(s.modules).toEqual(["伏笔", "角色状态"]);
+    // 全不启用
+    expect(parseProjectStatus("- 启用模块：无\n").modules).toEqual([]);
+    // 逗号/分号分隔与空白容错
+    expect(parseProjectStatus("- 启用模块：伏笔， 时间线;角色状态 \n").modules).toEqual(["伏笔", "时间线", "角色状态"]);
+    // 老作品没有这一行 → null（不是空数组：两者语义不同）
+    expect(parseProjectStatus("- 当前阶段：开书准备\n").modules).toBeNull();
+    expect(parseProjectStatus("").modules).toBeNull();
+  });
+
   it("null/空串不抛异常", () => {
     expect(parseProjectStatus("").fields).toEqual({});
   });

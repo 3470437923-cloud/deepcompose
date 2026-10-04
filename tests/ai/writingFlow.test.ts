@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { WRITE_NEXT_MESSAGE, adoptMessage, adoptAfterSave } from "../../src/ui/MainWorkbench";
 import { BUILTIN_SKILL_FILES } from "../../src/core/skills/builtin";
-import { DOC_TEMPLATES, RULES_DOC } from "../../src/core/store/templates";
 import { buildReflowPrompt } from "../../src/core/ai/reflow";
 import { diffLines } from "../../src/core/store/oplog";
 
@@ -36,11 +35,10 @@ describe("单候选与采用提示契约", () => {
     expect(WRITE_NEXT_MESSAGE).toContain("不回写");
   });
 
-  it("内置主线与新建书规则采用单文件，不要求永久保留独立初稿", () => {
+  it("内置主线与技能参考采用单候选（通用纪律已从作品文档移入技能，D-043）", () => {
     const skill = BUILTIN_SKILL_FILES["novel-writer/SKILL.md"];
     const reference = BUILTIN_SKILL_FILES["novel-writer/references/templates.md"];
-    const rules = DOC_TEMPLATES.find((t) => t.name === RULES_DOC)!.content;
-    for (const text of [skill, reference, rules]) {
+    for (const text of [skill, reference]) {
       expect(text).toContain("第N章-候选.md");
       expect(text).not.toContain("初稿永远保留");
       expect(text).not.toContain("初稿：`第N章-v1-初稿.md`（永久保留）");

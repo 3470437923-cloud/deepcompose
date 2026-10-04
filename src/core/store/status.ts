@@ -20,7 +20,7 @@ import { parseChapterName } from "./chapter";
 export interface ProjectStatus {
   /** 头部 `- 键：值` 的全部字段（键与值都 trim、去行尾 CR；同名键取首个） */
   fields: Record<string, string>;
-  /** 当前阶段（开书准备 / 大纲自检 / 连续写作 / 收尾） */
+  /** 当前阶段（开书准备 / 开书自检 / 连续写作 / 收尾） */
   stage: string;
   /** 当前章节（模板口径：下一个要写的章） */
   chapter: string;
@@ -28,6 +28,21 @@ export interface ProjectStatus {
   progress: string;
   /** 下一步 */
   nextStep: string;
+  /**
+   * 启用的追踪模块（D-043）：00 头部「- 启用模块：伏笔、角色状态」的解析结果；
+   * **null = 没有这一行（老作品），按盘上实际存在的文件为准，不做缺失判定**。
+   */
+  modules: string[] | null;
+}
+
+/** 「启用模块」字段值的解析：顿号/逗号/分号分隔，「无」与空值 = 空数组 */
+export function parseModuleList(raw: string): string[] {
+  const t = raw.trim();
+  if (t === "" || t === "无") return [];
+  return t
+    .split(/[、，,;；]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 /** 头部字段行：允许全角「：」与半角「:」，键里不含冒号 */
@@ -53,6 +68,7 @@ export function parseProjectStatus(text: string): ProjectStatus {
     chapter: fields["当前章节"] ?? "",
     progress: fields["正文处理进度"] ?? "",
     nextStep: fields["下一步"] ?? "",
+    modules: "启用模块" in fields ? parseModuleList(fields["启用模块"]) : null,
   };
 }
 

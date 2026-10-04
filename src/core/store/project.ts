@@ -26,7 +26,20 @@ import {
 } from "../dirs";
 import { parseManifest, serializeManifest, type ProjectManifest } from "./manifest";
 import { compareChapterFiles, parseChapterName, stripMd } from "./chapter";
-import { DOC_TEMPLATES, FORESHADOW_DOC, renderTemplate, STATE_DOC } from "./templates";
+import {
+  ALL_TRACKER_MODULES,
+  CORE_DOC_TEMPLATES,
+  DOC_TEMPLATES,
+  FORESHADOW_DOC,
+  LEGACY_DOC_TEMPLATES,
+  ROUGH_DOC,
+  STATE_DOC,
+  STATE_MODULES_LINE,
+  TRACKER_MODULES,
+  XIGANG_DIR,
+  renderTemplate,
+  type TrackerModule,
+} from "./templates";
 import { childNameProblem } from "./names";
 import { parseProjectStatus, statusChapterNo, type ProjectStatus } from "./status";
 import { countForeshadowing } from "./tracking";
@@ -296,7 +309,9 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
 }
 
 /**
- * 新建作品：14 件套模板 + 三个基础目录（小说资料/章节内容/待确认）+ 空清单。
+ * 新建作品（D-043）：核心 7 件模板 + 三个基础目录（小说资料/章节内容/待确认）
+ * + 细纲目录 + 空清单；追踪表按 modules 勾选生成（缺省 = 全部启用，
+ * 与 AI create_project 工具的现状一致）。
  * 模板经 renderTemplate 替换 {书名} 占位并统一 CRLF 落盘（既有磁盘格式）。
  * 「审核」「个人改稿」「待确认\已处理」按首次使用创建，不预建。
  * 名字走 names.childNameProblem（与删除路径同一份规则）：保留设备名、冒号(ADS)、
@@ -307,12 +322,16 @@ export async function loadProject(fs: FsBridge, projectRoot: string, name?: stri
  * key = 模板文件名，value = 已把「待填写」行替换成作者答案的模板正文。
  * 覆盖内容仍是模板格式（\n 行尾、{书名} 占位仍在），因此走同一个
  * renderTemplate 出口 —— 磁盘格式只有一条生产线。
+ *
+ * modules === undefined（未勾选，AI 工具路径）时 00 的「启用模块」行保持模板默认
+ * （全部五个），与所建文件一致；显式给了就替换整行（全不启用写「无」）。
  */
 export async function createProject(
   fs: FsBridge,
   booksRoot: string,
   name: string,
   overrides?: ReadonlyMap<string, string>,
+  modules?: readonly TrackerModule[],
 ): Promise<ProjectRef> {
   const trimmed = name.trim();
   if (!trimmed) throw new Error("书名不能为空");
@@ -322,18 +341,38 @@ export async function createProject(
   const root = join(booksRoot, trimmed);
   if (await fs.exists(root)) throw new Error(`作品已存在：${trimmed}`);
 
+  const enabled: readonly TrackerModule[] = modules ?? ALL_TRACKER_MODULES;
+  const enabledSet = new Set<string>(enabled);
+  const modulesLine =
+    modules === undefined
+      ? null // 工具路径：保持模板默认（全启用），与所建文件一致
+      : `- 启用模块：${enabled.length > 0 ? enabled.join("、") : "无"}`;
+
   await fs.mkdir(projectDocsDir(root));
   await fs.mkdir(projectChaptersDir(root));
   await fs.mkdir(projectPendingDir(root));
+  await fs.mkdir(join(projectDocsDir(root), XIGANG_DIR));
   for (const tpl of DOC_TEMPLATES) {
+    if (TRACKER_MODULES.some((m) => m.template === tpl) && !enabledSet.has(trackerKeyOf(tpl.name))) {
+      continue; // 未启用的追踪模块不创建
+    }
+    let content = overrides?.get(tpl.name) ?? tpl.content;
+    if (tpl.name === STATE_DOC && modulesLine !== null) {
+      content = content.replace(STATE_MODULES_LINE, modulesLine);
+    }
     await fs.writeText(
       join(projectDocsDir(root), tpl.name),
-      renderTemplate(overrides?.get(tpl.name) ?? tpl.content, trimmed),
+      renderTemplate(content, trimmed),
     );
   }
   await fs.writeText(projectManifestFile(root), serializeManifest(parseManifest("")));
   const st = await fs.stat(root);
   return { root, name: trimmed, mtimeMs: st?.mtimeMs ?? Date.now() };
+}
+
+/** 追踪表文件名 → 模块键（未知名返回空串，调用方按"非追踪件"处理） */
+function trackerKeyOf(fileName: string): string {
+  return TRACKER_MODULES.find((m) => m.template.name === fileName)?.key ?? "";
 }
 
 /** 读取任意作品内文件（只走 fs 原语，不做内容加工） */
@@ -426,16 +465,46 @@ export async function validateProject(fs: FsBridge, projectRoot: string): Promis
     if (!d || !d.isDir) issues.push({ level: "warn", check: "dir-missing", message: `缺少基础目录：${label}` });
   }
 
-  // 14 件套（只报告缺失，不补建）
+  // 文档完备性（只报告缺失，不补建）。D-043：按结构分两路——
+  // 新结构（00 声明了「启用模块」，或 04-粗纲 / 细纲 存在）：核心 7 件 + 启用模块各自的追踪表；
+  // 旧结构（老作品）：旧 14 件套口径原样保留，绝不把新结构的文件名当成老书的缺失项。
   const docsDir = projectDocsDir(projectRoot);
   const docNames = new Set((await fs.list(docsDir)).filter((e) => !e.isDir).map((e) => e.name));
-  const missing = DOC_TEMPLATES.filter((t) => !docNames.has(t.name)).map((t) => t.name);
-  if (missing.length > 0) {
-    issues.push({
-      level: "info",
-      check: "templates-missing",
-      message: `14 件套缺 ${missing.length} 份：${missing.slice(0, 3).join("、")}${missing.length > 3 ? " 等" : ""}`,
-    });
+  const status = await readProjectStatus(fs, projectRoot);
+  const xigangDirExists = (await fs.stat(join(docsDir, XIGANG_DIR)))?.isDir === true;
+  const isNewStructure = status?.modules != null || docNames.has(ROUGH_DOC) || xigangDirExists;
+  if (isNewStructure) {
+    const missing = CORE_DOC_TEMPLATES.filter((t) => !docNames.has(t.name)).map((t) => t.name);
+    if (missing.length > 0) {
+      issues.push({
+        level: "info",
+        check: "templates-missing",
+        message: `核心文档缺 ${missing.length} 份：${missing.slice(0, 3).join("、")}${missing.length > 3 ? " 等" : ""}`,
+      });
+    }
+    if (!xigangDirExists) {
+      issues.push({ level: "warn", check: "dir-missing", message: `缺少细纲目录：${XIGANG_DIR}` });
+    }
+    // 启用了模块但盘上缺文件 → 结构不一致（AI 会按 00 的声明去维护一张不存在的表）
+    for (const m of status?.modules ?? []) {
+      const tpl = TRACKER_MODULES.find((t) => t.key === m);
+      if (tpl && !docNames.has(tpl.template.name)) {
+        issues.push({
+          level: "warn",
+          check: "module-file-missing",
+          message: `启用了「${m}」模块但缺少 ${tpl.template.name}（要么建仓补建，要么从 00 的启用模块里去掉）`,
+        });
+      }
+    }
+  } else {
+    const missing = LEGACY_DOC_TEMPLATES.filter((t) => !docNames.has(t.name)).map((t) => t.name);
+    if (missing.length > 0) {
+      issues.push({
+        level: "info",
+        check: "templates-missing",
+        message: `14 件套缺 ${missing.length} 份：${missing.slice(0, 3).join("、")}${missing.length > 3 ? " 等" : ""}`,
+      });
+    }
   }
 
   // L2 资料形态体检（D-038 / docs/MATERIALS-STYLE.md）：体量、装饰符号、表格占比、过程标注。
@@ -479,7 +548,7 @@ export async function validateProject(fs: FsBridge, projectRoot: string): Promis
   // I-3：00-项目状态.md 的结构化读取 —— 应用第一次能自己判断"写作进度到哪一步"，
   // 而不是把整份文档丢给模型读。模板口径：当前章节 = **下一个要写的章**，
   // 所以"状态声明第N章"意味着正文应该已有 N-1 章；声明的进度跑在磁盘前面就是漂移。
-  const status = await readProjectStatus(fs, projectRoot);
+  //（status 在上面的结构判定处已读过一次，这里复用同一结果）
   if (status) {
     const declared = statusChapterNo(status);
     const maxNo = nos.length > 0 ? nos[nos.length - 1] : 0;
