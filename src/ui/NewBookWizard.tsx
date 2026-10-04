@@ -17,26 +17,42 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useDialogFocus } from "./useDialogFocus";
 import { pushEsc } from "./escStack";
-import { EMPTY_ONBOARDING, type OnboardingAnswers } from "../core/store/onboarding";
+import { EMPTY_ONBOARDING, suggestModules, type OnboardingAnswers } from "../core/store/onboarding";
+import { TRACKER_MODULES, type TrackerModule } from "../core/store/templates";
 
 /** 开书方式：guided = 回答引导问题后创建；blank = 直接创建空白书 */
 type Mode = "guided" | "blank";
+
+/** 追踪模块的一句人话说明（向导里逐条展示） */
+const MODULE_HINTS: Record<TrackerModule, string> = {
+  伏笔: "埋设与回收的线索（强情节类型建议开）",
+  角色状态: "人物当前位置、目标与知情（任何长篇都建议开）",
+  时间线: "事件时间与顺序锚点",
+  资源与权限: "金钱、物品、权限的当前值",
+  废弃设定: "禁止恢复的旧设定登记",
+};
 
 interface Props {
   open: boolean;
   onCancel: () => void;
   /**
-   * 提交创建：name 已 trim；answers 为 null 表示空白开书。
+   * 提交创建：name 已 trim；answers 为 null 表示空白开书；
+   * modules = 用户勾选的追踪模块（空数组 = 全部不启用）。
    * 返回 null 表示成功（向导自行关闭），返回字符串为错误文案（向导留在原地展示）。
    */
-  onCreate: (name: string, answers: OnboardingAnswers | null) => Promise<string | null>;
+  onCreate: (name: string, answers: OnboardingAnswers | null, modules: TrackerModule[]) => Promise<string | null>;
 }
 
 export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
-  const [step, setStep] = useState(0); // 0 书名与方式 · 1 故事定位 · 2 世界与开局
+  // 0 书名与方式 · 1 故事定位 · 2 世界与开局 · 3 追踪模块
+  const [step, setStep] = useState(0);
   const [mode, setMode] = useState<Mode>("guided");
   const [name, setName] = useState("");
   const [answers, setAnswers] = useState<OnboardingAnswers>({ ...EMPTY_ONBOARDING });
+  /** 勾选的追踪模块（D-043：开书即定，中途也可建仓/停用） */
+  const [modules, setModules] = useState<Set<TrackerModule>>(() => new Set(["角色状态"]));
+  /** 用户手碰过模块勾选后，类型建议不再覆盖他的选择 */
+  const modulesTouched = useRef(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
 
@@ -52,6 +68,8 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
     setMode("guided");
     setName("");
     setAnswers({ ...EMPTY_ONBOARDING });
+    setModules(new Set(["角色状态"]));
+    modulesTouched.current = false;
     setError("");
     setCreating(false);
   }, [open]);
@@ -80,7 +98,7 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
     if (creating) return;
     setCreating(true);
     setError("");
-    const err = await onCreate(name.trim(), withAnswers ? answers : null);
+    const err = await onCreate(name.trim(), withAnswers ? answers : null, [...modules]);
     if (err) {
       setError(err);
       setCreating(false);
@@ -89,8 +107,26 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
     }
   };
 
+  /** 进入模块步时按类型给一次建议（用户碰过勾选就不覆盖） */
+  const goStep = (next: number) => {
+    if (next === 3 && !modulesTouched.current) {
+      setModules(new Set(suggestModules(answers)));
+    }
+    setStep(next);
+  };
+
+  const toggleModule = (key: TrackerModule) => {
+    modulesTouched.current = true;
+    setModules((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const nameOk = name.trim() !== "";
-  const STEPS = ["书名与方式", "故事定位", "世界与开局"];
+  const STEPS = ["书名与方式", "故事定位", "世界与开局", "追踪模块"];
 
   return (
     <div
@@ -111,7 +147,7 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
         <h3 id={titleId}>新书启航</h3>
 
         {/* 步骤指示：文字 + 当前高亮，不只用颜色（完成态打勾） */}
-        <div className="nbw-steps" aria-label={`第 ${step + 1} 步，共 ${mode === "guided" ? 3 : 1} 步`}>
+        <div className="nbw-steps" aria-label={`第 ${step + 1} 步，共 ${mode === "guided" ? 4 : 1} 步`}>
           {STEPS.map((label, i) => {
             const reachable = mode === "guided" || i === 0;
             const cls = i === step ? "nbw-step on" : i < step ? "nbw-step done" : "nbw-step";
@@ -168,7 +204,7 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
               >
                 <span className="nbw-mode-name">空白开书</span>
                 <span className="nbw-mode-desc">
-                  只生成 14 份基础模板（全部「待填写」），之后随时与 AI 讨论补齐。
+                  只生成核心文档（全部「待填写」）与全部追踪模块，之后随时与 AI 讨论补齐。
                 </span>
               </button>
             </div>
@@ -285,7 +321,33 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
           </div>
         ) : null}
 
-        {step > 0 ? (
+        {step === 3 ? (
+          <>
+            <p className="nbw-hint">
+              追踪模块是可选的维护表：AI 每次写完一章会增量更新勾选的表。
+              言情等类型只留「角色状态」就够了；强情节类型建议加「伏笔」「时间线」。
+              现在不勾的，写作途中也可以让 AI 建仓补建。
+            </p>
+            <div className="nbw-grid">
+              {TRACKER_MODULES.map((m) => (
+                <label key={m.key} className="nbw-label nbw-check">
+                  <input
+                    type="checkbox"
+                    checked={modules.has(m.key)}
+                    onChange={() => toggleModule(m.key)}
+                  />
+                  <span>
+                    <b>{m.key}</b>（{m.template.name}）
+                    <br />
+                    <span className="nbw-check-hint">{MODULE_HINTS[m.key]}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </>
+        ) : null}
+
+        {step > 0 && step < 3 ? (
           <p className="nbw-hint">所有问题都可以留空 —— 留空项保留「待填写」，之后随时与 AI 讨论补齐。</p>
         ) : null}
         {error ? (
@@ -325,9 +387,9 @@ export default function NewBookWizard({ open, onCancel, onCreate }: Props) {
               <button
                 className="btn btn-accent"
                 disabled={creating}
-                onClick={() => (step === 1 ? setStep(2) : void submit(true))}
+                onClick={() => (step === 1 ? goStep(2) : step === 2 ? goStep(3) : void submit(true))}
               >
-                {step === 1 ? "下一步" : creating ? "创建中…" : "完成并创建"}
+                {step === 3 ? (creating ? "创建中…" : "完成并创建") : "下一步"}
               </button>
             </>
           )}
