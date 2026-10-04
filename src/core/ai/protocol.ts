@@ -181,6 +181,14 @@ function buildOpenAi(
   for (const m of messages) {
     if (m.role === "assistant") {
       const toolCalls = m.toolCalls ?? [];
+      // 空回合（无正文、无工具调用）**不进请求序列**：DeepSeek 会整轮拒收并返回
+      // 400 invalid_request_error："Invalid assistant message: content or tool_calls
+      // must be set"（旧写法把它序列化成 `content: null` 且无 tool_calls）。
+      // 这种回合真实存在 —— 模型只产出思考流（正文为空）、或用户在中途点「停止」，
+      // 历史里就留下一条 thinking-only 的 assistant；它会让**下一次**发送整轮失败
+      // （实测：会话 123a86e8… 第 12 条即此形态，之后连续三次发送全部 400）。
+      // 按 D-012 思考内容本来就不回传，跳掉它对上下文没有任何信息损失。
+      if ((m.text ?? "") === "" && toolCalls.length === 0) continue;
       // 纯工具调用回合 text 为空：OpenAI 规范要求 content 为 null 而非空串
       const entry: Record<string, unknown> = { role: "assistant", content: m.text || null };
       if (toolCalls.length > 0) {
@@ -242,9 +250,14 @@ function buildAnthropic(
   for (const m of messages) {
     if (m.role === "system") continue; // system 走顶层 system 字段
     if (m.role === "assistant") {
+      const toolCalls = m.toolCalls ?? [];
+      // 与 OpenAI 分支同一纪律：空回合（无正文、无工具调用）不进请求序列 ——
+      // Anthropic 同样拒绝空 text 块（"text content blocks must be non-empty"），
+      // 而旧写法会为它补一个 `{type:"text", text:""}` 的空块。
+      if ((m.text ?? "") === "" && toolCalls.length === 0) continue;
       const blocks: Record<string, unknown>[] = [];
       if (m.text) blocks.push({ type: "text", text: m.text });
-      for (const t of m.toolCalls ?? []) {
+      for (const t of toolCalls) {
         blocks.push({
           type: "tool_use",
           id: t.callId,
@@ -254,7 +267,8 @@ function buildAnthropic(
           input: safeParse(t.arguments),
         });
       }
-      // Anthropic 不接受空 content 数组：无文本无调用时补一个空 text 块
+      // 兜底：上面的空回合已被跳过，正常路径到不了这里（保留以防将来有
+      // "无 text 但有其它块类型"的形态被加进来）；Anthropic 不接受空 content 数组。
       if (blocks.length === 0) blocks.push({ type: "text", text: "" });
       msgs.push({ role: "assistant", content: blocks });
 
