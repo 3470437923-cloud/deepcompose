@@ -20,7 +20,7 @@ import {
   materialsSummary,
   measureMaterial,
 } from "../../src/core/store/style";
-import { DOC_TEMPLATES } from "../../src/core/store/templates";
+import { DOC_TEMPLATES, XIGANG_DOC_SAMPLE } from "../../src/core/store/templates";
 import { parseProjectStatus } from "../../src/core/store/status";
 import { countForeshadowing } from "../../src/core/store/tracking";
 import { sectionBody } from "../../src/core/store/markdown";
@@ -131,14 +131,18 @@ describe("checkMaterial：逐条判据", () => {
     expect(parseProjectStatus(textOf("00-项目状态.md"))).toMatchObject({
       stage: "开书准备", chapter: "第000章", progress: "未开始",
     });
+    // 00 声明启用模块（默认全启用），可被结构化读取
+    expect(parseProjectStatus(textOf("00-项目状态.md")).modules).toEqual([
+      "伏笔", "角色状态", "时间线", "资源与权限", "废弃设定",
+    ]);
     const foreshadow = textOf("追踪-伏笔.md");
     expect(countForeshadowing(foreshadow)).toMatchObject({ open: 0, collected: 0, dropped: 0, unclassified: 1 });
     const active = foreshadow.replace(/^- 状态：.*$/m, "- 状态：开放");
     expect(countForeshadowing(active)).toMatchObject({ open: 1, unclassified: 0 });
     expect(sectionBody(textOf("人物库.md"), "人物名（模板，新建人物时复制本条目）"))
       .toContain("说话习惯与压力反应：待填写");
-    expect(sectionBody(textOf("05-滚动细纲.md"), "第N章：章名待定"))
-      .toContain("主要场面：待填写");
+    // 细纲样例（不随作品创建，技能与测试引用的结构范本）
+    expect(sectionBody(XIGANG_DOC_SAMPLE, "第N章 章名待定")).toContain("主要场面：待填写");
   });
 
   it("模板形态本身零提示（这是契约的基准形态）", () => {
@@ -182,7 +186,7 @@ describe("人物库条目与汇总", () => {
 });
 
 describe("预算表完整性", () => {
-  it("14 件套每一份都有预算条目（新增模板不许无预算）", () => {
+  it("新结构 12 件每一份都有预算条目（新增模板不许无预算）", () => {
     for (const t of DOC_TEMPLATES) {
       expect(MATERIAL_BUDGETS[t.name], `${t.name} 缺预算登记`).toBeTruthy();
     }

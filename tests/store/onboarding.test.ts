@@ -117,7 +117,7 @@ describe("createProject + overrides（落盘集成）", () => {
     expect(core).toContain("- 时代、地点与本阶段环境：架空古代");
   });
 
-  it("不传 overrides：14 件套与空白模板逐字节一致", async () => {
+  it("不传 overrides：新结构 12 件与空白模板逐字节一致", async () => {
     const ref = await createProject(fs, booksRoot, "空白书");
     for (const t of DOC_TEMPLATES) {
       const disk = await fsp.readFile(path.join(ref.root, "小说资料", t.name), "utf8");

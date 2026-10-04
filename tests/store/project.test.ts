@@ -21,7 +21,7 @@ import {
   scanBooksRoot,
   validateProject,
 } from "../../src/core/store/project";
-import { DOC_TEMPLATES, renderTemplate } from "../../src/core/store/templates";
+import { CORE_DOC_TEMPLATES, DOC_TEMPLATES, LEGACY_DOC_TEMPLATES, renderTemplate } from "../../src/core/store/templates";
 import { compareChapterFiles, parseChapterName, parseCnNumber } from "../../src/core/store/chapter";
 
 let booksRoot: string;
@@ -92,8 +92,8 @@ describe("章节排序", () => {
   });
 });
 
-describe("新建作品：3.0 布局（14 件套 + 待确认）", () => {
-  it("生成 小说资料(14模板) + 章节内容 + 待确认 + .openwrite_manifest.json", async () => {
+describe("新建作品：新结构（核心 7 件 + 细纲栏目 + 可选追踪模块，D-043）", () => {
+  it("默认（AI 工具路径）生成核心 7 件 + 全部 5 份追踪表 + 细纲目录 + 清单", async () => {
     const p = await createProject(fs, booksRoot, "测试书籍");
     const entries = await fsp.readdir(p.root);
     expect(entries.sort()).toEqual(
@@ -101,22 +101,28 @@ describe("新建作品：3.0 布局（14 件套 + 待确认）", () => {
     );
 
     const docEntries = (await fsp.readdir(path.join(p.root, "小说资料"))).sort();
-    expect(docEntries).toEqual(DOC_TEMPLATES.map((t) => t.name).sort());
-    expect(DOC_TEMPLATES.length).toBe(14);
+    expect(docEntries).toEqual([...DOC_TEMPLATES.map((t) => t.name), "细纲"].sort());
+    expect(DOC_TEMPLATES.length).toBe(12); // 核心 7 + 追踪模块 5
 
     // 模板占位替换 + CRLF 落盘
     const state = await fsp.readFile(path.join(p.root, "小说资料", "00-项目状态.md"), "utf8");
     expect(state).toContain("项目名称：测试书籍");
+    expect(state).toContain("- 启用模块：伏笔、角色状态、时间线、资源与权限、废弃设定");
     expect(state).not.toContain("{书名}");
     expect(state).toContain("\r\n");
     expect(state.includes("\n") && !state.match(/(?<!\r)\n/)).toBe(true); // 全部 \n 都带 \r
 
-    // 世界观.md 已更名为核心设定
-    expect(docEntries).toContain("02-核心设定.md");
-    expect(docEntries).not.toContain("世界观.md");
+    // 新结构用 04-粗纲 / 06-写作风格，不再生成旧名
+    expect(docEntries).toContain("04-粗纲.md");
+    expect(docEntries).toContain("06-写作风格.md");
+    expect(docEntries).not.toContain("04-分卷大纲.md");
+    expect(docEntries).not.toContain("05-滚动细纲.md");
+    expect(docEntries).not.toContain("章节摘要.md");
+    expect(docEntries).not.toContain("06-写作规则.md");
 
     expect((await fsp.readdir(path.join(p.root, "章节内容"))).length).toBe(0);
     expect((await fsp.readdir(path.join(p.root, "待确认"))).length).toBe(0);
+    expect((await fsp.readdir(path.join(p.root, "小说资料", "细纲"))).length).toBe(0);
     // 审核/个人改稿/已处理 按首次使用创建，不预建
     expect(await fs.exists(path.join(p.root, "小说资料", "审核"))).toBe(false);
     expect(await fs.exists(path.join(p.root, "待确认", "已处理"))).toBe(false);
@@ -128,6 +134,24 @@ describe("新建作品：3.0 布局（14 件套 + 待确认）", () => {
     expect(manifest.items).toEqual({});
     expect(manifest.orders).toEqual({});
     expect(manifest.manualOrderParents).toEqual([]);
+  });
+
+  it("模块勾选：只开角色状态 → 只建核心 7 件加一份追踪表，00 声明同步", async () => {
+    const p = await createProject(fs, booksRoot, "模块书", undefined, ["角色状态"]);
+    const docEntries = (await fsp.readdir(path.join(p.root, "小说资料"))).sort();
+    expect(docEntries).toEqual(
+      [...CORE_DOC_TEMPLATES.map((t) => t.name), "追踪-角色状态.md", "细纲"].sort(),
+    );
+    const state = await fsp.readFile(path.join(p.root, "小说资料", "00-项目状态.md"), "utf8");
+    expect(state).toContain("- 启用模块：角色状态");
+  });
+
+  it("模块全关：只建核心 7 件，00 写「启用模块：无」", async () => {
+    const p = await createProject(fs, booksRoot, "无模块书", undefined, []);
+    const docEntries = (await fsp.readdir(path.join(p.root, "小说资料"))).sort();
+    expect(docEntries).toEqual([...CORE_DOC_TEMPLATES.map((t) => t.name), "细纲"].sort());
+    const state = await fsp.readFile(path.join(p.root, "小说资料", "00-项目状态.md"), "utf8");
+    expect(state).toContain("- 启用模块：无");
   });
 
   it("renderTemplate 替换书名并统一 CRLF", () => {
@@ -252,7 +276,7 @@ describe("候选区与通用内容树", () => {
 
     const docs = tree.find((n) => n.name === "小说资料")!;
     const docsDirs = docs.children.filter((c) => c.isDir).map((c) => c.name);
-    expect(docsDirs).toEqual(["审核"]); // 目录排在文件前
+    expect(docsDirs).toEqual(["审核", "细纲"]); // 目录排在文件前；细纲是新结构的核心栏目（D-043）
     const review = docs.children.find((c) => c.name === "审核")!;
     expect(review.children.map((c) => c.name)).toEqual(["第2章-冷读-clarity-20260101-1200.md"]);
 
@@ -353,6 +377,32 @@ describe("候选区与通用内容树", () => {
     expect(aligned.some((i) => i.check === "foreshadow-count-mismatch")).toBe(false);
   });
 
+  it("validateProject：新结构启用模块缺文件 → module-file-missing；老结构走 14 件套口径（D-043）", async () => {
+    const ref = await createProject(fs, booksRoot, "模块漂移书", undefined, ["伏笔"]);
+    // 启用伏笔但删掉文件 → 结构不一致警告
+    await fsp.rm(path.join(ref.root, "小说资料", "追踪-伏笔.md"));
+    const issues = await validateProject(fs, ref.root);
+    expect(issues.some((i) => i.check === "module-file-missing")).toBe(true);
+    expect(issues.some((i) => i.check === "templates-missing")).toBe(false); // 核心 7 件都在，不误报
+    await fsp.rm(ref.root, { recursive: true, force: true });
+
+    // 老结构（00 无「启用模块」行、无 04-粗纲、无细纲目录）→ 按 14 件套口径报缺失，且不提新结构名
+    const legacy = path.join(booksRoot, "老结构书");
+    await fsp.mkdir(path.join(legacy, "小说资料"), { recursive: true });
+    await fsp.mkdir(path.join(legacy, "章节内容"), { recursive: true });
+    await fsp.mkdir(path.join(legacy, "待确认"), { recursive: true });
+    await fsp.writeFile(
+      path.join(legacy, "小说资料", "00-项目状态.md"),
+      "# 项目状态\r\n- 当前阶段：开书准备\r\n- 当前章节：第000章\r\n- 正文处理进度：未开始\r\n",
+      "utf8",
+    );
+    const legacyIssues = await validateProject(fs, legacy);
+    const tm = legacyIssues.find((i) => i.check === "templates-missing");
+    expect(tm?.message).toContain("14 件套缺");
+    expect(tm?.message).not.toContain("04-粗纲");
+    await fsp.rm(legacy, { recursive: true, force: true });
+  });
+
   it("projectExists：清单缺失但有内容目录 → 也算受管（I-1 回归锁：判据与可见性统一）", async () => {
     const half = path.join(booksRoot, "半受管样本2");
     await fsp.mkdir(path.join(half, "小说资料"), { recursive: true });
@@ -393,10 +443,9 @@ describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () =>
     const xiong = projects.find((p) => p.name === "和小熊同居后的日子")!;
     const data = await loadProject(fs, xiong.root);
     const docNames = data.docs.map((d) => d.name);
-    // 只断言 14 件套（作品的标准形态，不受用户增删自建资料影响）；
-    // 不自断言用户自建文档（世界观.md 等会被用户整理掉，断言它们的红不是回归，
-    // 与上面不再断言「测试书籍」是同一类测试债的收口）
-    for (const t of DOC_TEMPLATES) expect(docNames).toContain(t.name);
+    // 该书目前是旧 14 件套结构：断言 LEGACY 模板全在（新结构的 04-粗纲 等名字不该在这里断言，
+    // 该书转换到新结构后本用例要随之更新）
+    for (const t of LEGACY_DOC_TEMPLATES) expect(docNames).toContain(t.name);
     // 章节按章号排序，第10章 必须排在 第2章 之后
     const chNames = data.chapters.map((c) => c.name);
     expect(chNames.indexOf("第10章.md")).toBeGreaterThan(chNames.indexOf("第2章.md"));
