@@ -258,6 +258,37 @@ describe("OpenAI 请求体", () => {
     });
     expect(list[1]).toEqual({ role: "tool", tool_call_id: "call_1", content: '{"ok":1}' });
   });
+
+  it("空回合（仅思考、无正文无工具调用）不进请求体 —— DeepSeek 会整轮 400（实测）", () => {
+    // 实测缺陷：会话 123a86e8… 第 12 条是 thinking-only 的 assistant，
+    // 旧写法序列化成 {role:"assistant", content:null}（无 tool_calls），
+    // 上游返回 400 invalid_request_error: "Invalid assistant message:
+    // content or tool_calls must be set"，之后该会话每次发送都失败。
+    const history: ChatMessage[] = [
+      { id: "u1", role: "user", text: "采用并回写", createdAt: "t" },
+      { id: "a1", role: "assistant", text: "", thinking: "想了很多但没输出", createdAt: "t" },
+      { id: "u2", role: "user", text: "继续", createdAt: "t" },
+    ];
+    const r = buildRequest(openaiCfg, history, [], "");
+    const list = (r.body as Record<string, unknown>).messages as Record<string, unknown>[];
+    // 空回合被整条丢掉：请求里既不出现它，也没有任何 content:null 的 assistant
+    expect(list.map((m) => m.role)).toEqual(["user", "user"]);
+    expect(list.some((m) => m.role === "assistant" && m.content === null && m.tool_calls === undefined)).toBe(false);
+    // 正文非空、或带工具调用的 assistant 照常保留（不是"把 assistant 全丢了"）
+    const keep: ChatMessage[] = [
+      { id: "a2", role: "assistant", text: "已回写第41章", createdAt: "t" },
+      {
+        id: "a3",
+        role: "assistant",
+        text: "",
+        createdAt: "t",
+        toolCalls: [{ callId: "c1", name: "file_write", arguments: "{}", result: "{}" }],
+      },
+    ];
+    const r2 = buildRequest(openaiCfg, keep, [], "");
+    const list2 = (r2.body as Record<string, unknown>).messages as Record<string, unknown>[];
+    expect(list2.map((m) => m.role)).toEqual(["assistant", "assistant", "tool"]);
+  });
 });
 
 describe("Anthropic 请求体", () => {
@@ -310,6 +341,20 @@ describe("Anthropic 请求体", () => {
     expect(first[1]).toMatchObject({ type: "tool_use", id: "toolu_1", name: "file_read" });
     const second = list[1].content as Record<string, unknown>[];
     expect(second[0]).toMatchObject({ type: "tool_result", tool_use_id: "toolu_1" });
+  });
+
+  it("空回合（仅思考）同样不进 Anthropic 请求体 —— 空 text 块会被拒", () => {
+    const history: ChatMessage[] = [
+      { id: "u1", role: "user", text: "继续", createdAt: "t" },
+      { id: "a1", role: "assistant", text: "", thinking: "只有思考", createdAt: "t" },
+    ];
+    const r = buildRequest(anthropicCfg, history, [], "");
+    const list = (r.body as Record<string, unknown>).messages as Record<string, unknown>[];
+    expect(list.map((m) => m.role)).toEqual(["user"]);
+    // 不留形如 {type:"text", text:""} 的空块
+    expect(
+      list.some((m) => Array.isArray(m.content) && (m.content as Record<string, unknown>[]).some((b) => b.type === "text" && b.text === "")),
+    ).toBe(false);
   });
 });
 
