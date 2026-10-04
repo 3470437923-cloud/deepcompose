@@ -96,7 +96,7 @@ describe("splitMessages", () => {
 });
 
 describe("maybeCompress", () => {
-  it.each(["network", "missing-stop", "length", "max_tokens", "throw"])("不缓存未完成摘要：%s", async (failure) => {
+  it.each(["network", "missing-stop", "throw"])("不缓存未完成摘要：%s", async (failure) => {
     __clearCompressCache();
     let calls = 0;
     const transport: StreamTransport = {
@@ -105,10 +105,6 @@ describe("maybeCompress", () => {
         handlers.onLine('data: {"choices":[{"delta":{"content":"半截摘要"}}]}');
         if (failure === "network") handlers.onError("connection reset");
         if (failure === "throw") throw new Error("IPC failed");
-        if (failure === "length" || failure === "max_tokens") {
-          handlers.onLine(`data: {"choices":[{"delta":{},"finish_reason":"${failure}"}]}`);
-          handlers.onLine("data: [DONE]");
-        }
       },
     };
     const opts = {
@@ -119,6 +115,60 @@ describe("maybeCompress", () => {
     expect(await maybeCompress(opts)).toBeNull();
     expect(await maybeCompress(opts)).toBeNull();
     expect(calls).toBe(2);
+  });
+
+  it.each(["length", "max_tokens"])("截断摘要：先自动续写，用尽仍截断则不缓存（D-041）：%s", async (failure) => {
+    __clearCompressCache();
+    let calls = 0;
+    const transport: StreamTransport = {
+      async stream(_req, handlers) {
+        calls += 1;
+        handlers.onLine('data: {"choices":[{"delta":{"content":"半截摘要"}}]}');
+        handlers.onLine(`data: {"choices":[{"delta":{},"finish_reason":"${failure}"}]}`);
+        handlers.onLine("data: [DONE]");
+      },
+    };
+    const opts = {
+      cfg, transport,
+      messages: Array.from({ length: 40 }, (_, i) => msg(`m${i}`, i % 2 ? "assistant" : "user", "字".repeat(300))),
+      contextLimit: 10_000, reservedOutputTokens: 1_000, sessionId: `failure-${failure}`,
+    };
+    expect(await maybeCompress(opts)).toBeNull();
+    expect(await maybeCompress(opts)).toBeNull();
+    // 每次压缩 = 1 首发 + 3 程续写（仍全部截断）→ 回退不压缩；两次共 8 程
+    expect(calls).toBe(8);
+  });
+
+  it("截断的摘要自动续写补完（D-041）：半截 + 续写拼成完整摘要", async () => {
+    __clearCompressCache();
+    let calls = 0;
+    const captured: HttpRequest[] = [];
+    const transport: StreamTransport = {
+      async stream(req, handlers) {
+        calls += 1;
+        captured.push(req);
+        if (calls === 1) {
+          handlers.onLine('data: {"choices":[{"delta":{"content":"前半摘要"}}]}');
+          handlers.onLine('data: {"choices":[{"delta":{},"finish_reason":"length"}]}');
+        } else {
+          handlers.onLine('data: {"choices":[{"delta":{"content":"后半摘要"}}]}');
+          handlers.onLine('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}');
+        }
+        handlers.onLine("data: [DONE]");
+      },
+    };
+    const r = await maybeCompress({
+      cfg, transport,
+      messages: Array.from({ length: 8 }, (_, i) => msg(`m${i}`, "user", "字".repeat(3000))),
+      contextLimit: 10_000, reservedOutputTokens: 1_000, sessionId: "cont-1",
+    });
+    expect(calls).toBe(2);
+    expect(r).not.toBeNull();
+    expect(r!.block).toContain("前半摘要后半摘要");
+    // 续写请求带半截摘要（assistant 部分）+ 合成「继续」，只进请求序列
+    const body = JSON.stringify(captured[1].body);
+    expect(body).toContain("前半摘要");
+    expect(body).toContain("继续");
   });
   it.each(["end_turn", "max_tokens"])("Anthropic 摘要完整性：%s", async (reason) => {
     __clearCompressCache();

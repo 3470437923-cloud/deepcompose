@@ -35,7 +35,7 @@
 | KL-AI-03 | SSE 多行 `data:` 不支持（规范允许同一事件多条 data 行拼接后再解析） | 上游把长 JSON 拆成多条 data 行 | 代码判定 | 保留（现有测试锁「逐行立即出事件」） |
 | KL-AI-04 | `tool_calls` 分片缺 `index` 时全部归并到 0，多个并发工具调用会拼坏 arguments | 非标上游不发 `index` | 推演 | 保留（标准上游都带 index） |
 | KL-AI-05 | Anthropic 历史回放不带 thinking 块 | 官方 extended thinking + 工具链场景可能 400 | 代码判定 | 保留（B5 按平台策略统一处理后复核） |
-| KL-AI-06 | `finish_reason="length"` 无专门处理：被 max_tokens 截断时静默收尾，用户看不出被截断 | 长章续写撞上输出上限 | 代码判定 | **已修**（B5）：`isTruncatedReason` 认两种叫法（OpenAI `length` / Anthropic `max_tokens`）→ `AgentEvent.truncated` → `SendResult.truncated` → 聊天区 warn 色提示条（`.notice-line`），文案给出「调大最大输出长度 / 让它分段继续写」两条出路 |
+| KL-AI-06 | `finish_reason="length"` 无专门处理：被 max_tokens 截断时静默收尾，用户看不出被截断 | 长章续写撞上输出上限 | 代码判定 | **已修**（B5 + 2026-10-04 增强）：`isTruncatedReason` 认两种叫法（OpenAI `length` / Anthropic `max_tokens`）→ `AgentEvent.truncated` → `SendResult.truncated` → 聊天区 warn 色提示条（`.notice-line`）。**增强（D-040/D-041）**：默认 max_tokens 提到 128K；截断时自动续写至多 3 程拼成一整条（有工具调用的回合不续写），用尽仍截断才标记提示 |
 | KL-AI-07 | `cleanup_started` / `cleanup_completed` 事件名在联合类型里是死类型（无发射点） | — | 代码判定 | 保留（事件名表属既有格式） |
 | KL-AI-08 | `question` 弹窗不随「停止生成」关闭，停在屏幕上等用户点 | 生成中弹问题、用户点停止 | 已实测 | **已修** `c5854d4` |
 | KL-AI-09 | 压缩阈值判定不含本轮新用户消息，压缩延后一轮才触发 | 单条超长消息过后才压缩 | 代码判定 | 保留（可接受） |

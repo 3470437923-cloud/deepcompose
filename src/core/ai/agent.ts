@@ -51,6 +51,55 @@ export const EVENT_NAMES = {
 export const DEFAULT_MAX_TOOL_ROUNDS = 12;
 
 /**
+ * 截断自动续写上限（D-041）：一回合以 max_tokens 截断且没有待执行工具时，
+ * 自动把已流出内容随一条合成「继续」再发一程，最多续这么多次。
+ * 用尽仍截断才标记 truncated（界面提示条照旧）。
+ */
+export const MAX_CONTINUATIONS = 3;
+
+/** 续写用的合成用户消息文本（只进请求序列，不进落盘会话——用户没说过这句话） */
+export const CONTINUE_TEXT = "继续";
+
+/**
+ * 瞬时错误的重试退避序列（D-042）：每项 = 第 N 次重试前等待的毫秒数。
+ * 默认重试 2 次（共 3 次尝试）；测试注入 [0, 0] 免等待。
+ */
+export const DEFAULT_RETRY_DELAYS_MS = [1000, 3000];
+
+/**
+ * 失败是否值得自动重试（D-042）：
+ *  - HTTP 429 / 5xx：限流与服务端波动，重试有效；
+ *  - 无状态码的网络层断流（连接重置/超时/IPC 瞬断）：重试有效；
+ *  - 400/401/402/403/404/422 与「上下文超长」「Key 无效」：配置与预算问题，
+ *    重试只会原样再败一次，直接报错。
+ */
+export function isRetryableFailure(httpStatus: number | null, message: string): boolean {
+  if (httpStatus !== null) return httpStatus === 429 || httpStatus >= 500;
+  if (message === AI_ERRORS.contextTooLong || message === AI_ERRORS.invalidKey) return false;
+  return true;
+}
+
+/** 退避等待，100ms 粒度轮询中止信号（退避最长 3s，轮询开销可忽略） */
+function sleepAbortable(ms: number, signal?: { aborted: boolean }): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0) {
+      resolve();
+      return;
+    }
+    const poll = setInterval(() => {
+      if (signal?.aborted) {
+        clearInterval(poll);
+        resolve();
+      }
+    }, 100);
+    setTimeout(() => {
+      clearInterval(poll);
+      resolve();
+    }, ms);
+  });
+}
+
+/**
  * 面向界面的运行事件流（onEvent 回调逐条推送）：
  *  - run_started：本次运行开始（runId 供关联日志）；
  *  - thinking_started / thinking_delta：思考流开始与增量；
@@ -109,6 +158,8 @@ export interface RunOptions {
   transport: StreamTransport;
   /** 工具轮次上限（缺省 DEFAULT_MAX_TOOL_ROUNDS；controller 会再钳制到 1..50） */
   maxToolRounds?: number;
+  /** 瞬时错误重试的退避序列（缺省 DEFAULT_RETRY_DELAYS_MS；传 [] 关闭重试） */
+  retryDelaysMs?: number[];
   onEvent?: (e: AgentEvent) => void;
   /** 中止信号（UI「停止生成」置位；轮询式，见文件头中止契约） */
   signal?: { aborted: boolean };
@@ -162,6 +213,10 @@ class TurnAccumulator {
   outputTokens = 0;
   cacheHitTokens = 0;
   cacheMissTokens = 0;
+  /** 本程请求是否以 max_tokens 截断收尾（粘性标记：同一请求里随后到来的
+   *  非截断收尾事件——如 Anthropic 的 message_stop——不洗掉它；每开一程新请求前清零）。
+   *  续写判定只看它（D-041）。 */
+  truncatedHere = false;
 
   /** 本回合用量快照 */
   usage(): UsageTotals {
@@ -171,6 +226,17 @@ class TurnAccumulator {
       cacheHitTokens: this.cacheHitTokens,
       cacheMissTokens: this.cacheMissTokens,
     };
+  }
+
+  /** 取出并清零已计用量：续写/重试是同一会话里的多个独立请求，
+   *  上游按请求分别计费，必须逐段求和（覆盖语义会在续写间丢前一段的账）。 */
+  takeUsage(): UsageTotals {
+    const u = this.usage();
+    this.inputTokens = 0;
+    this.outputTokens = 0;
+    this.cacheHitTokens = 0;
+    this.cacheMissTokens = 0;
+    return u;
   }
 
   apply(events: StreamEvent[]): PassthroughEvent[] {
@@ -213,7 +279,10 @@ class TurnAccumulator {
         case "stop":
           // 收尾以传输层 done 为准，stop 仅协议信息，不透传；唯一例外是"被截断"——
           // 它必须让用户看见（length / max_tokens 两种叫法见 protocol.isTruncatedReason）
-          if (isTruncatedReason(e.reason)) passthrough.push({ type: "truncated", reason: e.reason });
+          if (isTruncatedReason(e.reason)) {
+            this.truncatedHere = true;
+            passthrough.push({ type: "truncated", reason: e.reason });
+          }
           break;
       }
     }
@@ -288,22 +357,18 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
   let history = [...opts.messages, userMsg];
   let textStarted = false;
   let thinkingStarted = false;
-  /** 木桶效应：任何一回合被截断，整轮就标记截断（界面提示是"本轮"级别的） */
+  /** 木桶效应：任一回合最终以截断收尾（续写预算用尽/有工具不便续写），整轮就标记截断 */
   let truncated = false;
+  const retryDelays = opts.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
 
-  for (let round = 0; round < maxRounds; round++) {
-    // 每轮开头检查中止：上一轮工具执行期间用户点了「停止」时在这里收尾
-    if (opts.signal?.aborted) {
-      emit({ type: "error", message: "已中止" });
-      return { added, error: "已中止", usage, truncated };
-    }
-
-    const req = buildRequest(opts.cfg, history, opts.tools, opts.systemPrompt);
+  /** 发一次流式请求并把事件喂给 acc；一切失败折算为返回值，本函数不抛 */
+  const streamOnce = async (
+    req: HttpRequest,
+    acc: TurnAccumulator,
+  ): Promise<{ error: string | null; status: number | null }> => {
     const parser = new StreamParser(opts.cfg.useAnthropicFormat);
-    const acc = new TurnAccumulator();
     let streamError: string | null = null;
     let httpStatus: number | null = null;
-
     try {
       await opts.transport.stream(req, {
         onLine: (line) => {
@@ -329,10 +394,9 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
               }
               emit({ type: "thinking_delta", text: e.text });
             } else if (e.type === "usage") {
-              // 透传值是 apply() 补全后的「回合累计快照」：直接取累加器当前值（字段均必填）
+              // 透传值是 apply() 补全后的「本程请求快照」：直接取累加器当前值（字段均必填）
               emit({ type: "usage", ...acc.usage() });
             } else if (e.type === "truncated") {
-              truncated = true;
               emit({ type: "truncated", reason: e.reason });
             }
           }
@@ -346,9 +410,90 @@ export async function runAgent(opts: RunOptions): Promise<RunResult> {
       // 否则本轮用户消息与部分正文会随异常一起丢失（controller 拿不到 added）
       streamError = classifyStreamError(String(e instanceof Error ? e.message : e));
     }
+    return { error: streamError, status: httpStatus };
+  };
 
-    // 无论成功、报错还是中止，本回合已产生的用量都要计入（上游按实际用量计费）
-    usage = addTotals(usage, acc.usage());
+  for (let round = 0; round < maxRounds; round++) {
+    // 每轮开头检查中止：上一轮工具执行期间用户点了「停止」时在这里收尾
+    if (opts.signal?.aborted) {
+      emit({ type: "error", message: "已中止" });
+      return { added, error: "已中止", usage, truncated };
+    }
+
+    // ── 本回合首个请求：瞬时失败且尚未流出任何内容时自动重试（D-042）──
+    // 重试只发生在「空回合」：已流出正文/思考/工具分片的断流不重试 ——
+    // 已 emit 的 delta 收不回，重试会让界面与落盘各重复一份。
+    let acc = new TurnAccumulator();
+    let streamError: string | null = null;
+    let httpStatus: number | null = null;
+    for (let attempt = 0; ; attempt++) {
+      const r = await streamOnce(buildRequest(opts.cfg, history, opts.tools, opts.systemPrompt), acc);
+      streamError = r.error;
+      httpStatus = r.status;
+      // 无论成功、报错还是中止，本程已产生的用量都计入（上游按请求计费）
+      usage = addTotals(usage, acc.takeUsage());
+      if (streamError === null) break;
+      const hasContent = acc.text !== "" || acc.thinking !== "" || acc.calls.size > 0;
+      if (
+        hasContent ||
+        attempt >= retryDelays.length ||
+        !isRetryableFailure(httpStatus, streamError) ||
+        opts.signal?.aborted
+      ) {
+        break;
+      }
+      emit({
+        type: "error",
+        message: `请求失败（${streamError}），${Math.max(1, Math.round(retryDelays[attempt] / 1000))} 秒后自动重试（第 ${attempt + 1}/${retryDelays.length} 次）`,
+      });
+      await sleepAbortable(retryDelays[attempt], opts.signal);
+      if (opts.signal?.aborted) break;
+      acc = new TurnAccumulator();
+    }
+
+    // 中止优先：即便最后一次尝试以失败收尾，用户的意图是停
+    if (opts.signal?.aborted) {
+      const partial = acc.message();
+      for (const c of partial.toolCalls ?? []) {
+        if (c.result === undefined) c.result = abortedToolResult();
+      }
+      if (partial.text !== "" || partial.thinking !== undefined || partial.toolCalls !== undefined) {
+        added.push(partial);
+      }
+      emit({ type: "error", message: "已中止" });
+      return { added, error: "已中止", usage, truncated };
+    }
+
+    // ── 截断自动续写（D-041）──
+    // 本回合以 max_tokens 截断、且没有待执行工具时：把已流出内容作为部分 assistant
+    // 随合成「继续」再发一程，delta 继续拼进同一个 acc —— 用户看到与落盘的都是
+    // 一整条不间断的消息；续写消息只进请求序列，不进会话文件。
+    let continuations = 0;
+    while (
+      acc.truncatedHere &&
+      acc.toolCalls().length === 0 &&
+      continuations < MAX_CONTINUATIONS &&
+      !opts.signal?.aborted
+    ) {
+      continuations += 1;
+      const continueMsg: ChatMessage = {
+        id: newId(),
+        role: "user",
+        text: CONTINUE_TEXT,
+        createdAt: isoMicros(),
+      };
+      const contHistory = [...history, acc.message(), continueMsg];
+      acc.truncatedHere = false; // 每开一程新请求前清零，判定只看本程
+      const r = await streamOnce(buildRequest(opts.cfg, contHistory, opts.tools, opts.systemPrompt), acc);
+      usage = addTotals(usage, acc.takeUsage());
+      if (r.error !== null) {
+        streamError = r.error;
+        httpStatus = r.status;
+        break;
+      }
+    }
+    // 续写预算用尽仍截断（或有工具不便续写）：按原纪律标记，界面提示条照旧
+    if (acc.truncatedHere) truncated = true;
 
     if (streamError !== null) {
       const msg = streamError as string;
