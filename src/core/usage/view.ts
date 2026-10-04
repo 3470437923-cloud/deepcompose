@@ -133,7 +133,10 @@ export function shouldRefreshBalance(lastFetchedAt: number, now: number): boolea
   return now - lastFetchedAt >= BALANCE_THROTTLE_MS;
 }
 
-/** 闲时判定与鲸鱼动画共用的「闲置」阈值：45 秒没有输入即视为闲置 */
+/** 闲置阈值：45 秒没有输入即视为闲置。
+ *  注意：D-039 起鲸鱼固定静止、不再游动，「闲置停游」随之移除 —— 本常量与 isIdle
+ *  目前**没有生产消费方**，仅由 tests/usage/view.test.ts 的回归锁守着（纯函数，
+ *  保留无害；将来若复活闲置类动效可直接复用，不必重写）。 */
 export const IDLE_AFTER_MS = 45_000;
 
 /** 是否已闲置（纯函数：面板/鲸鱼的"停下游动"都靠它） */

@@ -417,15 +417,6 @@ export default function MainWorkbench({
   const [usageBySession, setUsageBySession] = useState<Record<string, UsageTotals>>({});
   const sessionUsage = session ? usageBySession[session.id] ?? ZERO_USAGE : ZERO_USAGE;
 
-  /** 鲸鱼「闲置时停下游动」（D-030）：先本地回显，再落盘 */
-  const [idlePauseLocal, setIdlePauseLocal] = useState<boolean | null>(null);
-  const effIdlePause = idlePauseLocal ?? bootPrefs?.whaleIdlePause ?? true;
-  const toggleIdlePause = useCallback((next: boolean) => {
-    setIdlePauseLocal(next);
-    const b = currentBoot();
-    if (b) void savePrefs({ ...b.prefs, whaleIdlePause: next });
-  }, []);
-
   // 生成中收起档位浮层：它悬在输入框上方，跑起来就挡字了
   useEffect(() => {
     if (busy) setThinkOpen(false);
@@ -1550,14 +1541,8 @@ export default function MainWorkbench({
           </button>
         </div>
 
-        {/* 鲸鱼：走廊夹在「面板开关簇」与「设置齿轮」之间（宽度由 flex 与 24px 内缩决定） */}
-        <TitlebarWhale
-          dirs={dirs}
-          prefs={bootPrefs}
-          sessionUsage={sessionUsage}
-          idlePause={effIdlePause}
-          onToggleIdlePause={toggleIdlePause}
-        />
+        {/* 鲸鱼：走廊夹在「面板开关簇」与「设置齿轮」之间（固定静止在走廊中点，D-039） */}
+        <TitlebarWhale dirs={dirs} prefs={bootPrefs} sessionUsage={sessionUsage} />
 
         <div className="win-tools">
           <button className="wbtn" title="设置" onClick={onOpenSettings}>

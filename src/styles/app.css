@@ -193,8 +193,8 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .win-tools { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
 
 /* ── 标题栏鲸鱼：走廊 =（面板开关簇右缘 + 24px）到（设置齿轮左缘 − 24px） ──
-   `.whale-lane` 是 flex 里那个"吃掉剩余宽度"的槽，24px 由 `--whale-gutter` 单一来源定义
-   （JS 在测量时把它读回去，所以改这里不用改 TS）。 */
+   `.whale-lane` 是 flex 里那个"吃掉剩余宽度"的槽，24px 由 `--whale-gutter` 单一来源定义。
+   D-039：鲸鱼**固定静止**在走廊中点，不游动也不起伏（悬停/聚焦仅用于展开用量面板）。 */
 .whale-lane {
   --whale-gutter: 24px;
   flex: 1 1 auto;
@@ -207,12 +207,22 @@ html[data-nav="back"] .win { --push-x: -10px; }
   display: flex;
   align-items: center;
 }
-.whale-wrap { position: relative; display: flex; align-items: center; flex: none; }
-.whale-btn {
+.whale-wrap {
+  /* D-039：鲸鱼固定静止在走廊中点 —— wrap 本身就是那个 46×22 的盒子
+     （绝对定位相对 lane），鲸鱼按钮把它填满，不再有游动位移。 */
   position: absolute;
-  left: var(--whale-gutter);
+  left: 50%;
   top: 50%;
-  margin-top: -11px;
+  margin: -11px 0 0 -23px;
+  width: 46px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.whale-btn {
+  /* relative：底部水面线 ::after 的定位参照 */
+  position: relative;
   width: 46px;
   height: 22px;
   display: inline-flex;
@@ -220,25 +230,6 @@ html[data-nav="back"] .win { --push-x: -10px; }
   justify-content: center;
   border-radius: var(--r-sm);
   color: var(--accent-text);
-  /* 游动：横向走完走廊就掉头（scaleX 镜像），两端各停一拍再走。
-     拍子长短靠 --whale-span（JS 实测）换算成百分比是做不到的，所以用两点关键帧 + 缓动。 */
-  animation: whale-swim 34s var(--ease-settle) infinite;
-}
-.whale-btn.paused { animation-play-state: paused; }
-@keyframes whale-swim {
-  0% { transform: translateX(0) scaleX(1); }
-  46% { transform: translateX(var(--whale-span)) scaleX(1); }
-  54% { transform: translateX(var(--whale-span)) scaleX(-1); }
-  100% { transform: translateX(0) scaleX(-1); }
-}
-.whale-bob {
-  display: inline-flex;
-  /* 呼吸式起伏：幅度 1px 上下 + 极小仰角，像浮在水面而不是在"弹跳" */
-  animation: whale-bob 3.6s ease-in-out infinite;
-}
-@keyframes whale-bob {
-  0%, 100% { transform: translateY(-0.6px) rotate(-1.2deg); }
-  50% { transform: translateY(0.8px) rotate(1.2deg); }
 }
 .whale-svg { width: 40px; height: 22px; display: block; transition: transform var(--t-fast) var(--ease-out); }
 .whale-btn:hover .whale-svg { transform: scale(1.07); }
@@ -253,13 +244,15 @@ html[data-nav="back"] .win { --push-x: -10px; }
   stroke-linejoin: round;
 }
 .whale-eye { fill: var(--bg); }
-.whale-spout {
+.whale-spout,
+.whale-smile {
   fill: none;
   stroke: currentColor;
   stroke-width: 1.6;
   stroke-linecap: round;
   opacity: 0.55;
 }
+.whale-smile { stroke-width: 1.1; opacity: 0.45; }
 /* 鲸鱼底部的水面线：跟着它走的一条短线，给"在游"一个参照物 */
 .whale-btn::after {
   content: "";
@@ -2586,10 +2579,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
   .notice-line,
   .memo-card,
   .a-flash { animation: none; }
-  /* 鲸鱼：无障碍优先——不游也不起伏，静止停在走廊左端（信息与入口都还在） */
-  .whale-btn,
-  .whale-bob { animation: none; }
-  .whale-btn { transform: none; }
+  /* 鲸鱼自 D-039 起固定静止，无障碍分支没有需要降级的鲸鱼动效 */
   /* 生成中的行进线 → 一条静止的整宽强调色实线。
      动效没了，"面板正在产出"这个信息还在（这正是等价反馈的含义）。 */
   .panel-chat.streaming::before {

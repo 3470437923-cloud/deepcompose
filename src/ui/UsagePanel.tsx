@@ -36,9 +36,6 @@ interface Props {
   prefs: Prefs | null;
   /** 本次会话累计（主界面维护；未开始生成时为全零） */
   sessionUsage: UsageTotals;
-  /** 闲置时停下游动（D-030 的开关值） */
-  idlePause: boolean;
-  onToggleIdlePause: (next: boolean) => void;
 }
 
 /** 余额块的界面状态 */
@@ -53,7 +50,7 @@ type BalanceState =
  *  会被卸载清零 ——「60 秒内重复打开不再请求上游」从未跨打开周期生效过。 */
 let lastBalanceFetch = 0;
 
-export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onToggleIdlePause }: Props) {
+export default function UsagePanel({ dirs, prefs, sessionUsage }: Props) {
   const [today, setToday] = useState<UsageTotals>({ ...ZERO_USAGE });
   const [requests, setRequests] = useState(0);
   const [peak, setPeak] = useState<PeakStatus | null>(null);
@@ -265,15 +262,7 @@ export default function UsagePanel({ dirs, prefs, sessionUsage, idlePause, onTog
       </div>
 
       <div className="up-foot">
-        <label className="a-check-row">
-          <input
-            type="checkbox"
-            checked={idlePause}
-            onChange={(e) => onToggleIdlePause(e.target.checked)}
-          />
-          闲置时停下游动
-        </label>
-        <div className="up-line up-hint">停 45 秒没有输入就让它歇着（省点电；动效在系统"减少动态效果"下一律关闭）</div>
+        <div className="up-line up-hint">统计只记 token，金额一律是官方返回原文；统计文件可随时删除，不影响作品与配置。</div>
       </div>
     </div>
   );
