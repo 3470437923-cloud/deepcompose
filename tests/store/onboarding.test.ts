@@ -16,6 +16,7 @@ import {
   EMPTY_ONBOARDING,
   fillTemplateField,
   onboardingOverrides,
+  suggestModules,
 } from "../../src/core/store/onboarding";
 import { createProject } from "../../src/core/store/project";
 import {
@@ -57,6 +58,20 @@ describe("fillTemplateField（单行定向替换）", () => {
     const out = fillTemplateField(src, "一句话故事", "x");
     expect(out).toContain("- 目标平台与读者：待填写");
     expect(out).toContain("- 主类型与最想带给读者的感受：待填写");
+  });
+});
+
+describe("suggestModules（按类型建议追踪模块，D-043）", () => {
+  it("言情等一般类型：只建议角色状态（用户原话：言情要什么伏笔追踪）", () => {
+    expect(suggestModules({ genre: "现代言情 · 甜宠日常" })).toEqual(["角色状态"]);
+    expect(suggestModules({ genre: "" })).toEqual(["角色状态"]);
+    expect(suggestModules({ genre: "东方玄幻" })).toEqual(["角色状态"]);
+  });
+
+  it("强情节类型：加伏笔与时间线", () => {
+    expect(suggestModules({ genre: "悬疑推理" })).toEqual(["伏笔", "角色状态", "时间线"]);
+    expect(suggestModules({ genre: "谍战风云" })).toEqual(["伏笔", "角色状态", "时间线"]);
+    expect(suggestModules({ genre: "无限流恐怖" })).toEqual(["伏笔", "角色状态", "时间线"]);
   });
 });
 

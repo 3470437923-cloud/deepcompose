@@ -81,6 +81,7 @@ import { deleteSessionsForProject } from "../core/store/session";
 import { dropCompressCache } from "../core/ai/compress";
 import NewBookWizard from "./NewBookWizard";
 import { onboardingOverrides, type OnboardingAnswers } from "../core/store/onboarding";
+import type { TrackerModule } from "../core/store/templates";
 
 interface OpenTab {
   /** 相对作品根路径（'\' 分隔） */
@@ -725,10 +726,11 @@ export default function MainWorkbench({
   /**
    * 向导提交：建作品并打开。
    * answers 非空时经 onboardingOverrides 把答案定向填进 01-开书定位 / 02-核心设定
-   * （只替换「待填写」行，见 onboarding.ts 的契约）；返回错误文案给向导原地展示。
+   * （只替换「待填写」行，见 onboarding.ts 的契约）；modules 是用户勾选的追踪模块
+   * （B2，传给 createProject）；返回错误文案给向导原地展示。
    */
   const createBook = useCallback(
-    async (name: string, answers: OnboardingAnswers | null): Promise<string | null> => {
+    async (name: string, answers: OnboardingAnswers | null, modules: TrackerModule[]): Promise<string | null> => {
       if (!dirs) return "作品目录尚未加载，请稍后再试";
       try {
         const ref = await createProject(
@@ -736,6 +738,7 @@ export default function MainWorkbench({
           dirs.booksRoot,
           name,
           answers ? onboardingOverrides(answers) : undefined,
+          modules,
         );
         setNewBookOpen(false);
         await refreshProjects();

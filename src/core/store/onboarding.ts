@@ -15,7 +15,7 @@
  * 本模块是纯函数，不碰磁盘；落盘在 project.createProject（overrides 参数）。
  */
 
-import { CORE_SETTING_DOC, DOC_TEMPLATES, POSITIONING_DOC } from "./templates";
+import { CORE_SETTING_DOC, DOC_TEMPLATES, POSITIONING_DOC, type TrackerModule } from "./templates";
 
 /** 引导答案（全部可留空；留空 = 对应模板字段保持「待填写」） */
 export interface OnboardingAnswers {
@@ -127,4 +127,17 @@ export function onboardingOverrides(answers: OnboardingAnswers): Map<string, str
 function docContentOf(doc: string): string | null {
   const tpl = DOC_TEMPLATES.find((t) => t.name === doc);
   return tpl ? tpl.content : null;
+}
+
+/**
+ * 按开书定位的答案建议追踪模块（D-043；用户可随时改）：
+ *  - 角色状态是底线（任何长篇都需要"人物当前状态"）；
+ *  - 悬疑/推理/谍战/恐怖/无限流这类强情节类型加伏笔 + 时间线；
+ *  - 其余类型默认只留角色状态（言情不需要伏笔追踪和资源追踪，用户原话）。
+ */
+export function suggestModules(answers: Pick<OnboardingAnswers, "genre">): TrackerModule[] {
+  const g = answers.genre;
+  const base: TrackerModule[] = ["角色状态"];
+  if (/悬疑|推理|谍战|恐怖|惊悚|无限流|刑侦|探案/.test(g)) return ["伏笔", "角色状态", "时间线"];
+  return base;
 }
