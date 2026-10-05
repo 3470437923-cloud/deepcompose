@@ -16,7 +16,7 @@
 `DeepCompose.exe` / `deepcompose` / `com.deepcompose.desktop`），
 **以下磁盘契约名全部冻结，任何重构都不得改**：
 
-- 作品内：`小说资料\ 章节内容\ 待确认\ 已处理\ 审核\ 个人改稿\`、`.openwrite_manifest.json`、`.openwrite_recycle\`、`recycle_manifest.json`、`writerd_oplog\`
+- 作品内：`小说资料\ 章节内容\ 待确认\ 已处理\ 审核\ 个人改稿\`、`.openwrite_manifest.json`、`.openwrite_recycle\`、`recycle_manifest.json`、`.openwrite_backup\`（压缩归档，`.` 前缀不进内容树）、`writerd_oplog\`
 - 应用数据：`writerd_sessions\`、`writerd_snapshots\`、`writerd_memos.json`、`skills\`
 - 配置：`%APPDATA%\com.writerd\writerD\shared_preferences.json`（`flutter.` 前缀键名、封闭键集合）、同目录 `window_state.json`
 - 主题键值：`dark` / `light` / `dsblue`
