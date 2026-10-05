@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  buildBootstrapPrompt,
   buildReflowPrompt,
   buildStyleReflowPrompt,
   normalizeReflowMode,
@@ -147,12 +148,12 @@ describe("buildStyleReflowPrompt（风格通道）", () => {
 });
 
 describe("pendingRefrows（队列落盘配对）", () => {
-  const entry = (id: string, pending: boolean, prompt = "任务文本"): OplogEntry => ({
+  const entry = (id: string, pending: boolean, prompt = "任务文本", track = "facts"): OplogEntry => ({
     ts: "t",
     action: "reflow",
     relPath: "",
     sessionId: "",
-    detail: pending ? { reflowId: id, reflowPending: true, prompt, title: `T-${id}` } : { reflowId: id },
+    detail: pending ? { reflowId: id, reflowPending: true, prompt, title: `T-${id}`, reflowTrack: track } : { reflowId: id },
   });
 
   it("pending 无完成行 → 待补跑；有完成行 → 不补", () => {
@@ -170,8 +171,22 @@ describe("pendingRefrows（队列落盘配对）", () => {
     expect(pendingRefrows(entries)).toEqual([]);
   });
 
-  it("同一 id 重新入队以最后一次为准", () => {
-    const entries = [entry("a", true, "旧"), entry("a", true, "新")];
-    expect(pendingRefrows(entries)[0].prompt).toBe("新");
+  it("同一 id 重新入队以最后一次为准；通道随日志恢复", () => {
+    const entries = [entry("a", true, "旧"), entry("a", true, "新", "style")];
+    const out = pendingRefrows(entries);
+    expect(out[0].prompt).toBe("新");
+    expect(out[0].track).toBe("style");
+  });
+});
+
+describe("buildBootstrapPrompt（建仓任务，B8）", () => {
+  it("先报预估量经确认再动手；产物先落 待确认/ 过目，不直接落位", () => {
+    const p = buildBootstrapPrompt("伏笔", "追踪-伏笔.md");
+    expect(p).toContain("【建仓】");
+    expect(p).toContain("预估读取量");
+    expect(p).toContain("question");
+    expect(p).toContain("待确认/建仓-伏笔-");
+    expect(p).toContain("不直接写进 小说资料/");
+    expect(p).toContain("启用模块");
   });
 });

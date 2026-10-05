@@ -27,6 +27,17 @@ export function newReflowId(): string {
   return `rfl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** 建仓任务文本（B8：中途启用追踪模块时的一次性重构；先报预估量经用户确认再动手） */
+export function buildBootstrapPrompt(moduleKey: string, moduleFile: string): string {
+  return (
+    `【建仓】请为本书建仓「${moduleKey}」追踪模块：\n` +
+    `1. 先报预估读取量与 token 量级，用 question 经我确认再动手。\n` +
+    `2. 分段读取：00-项目状态 → 已完成细纲（细纲/，新结构）或 章节摘要.md（老作品）→ 人物库相关条目 → 按需回读正文（先用 file_manage 的 search 检索，不默认全量读）。\n` +
+    `3. 把重构出的 小说资料/${moduleFile} 内容先写到 待确认/建仓-${moduleKey}-<今天YYYYMMDD>.md（格式见 novel-writer 技能的追踪表条目协议：标题 + 编号条目 + 固定字段；每条注明来源章节；只写有正文依据的内容，不推测）。\n` +
+    `4. 不直接写进 小说资料/；写完后报告文件位置，等我过目。采用建仓结果时：把它移入 小说资料/ 落位，把建仓稿移入 待确认/已处理/，并核对 00 的「启用模块」行已包含「${moduleKey}」。`
+  );
+}
+
 /** 回流通道（D-043：facts = 审稿 + 事实回写；style = 对照学习，不动事实） */
 export type ReflowTrack = "facts" | "style";
 

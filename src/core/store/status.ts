@@ -82,3 +82,27 @@ export function statusChapterNo(s: ProjectStatus): number | null {
   const c = parseChapterName(s.chapter.trim());
   return c?.no ?? null;
 }
+
+/**
+ * 定点写「启用模块」行（B8 建仓/停用的落点；格式优先：只动这一行，其余字节不变）。
+ * 已有该行 → 整行替换；没有（老作品）→ 插在「- 当前章节：」行之后；连当前章节行都没有 → null
+ * （文档形态不认，交给调用方放弃而不是硬塞）。
+ */
+export function setModulesInStateDoc(text: string, modules: readonly string[]): string | null {
+  const lines = text.split("\n");
+  const body = `- 启用模块：${modules.length > 0 ? modules.join("、") : "无"}`;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^-\s*启用模块\s*[：:]/.test(lines[i])) {
+      // 保留原行的行尾形态（CRLF 文件的行尾 \r 不能丢）
+      lines[i] = body + (lines[i].endsWith("\r") ? "\r" : "");
+      return lines.join("\n");
+    }
+  }
+  for (let i = 0; i < lines.length; i++) {
+    if (/^-\s*当前章节\s*[：:]/.test(lines[i])) {
+      lines.splice(i + 1, 0, body + (lines[i].endsWith("\r") ? "\r" : ""));
+      return lines.join("\n");
+    }
+  }
+  return null;
+}
