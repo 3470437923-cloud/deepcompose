@@ -76,6 +76,8 @@ import { serializeManifest } from "../core/store/manifest";
 import { scanSkills, mergeSkillList } from "../core/skills/scan";
 import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
+import DocTableView from "./DocTable";
+import { defaultTableView, docTableFor } from "../core/store/doctable";
 import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
 import RecycleBin from "./RecycleBin";
 import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycle";
@@ -310,6 +312,9 @@ export default function MainWorkbench({
   const [reflowMenu, setReflowMenu] = useState(false);
   const reflowRef = useRef<HTMLDivElement | null>(null);
   useDismiss(reflowMenu, reflowRef, () => setReflowMenu(false));
+  /** 资料表格视图（B7）：按书记住的默认（manifest.viewMode）+ 本会话内按标签的覆盖 */
+  const [bookViewMode, setBookViewMode] = useState<"table" | "original" | null>(null);
+  const [tableOverride, setTableOverride] = useState<Record<string, boolean>>({});
 
   // ── 备忘录与应用内对话框 ──
   const [memoOpen, setMemoOpen] = useState(false);
@@ -397,6 +402,19 @@ export default function MainWorkbench({
   const dirs = currentBoot()?.dirs ?? null;
 
   const activeTab = useMemo(() => tabs.find((t) => t.rel === activeRel) ?? null, [tabs, activeRel]);
+
+  /** 当前资料标签的表格数据（B7；正文/候选不适用 → null） */
+  const activeDocTable = useMemo(
+    () => (activeTab && activeTab.kind === "doc" ? docTableFor(activeTab.name, activeTab.content) : null),
+    [activeTab],
+  );
+  /** 当前标签是否按表格显示：会话内按标签的覆盖 > 按书记住的默认 > 按文件类型的默认 */
+  const activeTableView = Boolean(
+    activeTab &&
+      activeDocTable &&
+      (tableOverride[activeTab.rel] ??
+        (bookViewMode ? bookViewMode === "table" : defaultTableView(activeTab.name))),
+  );
 
   // 字号与模型（prefs 直读；N-05 常驻挂载后：savePrefs 替换 boot 单例对象，
   // 返回主界面的重渲染即读到新值——不再依赖「重挂载即生效」）
@@ -514,6 +532,9 @@ export default function MainWorkbench({
       setTreeFolders(defaultTreeFolders(data.tree));
       // D-043：读该书记住的回流模式（老作品清单里没有这个字段 → 默认 all）
       setReflowMode(normalizeReflowMode(data.manifest.reflowMode) ?? "all");
+      // B7：读该书记住的资料默认视图（无则按文件类型的默认）
+      setBookViewMode(data.manifest.viewMode === "table" ? "table" : data.manifest.viewMode === "original" ? "original" : null);
+      setTableOverride({});
       // I-3：状态条直接显示"写作进度"（读 00-项目状态.md 的头部字段），
       // 不再只报文件计数 —— 应用自己就能回答"现在到哪一步了"。
       let statusNote = "";
@@ -622,6 +643,9 @@ export default function MainWorkbench({
       setTreeFolders(defaultTreeFolders(data.tree));
       // D-043：读该书记住的回流模式（老作品清单里没有这个字段 → 默认 all）
       setReflowMode(normalizeReflowMode(data.manifest.reflowMode) ?? "all");
+      // B7：读该书记住的资料默认视图（无则按文件类型的默认）
+      setBookViewMode(data.manifest.viewMode === "table" ? "table" : data.manifest.viewMode === "original" ? "original" : null);
+      setTableOverride({});
       setStatus(`${ref.name}：${data.chapters.length} 章 / ${data.pending.length} 待确认 / ${data.docs.length} 份资料`);
       await appendOplog(fs, ref.root, "switch_project", "", session?.id ?? "");
       // D-043：补跑关窗时丢掉的回流（oplog 的 pending 行驱动）
@@ -1038,6 +1062,25 @@ export default function MainWorkbench({
         setStatus(`回流方式：${REFLOW_MODES.find((m) => m.id === mode)?.label ?? mode}（已按本书记住）`);
       } catch {
         setStatus("回流方式已应用（本次会话内有效，写入清单失败）");
+      }
+    },
+    [project],
+  );
+
+  /** 资料表格视图切换（B7）：本会话内按标签覆盖 + 默认视图写进作品清单（按书记住） */
+  const toggleDocTableView = useCallback(
+    async (rel: string, next: boolean) => {
+      setTableOverride((m) => ({ ...m, [rel]: next }));
+      const vm = next ? "table" : "original";
+      setBookViewMode(vm);
+      if (!project) return;
+      try {
+        const file = projectManifestFile(project.ref.root);
+        const m = { ...project.manifest, viewMode: vm, updatedAt: isoMicros() };
+        await getFs().writeText(file, serializeManifest(m));
+        setProject({ ...project, manifest: m });
+      } catch {
+        /* 视图偏好写不进清单不影响本次使用 */
       }
     },
     [project],
@@ -1944,9 +1987,24 @@ export default function MainWorkbench({
                      文档"（资料 / 只读 / 编辑中），状态条管"现在存到哪一步了"
                      （未保存 / 保存中 / 已保存）—— 两者不再重复。
                      "自动保存"的行为说明留在 title 里。 */
-                  <span className="mode-badge" title="资料文档：直接编辑，切换或关闭时自动保存">
-                    资料
-                  </span>
+                  <>
+                    <span className="mode-badge" title="资料文档：直接编辑，切换或关闭时自动保存">
+                      资料
+                    </span>
+                    {activeDocTable ? (
+                      <button
+                        className="chip"
+                        title={activeTableView ? "切回原文编辑" : "以表格查看（只读，文件本体仍是 md）"}
+                        onClick={() => void toggleDocTableView(activeTab.rel, !activeTableView)}
+                      >
+                        <svg viewBox="0 0 20 20" className="ic">
+                          <rect x="3" y="4" width="14" height="12" rx="2" />
+                          <path d="M3 8h14M9.7 8v8" />
+                        </svg>
+                        <span className="lbl">{activeTableView ? "原文" : "表格"}</span>
+                      </button>
+                    ) : null}
+                  </>
                 ) : (
                   <div className="editor-tools">
                     {/* 回流四态（D-043）：结束编辑时按它路由资料/风格两路回流，按本书记住 */}
@@ -2019,14 +2077,19 @@ export default function MainWorkbench({
                   </div>
                 )}
               </div>
-              <textarea
-                ref={editorRef}
-                className={tabEditable(activeTab) ? "editor-area" : "editor-area ro"}
-                value={activeTab.content}
-                onChange={(e) => editContent(e.target.value)}
-                readOnly={!tabEditable(activeTab)}
-                spellCheck={false}
-              />
+              {activeTableView && activeDocTable ? (
+                /* B7 表格视图：只读展示（编辑请切回原文；表格不改写文件） */
+                <DocTableView table={activeDocTable} />
+              ) : (
+                <textarea
+                  ref={editorRef}
+                  className={tabEditable(activeTab) ? "editor-area" : "editor-area ro"}
+                  value={activeTab.content}
+                  onChange={(e) => editContent(e.target.value)}
+                  readOnly={!tabEditable(activeTab)}
+                  spellCheck={false}
+                />
+              )}
             </div>
           )}
         </main>
