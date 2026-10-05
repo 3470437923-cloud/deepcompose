@@ -2,7 +2,9 @@
 import { describe, expect, it } from "vitest";
 import {
   isStatusUntouched,
+  parseModuleList,
   parseProjectStatus,
+  setModulesInStateDoc,
   statusChapterNo,
 } from "../../src/core/store/status";
 
@@ -84,5 +86,32 @@ describe("statusChapterNo / isStatusUntouched", () => {
     expect(isStatusUntouched(parseProjectStatus("- 当前阶段：开书准备\n- 正文处理进度：未开始\n"))).toBe(true);
     expect(isStatusUntouched(parseProjectStatus("- 当前阶段：连续写作\n- 正文处理进度：未开始\n"))).toBe(false);
     expect(isStatusUntouched(parseProjectStatus(""))).toBe(false);
+  });
+});
+
+describe("setModulesInStateDoc（建仓/停用的 00 落点，B8）", () => {
+  it("已有该行 → 整行替换；其余字节不动", () => {
+    const src = "# 项目状态\r\n- 当前章节：第3章\r\n- 启用模块：伏笔、角色状态\r\n- 下一步：写\r\n";
+    const out = setModulesInStateDoc(src, ["角色状态", "时间线"]);
+    expect(out).toContain("- 启用模块：角色状态、时间线\r\n");
+    expect(out).toContain("- 当前章节：第3章\r\n");
+    expect(out!.split("\n").length).toBe(src.split("\n").length);
+  });
+
+  it("老作品没有该行 → 插在「当前章节」行之后", () => {
+    const src = "# 项目状态\n- 当前阶段：连续写作\n- 当前章节：第3章\n- 下一步：写\n";
+    const out = setModulesInStateDoc(src, ["伏笔"]);
+    expect(out).toContain("- 当前章节：第3章\n- 启用模块：伏笔\n- 下一步：写");
+  });
+
+  it("全不启用写「无」；找不到锚点返回 null（不硬塞）", () => {
+    expect(setModulesInStateDoc("- 当前章节：第1章\n", [])).toContain("- 启用模块：无");
+    expect(setModulesInStateDoc("随便一段\n", ["伏笔"])).toBeNull();
+  });
+
+  it("parseModuleList 与写入互逆（写完能读回来）", () => {
+    const out = setModulesInStateDoc("- 当前章节：第1章\n", ["伏笔", "角色状态"]);
+    expect(parseModuleList(parseProjectStatus(out!).modules !== null ? out! : "")).toBeDefined();
+    expect(parseProjectStatus(out!).modules).toEqual(["伏笔", "角色状态"]);
   });
 });

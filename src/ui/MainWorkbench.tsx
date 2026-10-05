@@ -77,6 +77,7 @@ import { scanSkills, mergeSkillList } from "../core/skills/scan";
 import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
 import DocTableView from "./DocTable";
+import ModulesDialog from "./ModulesDialog";
 import { defaultTableView, docTableFor } from "../core/store/doctable";
 import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
 import RecycleBin from "./RecycleBin";
@@ -324,6 +325,8 @@ export default function MainWorkbench({
   /** 回收站模态 + 条目数（书下拉菜单的角标） */
   const [recycleOpen, setRecycleOpen] = useState(false);
   const [recycleItems, setRecycleItems] = useState(0);
+  /** 追踪模块管理（B8：启用/停用 + 中途建仓） */
+  const [modulesOpen, setModulesOpen] = useState(false);
 
   /** 补跑回流的间接引用（函数声明在组件后段，openProject 在前段 —— 用 ref 打通顺序） */
   const resumePendingRef = useRef<(root: string) => void>(() => {});
@@ -1843,6 +1846,22 @@ export default function MainWorkbench({
                   </svg>
                   <span className="lbl">新建作品</span>
                 </button>
+                {project ? (
+                  <button
+                    className="new"
+                    onClick={() => {
+                      setBookMenu(false);
+                      setModulesOpen(true);
+                    }}
+                  >
+                    <svg viewBox="0 0 20 20" className="ic">
+                      <path d="M3 5.5h6M13 5.5h4M3 14.5h4M11 14.5h6" />
+                      <circle cx="11" cy="5.5" r="1.9" />
+                      <circle cx="9" cy="14.5" r="1.9" />
+                    </svg>
+                    <span className="lbl">追踪模块…</span>
+                  </button>
+                ) : null}
                 <button
                   className="recycle"
                   onClick={() => {
@@ -2616,6 +2635,16 @@ export default function MainWorkbench({
 
       {/* 开书引导（新建作品）：引导开书会把答案预填进开书定位与核心设定 */}
       <NewBookWizard open={newBookOpen} onCancel={() => setNewBookOpen(false)} onCreate={createBook} />
+
+      {/* 追踪模块管理（B8：启用/停用 + 中途建仓） */}
+      <ModulesDialog
+        open={modulesOpen}
+        onClose={() => setModulesOpen(false)}
+        project={project}
+        onStatus={setStatus}
+        onSendPrompt={(text) => void sendUserMessage(text)}
+        askConfirm={askConfirm}
+      />
 
       {/* ── 三个通用对话框永远排在最后 ──
           `.qmodal` 都是 z-index:90，**同层的先后由 DOM 顺序决定**。
