@@ -15,6 +15,7 @@
  */
 
 import { diffSummaryText, type DiffResult } from "../store/oplog";
+import { pairedDiffSummary, type PairedDiff } from "../store/pairedDiff";
 
 /** 解析持久化的回流模式；非法值返回 null（调用方回落默认 all） */
 export function normalizeReflowMode(v: unknown): ReflowMode | null {
@@ -64,6 +65,11 @@ export interface ReflowInput {
   chapterLabel: string | null;
   diff: DiffResult;
   /**
+   * 配对对照（B5：风格通道的主料）：段落级「原句 → 改后句」对齐结果。
+   * 缺省时风格通道退回行级 diff 摘要（老调用方不变）。
+   */
+  paired?: PairedDiff;
+  /**
    * 预留字段：编辑结束后磁盘上的最新全文。当前装配与调用方都未消费它——
    * 任务文本第一步已要求回流 AI 自行 file_read 全文；若将来要内联引用，
    * 需在 buildReflowPrompt 里显式拼入（并评估提示词长度）。
@@ -112,13 +118,17 @@ export function buildReflowPrompt(input: ReflowInput): string {
  */
 export function buildStyleReflowPrompt(input: ReflowInput): string {
   const label = input.chapterLabel ?? "（章号未识别）";
-  const summary = diffSummaryText(input.diff);
+  // 配对对照是风格学习的主料（B5）：「原句 → 改后句」才谈得上"改了什么"；
+  // 拿不到配对（老调用方）时退随行级 diff 摘要，语义弱一档但不至于空转。
+  const changes = input.paired
+    ? `配对改动（「原」→「改」，按出现顺序）：\n${pairedDiffSummary(input.paired)}\n`
+    : `变更摘要（- 为删除行，+ 为新增行）：\n${diffSummaryText(input.diff)}\n`;
   return (
     `【风格回流】${label} 用户已结束手动编辑并自动保存：${input.relPath}\n` +
     `变更规模：新增 ${input.diff.added.length} 行 / 删除 ${input.diff.removed.length} 行 / 变更 ${input.diff.changedChars} 字符\n\n` +
-    `变更摘要（- 为删除行，+ 为新增行）：\n${summary}\n\n` +
+    `${changes}\n` +
     `请按 novel-writer 技能的「风格回流」规则执行：\n` +
-    `1. 逐条判断变更属于事实修正、编辑判断还是表达偏好；拿不准的读该文件全文与上下文再判断，不要为了凑记录硬找。\n` +
+    `1. 逐条判断配对改动属于事实修正、编辑判断还是表达偏好；拿不准的读该文件全文与上下文再判断，不要为了凑记录硬找。\n` +
     `2. 仅当存在可复用改稿判断时更新 小说资料/个人改稿/规则台账.md：已有同类条目则补证据并把「命中章节数」加 1，没有同类条目才新建（GL 编号只增不复用）。不复制用户原句，只记「什么问题、何时用、怎样改、做到哪里为止」，明确原因与推测原因分开标注。\n` +
     `3. 台账里「命中章节数」达到 2 的候选条目，用 question 逐条请用户确认；确认的并入 小说资料/06-写作风格.md（禁用列表或风格规则，按条目性质；老作品里是 06-写作规则.md 的「个人文风（学习沉淀）」节），台账标「已晋升」；被否决的标「已否决」留档。\n` +
     `4. 不做审稿、不改写用户文字、不更新追踪表与任何事实记录。没有可复用判断时只回一句简短回执，不创建或追加任何文件。\n`

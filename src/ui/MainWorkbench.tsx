@@ -37,6 +37,7 @@ import {
 } from "../core/store/project";
 import { parseChapterName, stripMd } from "../core/store/chapter";
 import { appendOplog, diffLines, isLightEdit, pendingRefrows, readOplog, type DiffResult } from "../core/store/oplog";
+import { pairedDiff } from "../core/store/pairedDiff";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
 import TitlebarWhale from "./TitlebarWhale";
@@ -302,7 +303,7 @@ export default function MainWorkbench({
   /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
   const busyRef = useRef(false);
   /** 回流任务队列（单生成并发：忙时排队，空闲即跑）。reflowId 与 oplog 的 pending/完成行配对 */
-  const reflowQueue = useRef<{ prompt: string; title: string; reflowId: string }[]>([]);
+  const reflowQueue = useRef<{ prompt: string; title: string; reflowId: string; track: "facts" | "style" }[]>([]);
   /** 回流模式（D-043 四态；按书记住，读不到按 all） */
   const [reflowMode, setReflowMode] = useState<ReflowMode>("all");
   /** 回流模式下拉的开合 */
@@ -938,7 +939,7 @@ export default function MainWorkbench({
   /** 回流入队：先写 oplog 的 pending 行（关窗丢队列的补跑依据），再进内存队列 */
   const enqueueReflow = useCallback(
     async (task: { prompt: string; title: string; reflowId: string; track: "facts" | "style" }) => {
-      reflowQueue.current.push({ prompt: task.prompt, title: task.title, reflowId: task.reflowId });
+      reflowQueue.current.push({ prompt: task.prompt, title: task.title, reflowId: task.reflowId, track: task.track });
       if (project) {
         await appendOplog(getFs(), project.ref.root, "reflow", "", session?.id ?? "", {
           reflowId: task.reflowId,
@@ -979,8 +980,9 @@ export default function MainWorkbench({
             transport,
             askQuestions,
             signal,
-            // 回流是后台整理任务：强制关闭思考（不需要推理，也不该为此付费）
-            thinking: "off",
+            // 回流是后台任务：资料回流（审稿/事实回写）强制关闭思考；
+            // 风格回流是对照判断任务，开 low 档（D-014 的例外：判断题需要最低限度推理）
+            thinking: task.track === "style" ? "low" : "off",
           });
           // 完成标记：与入队时的 pending 行按 reflowId 配对（补跑扫描据此跳过它）
           await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title, reflowId: task.reflowId });
@@ -1011,7 +1013,7 @@ export default function MainWorkbench({
       const fresh = pendingRefrows(entries).filter((p) => !known.has(p.reflowId));
       if (fresh.length === 0) return;
       for (const p of fresh) {
-        reflowQueue.current.push({ prompt: p.prompt, title: p.title, reflowId: p.reflowId });
+        reflowQueue.current.push({ prompt: p.prompt, title: p.title, reflowId: p.reflowId, track: p.track });
       }
       setStatus(`检测到 ${fresh.length} 条未完成的回流任务，开始补跑…`);
       void drainReflow();
@@ -1097,6 +1099,10 @@ export default function MainWorkbench({
             kind,
             chapterLabel: label,
             diff,
+            // 风格通道喂配对对照（段落级「原句 → 改后句」），不只是行集
+            ...(track === "style"
+              ? { paired: pairedDiff(latest.editBase ?? latest.baseContent, latest.content) }
+              : {}),
           }),
           title: reflowSessionTitle(label, kind, track),
           reflowId: newReflowId(),
@@ -1233,7 +1239,8 @@ export default function MainWorkbench({
       // 不调用 toggleEditing，它会启动独立候选回流并抢占生成槽。
       await adoptAfterSave(() => saveTabAs(tab, "采用前保存"), async () => {
         if (tab.editing) {
-          const diff = diffLines(tab.editBase ?? tab.baseContent, tab.content);
+          const baseText = tab.editBase ?? tab.baseContent;
+          const diff = diffLines(baseText, tab.content);
           await appendOplog(getFs(), project.ref.root, "edit_end", tab.rel, session?.id ?? "", {
             changedChars: diff.changedChars,
             addedLines: diff.added.length,
@@ -1242,6 +1249,25 @@ export default function MainWorkbench({
             reflowTriggered: false,
             note: "采用前结束编辑，直接按最终稿执行采用回写",
           });
+          // D-043：采用门固定带风格对照学习 —— 采用时手里正好有「AI 稿 → 用户最终稿」
+          // 这对现成数据（第41章实证：8181 字符手改零沉淀就是这条路径绕过学习造成的）。
+          // 用户没改（diff 为零）才没有信号，不排队。
+          if (diff.changedChars > 0) {
+            const label = chapterLabelOf(tab.name);
+            const kind = tab.kind === "candidate" ? "candidate" : "chapter";
+            await enqueueReflow({
+              prompt: buildStyleReflowPrompt({
+                relPath: tab.rel.replace(/\\/g, "/"),
+                kind,
+                chapterLabel: label,
+                diff,
+                paired: pairedDiff(baseText, tab.content),
+              }),
+              title: reflowSessionTitle(label, kind, "style"),
+              reflowId: newReflowId(),
+              track: "style",
+            });
+          }
           setTabs((prev) => prev.map((t) => t.rel === tab.rel ? { ...t, editing: false, editBase: null } : t));
         }
         await appendOplog(getFs(), project.ref.root, "adopt", tab.rel, session?.id ?? "");
