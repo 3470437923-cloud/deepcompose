@@ -131,6 +131,8 @@ export interface PendingReflow {
   reflowId: string;
   title: string;
   prompt: string;
+  /** 通道（facts/style）；旧日志没有该字段时按 facts */
+  track: "facts" | "style";
 }
 
 /**
@@ -151,6 +153,7 @@ export function pendingRefrows(entries: OplogEntry[]): PendingReflow[] {
           reflowId: d.reflowId,
           title: typeof d.title === "string" && d.title !== "" ? d.title : "回流任务",
           prompt: d.prompt,
+          track: d.reflowTrack === "style" ? "style" : "facts",
         });
       }
     } else {
