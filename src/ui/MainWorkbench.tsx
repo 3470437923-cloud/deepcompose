@@ -2041,8 +2041,9 @@ export default function MainWorkbench({
                         </svg>
                         <span className="lbl">{REFLOW_MODES.find((m) => m.id === reflowMode)?.label ?? "全部回流"}</span>
                       </button>
+                      {/* down：工具栏在窗口顶部，向上开会被窗口上沿截掉（见 app.css .think-pop.down） */}
                       {reflowMenu ? (
-                        <div className="think-pop surface-raised" role="group" aria-label="回流方式">
+                        <div className="think-pop down surface-raised" role="group" aria-label="回流方式">
                           {REFLOW_MODES.map((m) => (
                             <button
                               key={m.id}

@@ -11,6 +11,7 @@ import {
   buildReflowPrompt,
   buildStyleReflowPrompt,
   normalizeReflowMode,
+  REFLOW_MODES,
   reflowSessionTitle,
   reflowTracksFor,
 } from "../../src/core/ai/reflow";
@@ -121,6 +122,20 @@ describe("四态路由（D-043）", () => {
     expect(normalizeReflowMode("off")).toBe("off");
     expect(normalizeReflowMode("bogus")).toBeNull();
     expect(normalizeReflowMode(undefined)).toBeNull();
+  });
+});
+
+describe("REFLOW_MODES（界面四态的唯一样本）", () => {
+  it("四态齐全、顺序固定，每条都带标签与说明（缺一条界面就少一个选项）", () => {
+    expect(REFLOW_MODES.map((m) => m.id)).toEqual(["all", "facts", "style", "off"]);
+    for (const m of REFLOW_MODES) {
+      expect(m.label.trim().length).toBeGreaterThan(0);
+      expect(m.hint.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("每个 id 都能被 normalizeReflowMode 原样读回（按书记住的模式重启后仍有效）", () => {
+    for (const m of REFLOW_MODES) expect(normalizeReflowMode(m.id)).toBe(m.id);
   });
 });
 
