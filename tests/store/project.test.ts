@@ -433,7 +433,7 @@ describe("候选区与通用内容树", () => {
 // —— 既有目录只读集成校验（目录不存在时自动跳过；只读不写，绝不改动真实作品）——
 const REAL_BOOKS = "C:\\Users\\Administrator\\AI写小说";
 describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () => {
-  it("能列出真实作品，且 14 件套与章节排序正常", async () => {
+  it("能列出真实作品，且迁移后的新结构完整（B9 试点）", async () => {
     const projects = await scanBooksRoot(fs, REAL_BOOKS);
     const names = projects.map((p) => p.name);
     // 只断言长期存在的真实作品：这条用例读的是真盘，作品会被用户增删
@@ -443,9 +443,15 @@ describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () =>
     const xiong = projects.find((p) => p.name === "和小熊同居后的日子")!;
     const data = await loadProject(fs, xiong.root);
     const docNames = data.docs.map((d) => d.name);
-    // 该书目前是旧 14 件套结构：断言 LEGACY 模板全在（新结构的 04-粗纲 等名字不该在这里断言，
-    // 该书转换到新结构后本用例要随之更新）
-    for (const t of LEGACY_DOC_TEMPLATES) expect(docNames).toContain(t.name);
+    // 该书已完成新结构迁移（B9 试点）：核心 7 件 + 启用的两个追踪模块在
+    for (const t of DOC_TEMPLATES.filter((x) =>
+      ["00-项目状态.md", "01-开书定位.md", "02-核心设定.md", "03-全书大纲.md", "04-粗纲.md",
+        "06-写作风格.md", "人物库.md", "追踪-伏笔.md", "追踪-角色状态.md"].includes(x.name),
+    )) expect(docNames).toContain(t.name);
+    // 旧结构名已归档（不在顶层）；停用的模块不在顶层
+    for (const gone of ["04-分卷大纲.md", "05-滚动细纲.md", "06-写作规则.md", "追踪-时间线.md"]) {
+      expect(docNames).not.toContain(gone);
+    }
     // 章节按章号排序，第10章 必须排在 第2章 之后
     const chNames = data.chapters.map((c) => c.name);
     expect(chNames.indexOf("第10章.md")).toBeGreaterThan(chNames.indexOf("第2章.md"));

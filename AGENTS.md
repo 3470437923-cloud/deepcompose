@@ -27,20 +27,28 @@
 **新增契约（additive，不改旧名）**：`%APPDATA%\com.writerd\writerD\usage_stats.json` —— token 按日分桶、
 余额快照与最近错误，B2 批次起使用，**可随时删除**（丢了只是没统计，不影响作品与配置）。
 
+**D-043 新作品结构（additive，只在新建作品生效）**：核心 7 件里 `04-粗纲.md`、`06-写作风格.md`、
+`细纲\` 栏目（`第N-M章细纲.md` / 完成态加「（已完成）」）、`个人改稿\规则台账.md` 是新名；
+旧 14 件套名只在老作品里继续存在，老作品一个字不动。00 头部新增 `- 启用模块：` 行（追踪模块声明），
+manifest 新增可选字段 `reflowMode` / `viewMode`（缺省 = 老作品行为）。
+
 ## 2. 代码地图
 
 ```
 src/core/ai/        双协议 SSE 解析(protocol) · 工具循环(agent) · 会话装配(controller)
                     提示词(prompt) · Tauri 事件桥(transport) · 上下文压缩(compress)
-                    回流(reflow) · 冷读(coldread，零工具隔离) · 错误分类(errors) · 模型清单(models)
-src/core/store/     作品目录协议(project) · 14 件套模板(templates) · 开书引导填充(onboarding)
-                    操作日志+diff(oplog) · 清单(manifest) · 格式优先回写(markdown，回归锁)
+                    回流(reflow，资料/风格双通道 + 四态路由 + 建仓) · 冷读(coldread，零工具隔离) · 错误分类(errors) · 模型清单(models)
+src/core/store/     作品目录协议(project，校验器结构感知) · 模板(templates：核心 7 件 + 追踪模块 + 旧 14 件套兼容) · 开书引导填充(onboarding，含模块建议)
+                    操作日志+diff+回流队列配对(oplog) · 清单(manifest，含 reflowMode/viewMode) · 格式优先回写(markdown，回归锁)
                     章号解析(chapter) · 写前快照(snapshot) · 会话(session) · 备忘录(memo)
-                    状态文档结构化读取(status) · 伏笔统计核对(tracking) · 资料形态体检(style，D-038)
-src/core/tools/     工具 schema(spec) · 执行(exec) · 路径分级(pathGuard，唯一策略源)
+                    状态文档结构化读取(status，含启用模块) · 伏笔统计核对(tracking) · 资料形态体检(style，D-038)
+                    细纲栏目(xigang，D-043) · 配对对照(pairedDiff) · 规则台账(ledger)
+                    写入落点校验(docschema，B6) · 表格视图解析(doctable，B7)
+src/core/tools/     工具 schema(spec) · 执行(exec，含落点校验接线) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
-src/ui/             主工作台(MainWorkbench) · 开书引导(NewBookWizard) · 标题栏鲸鱼(TitlebarWhale) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
+src/ui/             主工作台(MainWorkbench) · 开书向导(NewBookWizard，含追踪模块步) · 标题栏鲸鱼(TitlebarWhale，D-039 固定静止) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
+                    资料表格视图(DocTable，只读) · 追踪模块管理(ModulesDialog，建仓入口)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
 src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于；
                     提供商分页含只能点选的模型选择框 ModelSelect，全屏改动走防抖自动保存)
@@ -92,10 +100,11 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（B13 容错批次实测）：vitest **506 例 / 37 文件**、cargo **19 例**、`tsc` 干净。
+当前基线（D-043 结构改造批次实测）：vitest **567 例 / 41 文件**、cargo **19 例**、`tsc` 干净。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`；
+D-043 结构改造的完整设计见 `docs/DESIGN-STRUCTURE-2026.md`；
 B12 全量修复进度见 `docs/FIX-LEDGER-2026-10-02.md`。
 
 **真实 Key 实测探针**：`python tools/ds_probe.py --only <balance|replay|anthropic|anth2|openai2|effort2|keepalive|stream|cache|limits>`。

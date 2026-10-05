@@ -17,14 +17,16 @@
 
 | 模块 | 说明 |
 |---|---|
-| 作品与章节 | 扫描/新建作品（14 件套文档模板一次生成）；正式正文 `章节内容\第N章.md`、单份候选 `待确认\第N章-候选.md`（同文件起草、修改、复读，兼容旧 `v*` 命名）、归档 `待确认\已处理\`；中文/全角章号解析与数值排序 |
+| 作品与章节 | 扫描/新建作品（**核心 7 件套**：00-项目状态/01-开书定位/02-核心设定/03-全书大纲/04-粗纲/06-写作风格/人物库 + `细纲\` 栏目；**五份追踪表为可选模块**，开书向导勾选、中途可建仓）；正式正文 `章节内容\第N章.md`、单份候选 `待确认\第N章-候选.md`（同文件起草、修改、复读，兼容旧 `v*` 命名）、归档 `待确认\已处理\`；中文/全角章号解析与数值排序；**老作品的旧 14 件套结构原样兼容** |
 | 通用内容树 | 左栏递归列出作品内全部内容与资料文件（系统目录 `writerd_*`、`.openwrite_*` 隐藏），文件夹可折叠 |
+| 资料表格视图 | 资料文档可按表格查看（追踪表逐条成表、00 字段两栏、粗纲/细纲/写作风格/规则台账分栏），**文件本体仍是 md**；「原文/表格」按书记住，解析失败的块节级回落为原文 |
+| 写入落点校验 | AI 经 file_write 写 `小说资料\` 受管文件先过该文件的格式 schema：结构违规硬拒（报错带正确格式，AI 重写即可）、语义错位软警告、存量违规不背锅（变坏才拦）；`审核\` 与正文/候选不受限 |
 | 资料体检 | 打开作品即逐份体检 `小说资料/`：体量预算、框线图与装饰符号、表格占比、过程性标注（导入说明/核对证据/（约N字）等）；结果汇总到状态条，**只报告不改写**（契约见 [`docs/MATERIALS-STYLE.md`](docs/MATERIALS-STYLE.md)） |
-| 编辑器 | 资料文档**单槽一读**（切换自动保存并关闭）；正文/候选**多标签堆叠、默认只读**，点「修改」进入编辑，点「完成」自动保存并**触发回流** |
-| 回流 | 用户手改结束 → 自动审稿（报告制，不静默改写用户文字）→ 仅有可复用判断才记录到 `小说资料\个人改稿\`，无问题简短回执；轻改动（≤24 字符且数字未变）只记日志；候选稿改动**禁止**回写事实 |
-| 个人改稿学习 | AI 对比交付版与用户手改版，沉淀改稿判断；跨章重复的条目经 `question` 逐条确认后晋升进 `06-写作规则.md`「个人文风（学习沉淀）」节 |
+| 编辑器 | 资料文档**单槽一读**（切换自动保存并关闭）；正文/候选**多标签堆叠、默认只读**，点「修改」进入编辑，点「完成」自动保存并**按四态设置触发回流** |
+| 回流（两路） | 编辑器四态选择（全部回流/仅资料回流/仅风格回流/不回流保存，**按书记住**）：资料回流=自动审稿（报告制）+事实回写；风格回流=「AI 稿 → 用户最终稿」**配对对照**学习（段落级原句→改后句），沉淀进 `小说资料\个人改稿\规则台账.md`，跨章 ≥2 次命中经 `question` 逐条确认后晋升进 `06-写作风格.md` 禁用列表；**采用门固定带风格对照**；轻改动（≤24 字符且数字未变）走仅风格通道；候选稿改动**禁止**回写事实；**队列落盘**（oplog pending 配对，关窗重开自动补跑） |
 | 冷读 | 独立审读会话：零工具、零设定、零作者上下文（代码级物理隔离），像陌生读者一样只读正文，报告自动存 `小说资料\审核\`；目标二选一：叙述清晰度 / 节奏与追读欲 |
-| 采用门 | 「采用为正文」按钮 → 一次确认 → 先保存当前手改稿（失败则停止），不另起候选回流 → AI 登记采用版本、保存正式正文、增量回写、核对归档并推进；已明确采用的同一版本不重复询问 |
+| 采用门 | 「采用为正文」按钮 → 一次确认 → 先保存当前手改稿（失败则停止）→ AI 登记采用版本、保存正式正文、按启用模块增量回写、候选归档推进；细纲弧段完成时细纲改名「（已完成）」充当历史索引；已明确采用的同一版本不重复询问 |
+| 追踪模块管理 | 作品菜单「追踪模块…」：启用/停用写 00 的「启用模块」行；启用而文件未建可发起**建仓**（AI 分段读取重构，产物先落 `待确认\` 过目） |
 | 操作日志 | 每个用户操作（打开/编辑/保存/采用/冷读/回流…）落盘 `writerd_oplog\log.jsonl`，既是学习原料也可追溯 |
 | AI 对话 | 流式正文与思考渲染、工具调用行内展示、**停止生成（真中断上游连接）**、会话按日分组；回流跑在后台专属会话，不打断当前对话；**截断自动续写**（撞 max_tokens 自动「继续」拼成一整条，至多 3 程）与**瞬时错误自动重试**（429/5xx/断流，空回合退避重试 2 次） |
 | 工具调用 | `file_read` / `file_write` / `file_manage` / `create_project` / `question` / `skill_lookup`；写入前自动落快照 |
@@ -62,11 +64,12 @@ DeepCompose/
 │  ├─ core/                  核心层（纯逻辑，可单测）
 │  │  ├─ app.ts dirs.ts fsbridge.ts ids.ts prefs.ts
 │  │  ├─ ai/                 protocol agent controller prompt transport compress reflow coldread errors models platforms profiles thinking balance
-│  │  ├─ store/              project templates oplog manifest markdown chapter snapshot session memo recycle names
+│  │  ├─ store/              project templates status tracking style chapter markdown manifest snapshot session memo recycle names oplog
+│  │  │                        xigang（细纲栏目）pairedDiff（配对对照）ledger（规则台账）docschema（写入落点校验）doctable（表格视图解析）onboarding
 │  │  ├─ skills/             registry scan
 │  │  ├─ usage/              stats peak persist view
 │  │  └─ tools/              spec exec pathGuard
-│  ├─ ui/                    MainWorkbench / MemoModal / Dialogs / RecycleBin / TitlebarWhale / UsagePanel / motion / useMaximized / useDialogFocus
+│  ├─ ui/                    MainWorkbench / MemoModal / Dialogs / RecycleBin / TitlebarWhale / UsagePanel / DocTable / ModulesDialog / NewBookWizard / motion / useMaximized / useDialogFocus
 │  ├─ screens/               SettingsScreen（6 分页）
 │  ├─ preview/               dev-only 浏览器预览沙箱（内存文件系统替身）
 │  └─ styles/                tokens.css（主题令牌）/ surface.css（材质）/ app.css（布局）/ fonts.css
@@ -85,8 +88,9 @@ DeepCompose/
 | 位置 | 名称 |
 |---|---|
 | 作品根 | `小说资料\`、`章节内容\`、`待确认\`、`.openwrite_manifest.json`、`.openwrite_recycle\`、`recycle_manifest.json` |
-| 作品根（扩展） | `待确认\已处理\`、`小说资料\审核\`、`小说资料\个人改稿\`、`writerd_oplog\log.jsonl` |
-| 小说资料 14 件套 | `00-项目状态.md`、`01-开书定位.md`、`02-核心设定.md`、`03-全书大纲.md`、`04-分卷大纲.md`、`05-滚动细纲.md`、`06-写作规则.md`、`人物库.md`、`章节摘要.md`、`追踪-伏笔.md`、`追踪-角色状态.md`、`追踪-时间线.md`、`追踪-资源与权限.md`、`追踪-废弃设定.md` |
+| 作品根（扩展） | `待确认\已处理\`、`小说资料\审核\`、`小说资料\个人改稿\`、`小说资料\细纲\`、`writerd_oplog\log.jsonl` |
+| 小说资料 14 件套（旧结构，老作品） | `00-项目状态.md`、`01-开书定位.md`、`02-核心设定.md`、`03-全书大纲.md`、`04-分卷大纲.md`、`05-滚动细纲.md`、`06-写作规则.md`、`人物库.md`、`章节摘要.md`、`追踪-伏笔.md`、`追踪-角色状态.md`、`追踪-时间线.md`、`追踪-资源与权限.md`、`追踪-废弃设定.md` |
+| 小说资料核心件（新结构，D-043 起新作品） | 旧名中的 `00/01/02/03` 与 `人物库.md` 不变；新增 `04-粗纲.md`、`06-写作风格.md`、`细纲\第N-M章细纲.md`（完成态加「（已完成）」）、`个人改稿\规则台账.md`；追踪表五份改为按 00「启用模块」声明创建的可选模块（文件名不变） |
 | 作品根默认值 | `%USERPROFILE%\AI写小说` |
 | 文档目录 | `writerd_sessions\`、`writerd_snapshots\`、`writerd_memos.json`、`skills\` |
 | 配置 | `%APPDATA%\com.writerd\writerD\shared_preferences.json`（键名保留 `flutter.` 前缀） |
