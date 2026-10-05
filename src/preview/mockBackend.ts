@@ -384,10 +384,13 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const id = String(req.requestId ?? "");
       if (!id) return null;
       const script: { kind: string; data: string }[] = [
-        { kind: "line", data: 'data: {"choices":[{"delta":{"reasoning_content":"先想一下这一章该怎么接。"}}]}' },
-        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"【预览】"}}]}' },
-        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"这是沙箱里造的一段正文，用来验证流式渲染。"}}]}' },
-        // 截断收尾：assistant 正文照常入库，界面另给 warn 色提示条
+        { kind: "line", data: 'data: {"choices":[{"delta":{"reasoning_content":"先读第五章现有结尾：停在林砚握贝壳的抉择处，张力已经拉满。续写要把抉择落地——让海先给出反应，再给他一个不可回头的动作；意象回到第一章的月光与贝壳，首尾呼应。避免直写他想念母亲，让动作承担。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"海先动了。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"不是翻涌，是退。整片潮水像被谁从底下按住，一层层往深处抽走，露出礁石上一圈圈从未见过天日的苔痕。林砚听见那种安静——比任何浪声都响的安静。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"他低头看掌心。贝壳的光正顺着他的指缝往外爬，像第一章那个夏夜一样轻。只是这一次，它照见的不是记忆，是水面下那道越来越宽的裂缝。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"「替她醒着，还是替她沉下去。」老周这句话，在雾里已经沉了三遍。"}}]}' },
+        { kind: "line", data: 'data: {"choices":[{"delta":{"content":"林砚把贝壳按进胸口，像十七岁那年母亲按住他发烧的额头。然后，他朝那道裂缝走了过去。身后，船缆松了，雾合上了，没有人再需要替他做一个决定。"}}]}' },
+        // 截断收尾：assistant 正文照常入库，界面另给 warn 色提示条（.notice-line）
         { kind: "line", data: 'data: {"choices":[{"delta":{},"finish_reason":"length"}]}' },
         {
           kind: "line",
