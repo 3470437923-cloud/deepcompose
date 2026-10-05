@@ -47,8 +47,8 @@ src/core/store/     作品目录协议(project，校验器结构感知) · 模�
 src/core/tools/     工具 schema(spec) · 执行(exec，含落点校验接线) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
-src/ui/             主工作台(MainWorkbench) · 开书向导(NewBookWizard，含追踪模块步) · 标题栏鲸鱼(TitlebarWhale，D-039 固定静止) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
-                    资料表格视图(DocTable，只读) · 追踪模块管理(ModulesDialog，建仓入口)
+src/ui/             主工作台(MainWorkbench) · 开书向导(NewBookWizard，含追踪模块步) · 标题栏用量入口(TitlebarUsage，D-044 文字按键) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
+                    冷读悬浮面板(ColdReadPanel，D-045：无遮罩/可拖动/问题成行/勾选交 AI 修复) · 资料表格视图(DocTable，只读) · 追踪模块管理(ModulesDialog，建仓入口)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
 src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于；
                     提供商分页含只能点选的模型选择框 ModelSelect，全屏改动走防抖自动保存)
@@ -100,7 +100,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（KL-UI-19 回流四态浮层修复批实测）：vitest **569 例 / 41 文件**、cargo **19 例**、`tsc` 干净。
+当前基线（D-044 用量按键 + D-045 冷读悬浮面板批次实测）：vitest **574 例 / 41 文件**、cargo **19 例**、`tsc` 干净。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`；

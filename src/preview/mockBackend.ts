@@ -6,12 +6,18 @@
  * 供 Playwright 截图三主题。主题由 URL ?theme=dark|light|dsblue 控制。
  */
 
+import { promoScript, PROMO_BOOK, PROMO_FILES, PROMO_CH1234 } from "./promoScript";
+
 const q = new URLSearchParams(location.search);
 const THEME = (q.get("theme") === "light" || q.get("theme") === "dsblue") ? q.get("theme") : "dark";
+// 宣传片模式:?promo=1 → 演示书《沉梦之海》+ 剧本化 SSE 回放(剧本在 promoScript.ts)
+const PROMO = q.get("promo") === "1";
 // 故障注入：?fail=prefs 让 prefs_load 抛错 —— 抛错走 boot() 的失败路径，
 // 屏显的是 MainWorkbench 的「启动失败」屏（C-6：设置屏的「配置未加载」兜底页已随死代码删除，
 // 不再有第二个故障形态）
 const FAIL = q.get("fail") || "";
+// 宣传片逐帧捕获用:?streamms=220 放慢 SSE 回放节奏(缺省 40ms,行为不变)
+const STREAM_MS = Math.max(0, Number(q.get("streamms") || 40) || 40);
 
 const HOME = "C:\\Users\\Preview";
 const DOCUMENTS = `${HOME}\\Documents`;
@@ -170,6 +176,8 @@ const p1 = seedProject(
     "世界观.md": "# 世界观\n\n故事发生在「潮汐纪」——一个梦境会随海水流动、沉积、发光的世界。\n\n- 梦有重量：快乐的梦上浮，悲伤的梦下沉，被遗忘的梦卡在礁缝里长成发光贝壳。\n- 拾梦人：能从海里捞起他人遗失梦境的特殊人群。\n- 雾港：未被标注的港口，雾是由不愿醒来的梦堆积而成。\n- 深渊：最深海沟，会「写信」，三十年一次。",
     "人物库.md": "# 人物库\n\n## 林砚\n主角，17 岁少年拾梦人。敏感、固执，为救母亲愿意付出一切。\n\n## 老周\n林砚的师父，苍老而神秘，似乎与深渊的来信有旧。\n\n## 母亲\n林砚早已过世的母亲，在雾港的雾中现身。她的死另有隐情。",
     "章节摘要.md": "# 章节摘要\n\n- 第一章：林砚听见海说话，捡到发光贝壳。\n- 第二章：介绍拾梦人与梦的重量。\n- 第三章：雾港，林砚在雾中见到亡母。\n- 第四章：深渊来信，老周色变。\n- 第五章：林砚面临抉择——用贝壳换母亲性命。",
+    // D-045：风格通道对照用的档案（冷读面板 style 通道的沙箱样本）
+    "06-写作风格.md": "# 06-写作风格\n\n## 风格规则\n\n- 叙述收在动作上，章尾不落在抽象总结。\n- 比喻贴身，不堆形容词。\n\n## 禁用列表\n\n- 非常\n- 十分\n- 不由自主地",
     "追踪-伏笔.md": "# 追踪-伏笔\n\n## 伏笔统计\n- 开放：2\n- 已回收：1\n- 废弃：0\n- 合计：3\n\n## F001\n- 内容与涉及对象：发光贝壳的来历与深渊的关系\n- 首次出现章节：第1章\n- 当前进展：林砚捡到贝壳，听见海说话\n- 预计触发或回收条件：深渊来信揭晓\n- 状态：开放\n- 来源与最近更新章节：第4章\n\n## F002\n- 内容与涉及对象：老周与深渊来信的旧约\n- 首次出现章节：第2章\n- 当前进展：老周看信后色变\n- 预计触发或回收条件：老周坦白\n- 状态：开放\n- 来源与最近更新章节：第4章\n\n## F003\n- 内容与涉及对象：母亲之死的隐情\n- 首次出现章节：第3章\n- 当前进展：雾中现身，未明言\n- 预计触发或回收条件：雾港真相揭晓\n- 状态：已回收\n- 来源与最近更新章节：第5章",
   },
 );
@@ -234,7 +242,7 @@ writeFile(MEMOS_FILE, JSON.stringify({
   ],
 }), now - DAY);
 
-/* ── 种子：用量统计（`usage_stats.json`，鲸鱼面板的今日块读它） ──
+/* ── 种子：用量统计（`usage_stats.json`，标题栏用量面板的今日块读它） ──
    与真实文件同形：按本地日期分桶 + 最近一次余额快照。数值刻意留一组
    有缓存命中的样本（命中率高/低两种读法都能看出来）。 */
 const dayKeyOf = (d: Date) =>
@@ -312,6 +320,39 @@ const seedPrefs: Record<string, unknown> = {
   ]),
   "flutter.active_api_profile": "p1a2b3c4",
 };
+/* ── 宣传片模式:把当前作品换成《沉梦之海》(新结构:核心 7 件 + 细纲 + 追踪模块) ── */
+if (PROMO) {
+  const promoRoot = seedProject(
+    PROMO_BOOK,
+    [
+      PROMO_CH1234["章节内容/第1章.md"],
+      PROMO_CH1234["章节内容/第2章.md"],
+      PROMO_CH1234["章节内容/第3章.md"],
+      PROMO_CH1234["章节内容/第4章.md"],
+      PROMO_FILES["章节内容/第5章.md"],
+    ],
+    {
+      "00-项目状态.md": PROMO_FILES["小说资料/00-项目状态.md"],
+      "01-开书定位.md": PROMO_FILES["小说资料/01-开书定位.md"],
+      "02-核心设定.md": PROMO_FILES["小说资料/02-核心设定.md"],
+      "03-全书大纲.md": PROMO_FILES["小说资料/03-全书大纲.md"],
+      "04-粗纲.md": PROMO_FILES["小说资料/04-粗纲.md"],
+      "06-写作风格.md": PROMO_FILES["小说资料/06-写作风格.md"],
+      "人物库.md": PROMO_FILES["小说资料/人物库.md"],
+      "追踪-伏笔.md": PROMO_FILES["小说资料/追踪-伏笔.md"],
+      "追踪-角色状态.md": PROMO_FILES["小说资料/追踪-角色状态.md"],
+      "追踪-时间线.md": PROMO_FILES["小说资料/追踪-时间线.md"],
+    },
+  );
+  ensureDir(promoRoot + "\\小说资料\\细纲");
+  ensureDir(promoRoot + "\\小说资料\\个人改稿");
+  writeFile(promoRoot + "\\小说资料\\细纲\\第4-6章细纲.md", PROMO_FILES["小说资料/细纲/第4-6章细纲.md"], now - DAY * 2);
+  writeFile(promoRoot + "\\小说资料\\个人改稿\\规则台账.md", PROMO_FILES["小说资料/个人改稿/规则台账.md"], now - DAY);
+  writeFile(promoRoot + "\\待确认\\第6章-候选.md", PROMO_FILES["待确认/第6章-候选.md"], now - 3600_000);
+  seedPrefs["flutter.current_novel_project"] = promoRoot;
+  seedPrefs["flutter.novel_projects"] = promoRoot + "\n" + BOOKS_ROOT + "\\雾都谍影";
+}
+
 let prefsStore = JSON.stringify(seedPrefs);
 
 /* 首启目录（boot 会 mkdir 这几个） */
@@ -331,6 +372,82 @@ function emitMockEvent(event: string, payload: unknown) {
     const id = Number(key.split("|")[1]);
     callbacks.get(handlerId)?.({ event, id, payload });
   }
+}
+
+/**
+ * 冷读沙箱样本（D-045）：识别冷读系统提示词（plot/style 两个身份串），
+ * 返回符合格式契约的结构化问题块——悬浮面板的解析/分组/定位/行操作全靠它走真实路径。
+ */
+function coldReadScript(body: unknown): { kind: string; data: string }[] | null {
+  const s = JSON.stringify(body ?? {});
+  const isStyle = s.includes("你是一名文字校对");
+  const isPlot = s.includes("第一次阅读这部小说的普通读者兼审读员");
+  if (!isStyle && !isPlot) return null;
+  const text = isStyle
+    ? [
+        "开头说明一句。",
+        "",
+        "【问题】",
+        "类别：禁用词命中",
+        "位置：第2段「非常安静」",
+        "问题：档案禁用「非常」，正文第2段出现。",
+        "依据：档案禁用列表第3条。",
+        "补足：删去或用具体动作替代。",
+        "",
+        "【问题】",
+        "类别：语气不符",
+        "位置：第5段「他朝那道裂缝走了过去」",
+        "问题：档案要求收在动作上，此处句尾拖了一个抽象总结。",
+        "依据：档案风格规则第1条。",
+        "补足：把总结句换成一个动作。",
+        "",
+        "结尾汇总：风格总体贴合，两处不符如上。",
+      ].join("\n")
+    : [
+        "开头说明一句。",
+        "",
+        "【问题】",
+        "类别：连贯断裂",
+        "位置：第2段「贝壳的光」",
+        "问题：第一章贝壳的光是冷的，这里突然会发烫，读者会以为漏读了什么。",
+        "依据：第2段引文。",
+        "补足：给发烫一个当下的由头。",
+        "",
+        "【问题】",
+        "类别：信息缺失",
+        "位置：第4段「老周看信后色变」",
+        "问题：老周这个名字前文没有交代身份，第一次出现即行动。",
+        "依据：全文检索无更早出现。",
+        "补足：首次出现时补一句身份。",
+        "",
+        "【问题】",
+        "类别：状态矛盾",
+        "位置：第5段",
+        "问题：上一章末涨潮，本章开头潮在退，没有时间过渡。",
+        "依据：两章潮向相反。",
+        "补足：补一个时间锚点。",
+        "",
+        "结尾汇总：新读者最可能在第4段弃读；优先级最高的是身份缺失。",
+      ].join("\n");
+  // 切成若干 content 增量，模拟真实流式
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += 24) chunks.push(text.slice(i, i + 24));
+  return [
+    ...chunks.map((c) => ({
+      kind: "line",
+      data: `data: ${JSON.stringify({ choices: [{ delta: { content: c } }] })}`,
+    })),
+    { kind: "line", data: 'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}' },
+    {
+      kind: "line",
+      data:
+        'data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":600,' +
+        '"prompt_tokens_details":{"cached_tokens":800},"prompt_cache_hit_tokens":800,' +
+        '"prompt_cache_miss_tokens":400}}',
+    },
+    { kind: "line", data: "data: [DONE]" },
+    { kind: "done", data: "" },
+  ];
 }
 
 async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<unknown> {
@@ -383,7 +500,8 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       const req = ((args ?? {}).request ?? {}) as { requestId?: string; body?: { stream?: boolean } };
       const id = String(req.requestId ?? "");
       if (!id) return null;
-      const script: { kind: string; data: string }[] = [
+      const promo = coldReadScript((req as { body?: unknown }).body) ?? promoScript((req as { body?: unknown }).body);
+      const script: { kind: string; data: string }[] = promo ?? [
         { kind: "line", data: 'data: {"choices":[{"delta":{"reasoning_content":"先读第五章现有结尾：停在林砚握贝壳的抉择处，张力已经拉满。续写要把抉择落地——让海先给出反应，再给他一个不可回头的动作；意象回到第一章的月光与贝壳，首尾呼应。避免直写他想念母亲，让动作承担。"}}]}' },
         { kind: "line", data: 'data: {"choices":[{"delta":{"content":"海先动了。"}}]}' },
         { kind: "line", data: 'data: {"choices":[{"delta":{"content":"不是翻涌，是退。整片潮水像被谁从底下按住，一层层往深处抽走，露出礁石上一圈圈从未见过天日的苔痕。林砚听见那种安静——比任何浪声都响的安静。"}}]}' },
@@ -402,8 +520,21 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
         { kind: "line", data: "data: [DONE]" },
         { kind: "done", data: "" },
       ];
-      script.forEach((chunk, i) => {
-        setTimeout(() => emitMockEvent("ai_chunk", { requestId: id, kind: chunk.kind, data: chunk.data }), 40 * (i + 1));
+      // 宣传片捕获:把长 content 分片切成 ~7 字小片,模拟真实 token 流速
+      const expanded: { kind: string; data: string }[] = [];
+      for (const chunk of script) {
+        const m = chunk.data.match(/^data: (\{"choices":\[\{"delta":\{"content":)"(.*)("\}\]\})$/);
+        if (m && m[2].length > 14) {
+          const text = m[2];
+          for (let i = 0; i < text.length; i += 7) {
+            expanded.push({ kind: "line", data: `data: {"choices":[{"delta":{"content":${JSON.stringify(text.slice(i, i + 7))}}}]}` });
+          }
+        } else {
+          expanded.push(chunk);
+        }
+      }
+      expanded.forEach((chunk, i) => {
+        setTimeout(() => emitMockEvent("ai_chunk", { requestId: id, kind: chunk.kind, data: chunk.data }), STREAM_MS * (i + 1));
       });
       return null;
     }
