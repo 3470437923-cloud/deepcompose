@@ -100,7 +100,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（D-043 结构改造批次实测）：vitest **567 例 / 41 文件**、cargo **19 例**、`tsc` 干净。
+当前基线（KL-UI-19 回流四态浮层修复批实测）：vitest **569 例 / 41 文件**、cargo **19 例**、`tsc` 干净。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`；

@@ -1851,6 +1851,10 @@ html[data-nav="back"] .win { --push-x: -10px; }
   border-radius: var(--r-sm);
   text-align: left;
 }
+/* 向下开的变体：编辑器工具栏贴在窗口顶部，向上开等于开进窗口外面 ——
+   .think-pop 的 bottom:100% 只适合输入区那种贴着窗口底边的宿主。
+   正文编辑器的回流四态必须往下走（落位动画沿用 surface-raised 的 raise-in）。 */
+.think-pop.down { top: calc(100% + 8px); bottom: auto; }
 .think-stop:hover { background: var(--ctl-hover); }
 .think-stop.on { background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent-line); }
 .ts-label { font-size: var(--fs-foot); font-weight: 600; color: var(--tx-1); }
