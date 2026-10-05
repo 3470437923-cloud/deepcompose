@@ -19,6 +19,7 @@ import { dirname, join } from "../dirs";
 import { createProject } from "../store/project";
 import { dominantEol, joinLines, splitLines } from "../store/markdown";
 import { contentHash, recordSnapshot, type PreviousType, type SnapshotOperation } from "../store/snapshot";
+import { validateDocWrite, isValidatedDocPath } from "../store/docschema";
 import {
   NEEDS_CONFIRMATION_PREFIX,
   guardPath,
@@ -412,12 +413,23 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
       return err("Unknown operation: " + operation);
   }
 
+  // 落点校验（D-043 / B6）：写 小说资料/ 下的受管文件先过格式 schema。
+  // 结构违规硬拒（报错里带正确格式，AI 重写即可）；存量违规不背锅（见 docschema 注释）。
+  // isValidatedDocPath 把关范围：只查 小说资料/ 下的受管文件，审核/ 与正文/候选不查。
+  let writeWarnings: string[] = [];
+  if (g.resolved.rel !== null && isValidatedDocPath(g.resolved.rel)) {
+    const baseName = g.resolved.rel.split("\\").pop() ?? "";
+    const verdict = validateDocWrite(baseName, next, previous);
+    if (!verdict.ok) return err(verdict.message ?? "格式不合规");
+    writeWarnings = verdict.warnings;
+  }
+
   // 顺序纪律（KL-TL-07）：**先落快照再动盘**。
   // 新内容已在内存里，写后哈希不依赖磁盘，所以快照不必等落盘 ——
   // 反过来（先写盘后落快照）在两步之间崩掉就会"改了却没有回滚依据"。
   await recordWrite(ctx, operation as SnapshotOperation, reportPath(g.resolved), previous, exists, next);
   await ctx.fs.writeText(abs, next);
-  return ok({ success: true, operation, path: reported, ...extra });
+  return ok({ success: true, operation, path: reported, ...extra, ...(writeWarnings.length > 0 ? { warnings: writeWarnings } : {}) });
 }
 
 // ────────────────────────────── file_manage ──────────────────────────────
