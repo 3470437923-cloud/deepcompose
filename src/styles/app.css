@@ -133,8 +133,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
   flex: none;
   display: flex;
   align-items: center;
-  /* 标题栏内元素间距单一来源：鲸鱼走廊靠负边距抵消它，才能贴准
-     「开关簇右缘 + 24px」到「齿轮左缘 − 24px」这两个边界 */
+  /* 标题栏内元素间距单一来源 */
   --tb-gap: 10px;
   gap: var(--tb-gap);
   padding: 0 8px 0 13px;
@@ -192,80 +191,31 @@ html[data-nav="back"] .win { --push-x: -10px; }
 
 .win-tools { margin-left: auto; display: flex; align-items: center; gap: 2px; flex: none; }
 
-/* ── 标题栏鲸鱼：走廊 =（面板开关簇右缘 + 24px）到（设置齿轮左缘 − 24px） ──
-   `.whale-lane` 是 flex 里那个"吃掉剩余宽度"的槽，24px 由 `--whale-gutter` 单一来源定义。
-   D-039：鲸鱼**固定静止**在走廊中点，不游动也不起伏（悬停/聚焦仅用于展开用量面板）。 */
-.whale-lane {
-  --whale-gutter: 24px;
-  flex: 1 1 auto;
-  min-width: 0;
-  align-self: stretch;
+/* ── 标题栏用量入口（D-044：文字按键，取代鲸鱼图形与走廊） ──
+   按钮与面板是一组：`.usage-wrap` 是定位参照，面板挂在它下方。 */
+.usage-wrap {
   position: relative;
-  /* 抵消标题栏 gap：走廊两端正好落在"隔壁元素的边缘 ±24px" */
-  margin: 0 calc(-1 * var(--tb-gap));
-  padding: 0 var(--whale-gutter);
-  display: flex;
-  align-items: center;
-}
-.whale-wrap {
-  /* D-039：鲸鱼固定静止在走廊中点 —— wrap 本身就是那个 46×22 的盒子
-     （绝对定位相对 lane），鲸鱼按钮把它填满，不再有游动位移。 */
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  margin: -11px 0 0 -23px;
-  width: 46px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.whale-btn {
-  /* relative：底部水面线 ::after 的定位参照 */
-  position: relative;
-  width: 46px;
-  height: 22px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+}
+.usage-entry {
+  height: 26px;
+  padding: 0 11px;
   border-radius: var(--r-sm);
+  font-size: var(--fs-caption);
+  letter-spacing: var(--tr-caption);
+  color: var(--tx-2);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.usage-entry:hover { background: var(--ctl-hover); color: var(--tx-1); }
+.usage-entry[aria-expanded="true"] {
   color: var(--accent-text);
+  background: var(--seg-thumb);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
 }
-.whale-svg { width: 40px; height: 22px; display: block; transition: transform var(--t-fast) var(--ease-out); }
-.whale-btn:hover .whale-svg { transform: scale(1.07); }
-.whale-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.whale-body { fill: currentColor; }
-.whale-tail, .whale-fin {
-  fill: currentColor;
-  opacity: 0.82;
-  /* 圆角靠描边做：这几片是直线三角形，直角尖太"刀"，round join 一下更像肉鳍 */
-  stroke: currentColor;
-  stroke-width: 1.1;
-  stroke-linejoin: round;
-}
-.whale-eye { fill: var(--bg); }
-.whale-spout,
-.whale-smile {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: round;
-  opacity: 0.55;
-}
-.whale-smile { stroke-width: 1.1; opacity: 0.45; }
-/* 鲸鱼底部的水面线：跟着它走的一条短线，给"在游"一个参照物 */
-.whale-btn::after {
-  content: "";
-  position: absolute;
-  left: 7px;
-  right: 7px;
-  bottom: -2px;
-  height: 1px;
-  background: var(--line-strong);
-  opacity: 0.45;
-}
+.usage-entry:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* ── 用量面板（鲸鱼悬停/聚焦展开） ── */
+/* ── 用量面板（按键悬停/聚焦展开） ── */
 /* 让位量用 margin 而不是 transform：`.surface-raised` 的 raise-in 动画末帧是
    `transform: none`（animation-fill-mode: both），动画声明在层叠里压过普通声明，
    用 transform 平移会被它清成 identity —— 这正是"面板没让位、被窗口右缘切掉"的根因。 */
@@ -2583,7 +2533,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
   .notice-line,
   .memo-card,
   .a-flash { animation: none; }
-  /* 鲸鱼自 D-039 起固定静止，无障碍分支没有需要降级的鲸鱼动效 */
+  /* D-044 起标题栏是文字按键，无障碍分支没有需要降级的装饰动效 */
   /* 生成中的行进线 → 一条静止的整宽强调色实线。
      动效没了，"面板正在产出"这个信息还在（这正是等价反馈的含义）。 */
   .panel-chat.streaming::before {
@@ -2779,3 +2729,144 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .dt-prose { white-space: pre-wrap; line-height: 1.7; color: var(--tx-1); font-size: var(--fs-body); }
 .dt-empty-doc { padding: 16px; color: var(--tx-dim); font-size: var(--fs-foot); }
 /* 窄栏退化：编辑器太窄时网格表横向滚动（dt-scroll），kv 两栏自然收窄 */
+
+/* ── 冷读悬浮面板（D-045）：无遮罩、可拖动、可最小化 ──
+   z-index 35：高于编辑器内容（含 30 的浮层族），低于对话框 scrim（80/90）——
+   AI 修复过程中弹出的 question 必须压在冷读面板之上。 */
+.cold-float {
+  position: fixed;
+  z-index: 35;
+  width: 432px;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 90px);
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--r-md);
+}
+.cf-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: move;
+  user-select: none;
+}
+.cold-float.mini .cf-head { border-bottom: 0; }
+.cf-title { font-size: var(--fs-foot); font-weight: 700; color: var(--tx-1); }
+.cf-channel {
+  font-size: var(--fs-caption);
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  white-space: nowrap;
+}
+.cf-head .cf-x:first-of-type { margin-left: auto; }
+.cf-x {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-xs);
+  color: var(--tx-3);
+}
+.cf-x:hover { background: var(--ctl-hover); color: var(--tx-1); }
+.cf-body {
+  overflow-y: auto;
+  min-height: 0;
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: var(--fs-foot);
+}
+.cf-hint { font-size: var(--fs-caption); line-height: 1.6; color: var(--tx-dim); }
+.cf-error {
+  font-size: var(--fs-caption);
+  line-height: 1.6;
+  color: var(--warn);
+  background: var(--rail);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+}
+.cf-running { font-size: var(--fs-caption); color: var(--tx-2); }
+.cf-stream {
+  max-height: 220px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-size: var(--fs-caption);
+  line-height: 1.7;
+  color: var(--tx-2);
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+}
+.cf-clean-h { font-weight: 620; color: var(--ok); }
+.cf-clean-note { margin-top: 4px; font-size: var(--fs-caption); line-height: 1.7; color: var(--tx-2); white-space: pre-wrap; }
+.cf-group { display: flex; flex-direction: column; gap: 4px; }
+.cf-group-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-caption);
+  font-weight: 620;
+  color: var(--tx-2);
+  letter-spacing: var(--tr-caption);
+}
+.cf-count { color: var(--tx-dim); font-weight: 500; }
+.cf-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: var(--rail);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+.cf-row.on { box-shadow: inset 0 0 0 1px var(--accent-line); background: var(--accent-soft); }
+.cf-row.submitted { opacity: 0.55; }
+.cf-check { margin-top: 3px; flex: none; }
+.cf-sent {
+  flex: none;
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  padding-top: 1px;
+}
+.cf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.cf-loc { font-size: var(--fs-caption); color: var(--tx-dim); }
+.cf-quote { color: var(--accent-text); }
+.cf-problem { color: var(--tx-1); line-height: 1.6; white-space: pre-wrap; }
+.cf-sub { font-size: var(--fs-caption); color: var(--tx-2); line-height: 1.6; white-space: pre-wrap; }
+.cf-acts { flex: none; display: flex; flex-direction: column; gap: 3px; }
+.cf-act {
+  font-size: var(--fs-caption);
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  color: var(--tx-2);
+  text-align: center;
+}
+.cf-act:hover { background: var(--ctl-hover); color: var(--tx-1); }
+.cf-act.danger:hover { color: var(--warn); }
+.cf-leftover summary {
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  cursor: pointer;
+}
+.cf-leftover-body {
+  margin-top: 6px;
+  font-size: var(--fs-caption);
+  line-height: 1.7;
+  color: var(--tx-2);
+  white-space: pre-wrap;
+  background: var(--well);
+  box-shadow: inset 0 0 0 1px var(--well-line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+}
+.cf-bulk { display: flex; gap: 8px; justify-content: flex-end; }

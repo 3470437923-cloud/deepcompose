@@ -286,6 +286,11 @@ export interface IsolatedSendOptions {
    * 旧实现不传会话级档位，用户在主界面关掉思考后冷读仍按配置默认开思考。
    */
   thinking?: ThinkingLevel | null;
+  /**
+   * 会话是否落盘（默认 true）。D-045 起冷读是悬浮面板里的**一次性**审读：
+   * 用户裁示"退出冷读窗口，材料不保留"，会话与报告都不落盘（oplog 仍记一行）。
+   */
+  persistSession?: boolean;
 }
 
 /**
@@ -300,13 +305,14 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
 
   if (!cfg) {
     const message = AI_ERRORS.invalidKey;
-    // B12-8：与 send() 同一条纪律 —— 会话要落盘。冷读的提问虽由程序生成，
-    // 但会话索引里留着它，用户才能在列表里看到这次没跑成的冷读。
+    // B12-8：与 send() 同一条纪律 —— 会话要落盘（除非调用方明示一次性，见 persistSession）。
     const withUser = withUserMessage(opts.session, opts.userText, null);
-    try {
-      await saveSession(fs, opts.dirs.sessionsDir, withUser);
-    } catch {
-      // 落盘失败不掩盖"配置缺失"这条用户真正要知道的原因
+    if (opts.persistSession !== false) {
+      try {
+        await saveSession(fs, opts.dirs.sessionsDir, withUser);
+      } catch {
+        // 落盘失败不掩盖"配置缺失"这条用户真正要知道的原因
+      }
     }
     opts.onEvent?.({ type: "error", message });
     return { session: withUser, error: message, usage: { ...ZERO_USAGE }, truncated: false };
@@ -339,14 +345,16 @@ export async function sendIsolated(opts: IsolatedSendOptions): Promise<SendResul
     updatedAt: isoMicros(),
     messages,
   };
-  try {
-    await saveSession(fs, opts.dirs.sessionsDir, next);
-  } catch (e) {
-    // B12-8：同 send() —— 落盘失败折算成结果，不让 promise reject 掉用量回执
-    const msg = `会话落盘失败：${e instanceof Error ? e.message : String(e)}`;
-    opts.onEvent?.({ type: "error", message: msg });
-    await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
-    return { session: next, error: msg, usage: result.usage, truncated: result.truncated };
+  if (opts.persistSession !== false) {
+    try {
+      await saveSession(fs, opts.dirs.sessionsDir, next);
+    } catch (e) {
+      // B12-8：同 send() —— 落盘失败折算成结果，不让 promise reject 掉用量回执
+      const msg = `会话落盘失败：${e instanceof Error ? e.message : String(e)}`;
+      opts.onEvent?.({ type: "error", message: msg });
+      await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);
+      return { session: next, error: msg, usage: result.usage, truncated: result.truncated };
+    }
   }
   // 冷读同样消耗 token，一并计入统计（旁路，失败静默）
   await recordUsageSafe(fs, opts.dirs.usageStatsFile, result.usage);

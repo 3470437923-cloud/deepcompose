@@ -40,7 +40,7 @@ import { appendOplog, diffLines, isLightEdit, pendingRefrows, readOplog, type Di
 import { pairedDiff } from "../core/store/pairedDiff";
 import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
-import TitlebarWhale from "./TitlebarWhale";
+import TitlebarUsage from "./TitlebarUsage";
 import { ZERO_USAGE, addTotals, type UsageTotals } from "../core/usage/stats";
 import {
   DEFAULT_THINKING_LEVEL,
@@ -51,15 +51,14 @@ import {
 } from "../core/ai/thinking";
 import { buildReflowPrompt, buildStyleReflowPrompt, newReflowId, normalizeReflowMode, reflowSessionTitle, reflowTracksFor, REFLOW_MODES, type ReflowMode } from "../core/ai/reflow";
 import {
-  COLD_READ_GOAL_LABEL,
+  buildColdFixMessage,
   buildColdReadUserMessage,
-  coldReadReportBody,
-  nextColdReadReportRel,
-  coldReadSessionTitle,
   coldReadSystem,
-  type ColdReadGoal,
+  parseColdReadIssues,
+  type ColdReadChannel,
   type ColdReadPrior,
 } from "../core/ai/coldread";
+import ColdReadPanel, { type ColdPanelState, type ColdRow } from "./ColdReadPanel";
 import type { AgentEvent } from "../core/ai/agent";
 import type { QuestionItem } from "../core/tools/exec";
 import { isToolErrorResult } from "../core/tools/exec";
@@ -87,6 +86,7 @@ import { dropCompressCache } from "../core/ai/compress";
 import NewBookWizard from "./NewBookWizard";
 import { onboardingOverrides, type OnboardingAnswers } from "../core/store/onboarding";
 import type { TrackerModule } from "../core/store/templates";
+import { RULES_DOC, STYLE_DOC } from "../core/store/templates";
 
 interface OpenTab {
   /** 相对作品根路径（'\' 分隔） */
@@ -259,10 +259,8 @@ export default function MainWorkbench({
   const [sessMenu, setSessMenu] = useState(false);
   /** 目录树文件夹开合（key = 目录相对路径；缺省视为展开，「已处理」默认折叠） */
   const [treeFolders, setTreeFolders] = useState<Record<string, boolean>>({});
-  /** 冷读对话框请求与选项 */
-  const [coldReq, setColdReq] = useState<{ tab: OpenTab } | null>(null);
-  const [coldPrior, setColdPrior] = useState<0 | 1 | 2>(1);
-  const [coldGoal, setColdGoal] = useState<ColdReadGoal>("clarity");
+  /** 冷读悬浮面板（D-045）：null = 关闭；全部状态在内存里，关窗即弃 */
+  const [cold, setCold] = useState<ColdPanelState | null>(null);
   const fileselRef = useRef<HTMLDivElement | null>(null);
   const sessRef = useRef<HTMLDivElement | null>(null);
   useDismiss(bookMenu, fileselRef, () => setBookMenu(false));
@@ -1188,10 +1186,11 @@ export default function MainWorkbench({
 
   /** 发送一条用户消息（输入框与一键指令共用；单生成并发由 busyRef 守卫） */
   const sendUserMessage = useCallback(
-    async (raw: string) => {
+    async (raw: string): Promise<boolean> => {
       const b = currentBoot();
       const text = raw.trim();
-      if (!b || text === "" || busyRef.current) return;
+      // 返回本轮是否完整成功（true = 无错误收尾）；冷读「已提交」行的移除靠它
+      if (!b || text === "" || busyRef.current) return false;
       busyRef.current = true;
       setBusy(true);
       setChatError(null);
@@ -1251,8 +1250,10 @@ export default function MainWorkbench({
           setProject(data);
           setTreeFolders((f) => ({ ...defaultTreeFolders(data.tree), ...f }));
         }
+        return !res.error;
       } catch (err) {
         setChatError(String(err));
+        return false;
       } finally {
         busyRef.current = false;
         setBusy(false);
@@ -1266,6 +1267,21 @@ export default function MainWorkbench({
   );
 
   const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
+
+  /** 停止当前生成（主聊天 / 回流 / 冷读共用同一 abortRef；冷读面板的「停止」也走这里） */
+  const stopGeneration = useCallback(() => {
+    abortRef.current.aborted = true;
+    abortActiveStream();
+    // question 弹窗挂起时点停止：关弹窗并以空选择 resolve，
+    // agent 循环的中止检查随即以「已中止」收尾本轮
+    const pq = pendingQuestionRef.current;
+    if (pq) {
+      pendingQuestionRef.current = null;
+      setPending(null);
+      pq.resolve(pq.items.map(() => []));
+    }
+    setStatus("正在停止…");
+  }, []);
 
   /** 采用门：确认后由 AI 执行采用回写五步（登记→保存正文→增量回写→逐项核对→归档推进） */
   const adoptCandidate = useCallback(
@@ -1323,103 +1339,208 @@ export default function MainWorkbench({
     [project, session, askConfirm, sendUserMessage, saveTabAs],
   );
 
-  /** 冷读：独立会话（零工具、零设定、零作者上下文），报告自动存入 小说资料\审核\ */
-  const runColdRead = useCallback(
-    async (tab: OpenTab, priorCount: 0 | 1 | 2, goal: ColdReadGoal) => {
+  /** 打开冷读悬浮面板（D-045）：setup 态；每次打开都重置选项，不归上一次的选择 */
+  const openColdRead = useCallback(
+    async (tab: OpenTab) => {
       const b = currentBoot();
       if (!b || !project) return;
+      // 生成中（含正在跑的冷读）不重开面板：在途回合的结果会写进被重置的状态
       if (busyRef.current) {
-        setStatus("当前有生成任务在跑，请稍后再冷读");
+        setStatus("当前有生成任务在跑，结束后再开冷读");
         return;
       }
-      setColdReq(null);
       const fs = getFs();
-      const label = chapterLabelOf(tab.name) ?? stripMd(tab.name);
-      // 前文：从正式正文取章号在前的 priorCount 章（缺章跳过，不阻断冷读）
-      const no = parseChapterName(stripMd(tab.name))?.no ?? 0;
-      const priors: ColdReadPrior[] = [];
-      if (priorCount > 0 && no > 0) {
-        for (let i = Math.max(1, no - priorCount); i < no; i++) {
-          const c = project.chapters.find((x) => parseChapterName(stripMd(x.name))?.no === i);
-          if (!c) continue;
-          try {
-            priors.push({ title: chapterLabelOf(c.name) ?? stripMd(c.name), text: await fs.readText(c.path) });
-          } catch {
-            /* 前文读取失败不阻断 */
-          }
-        }
+      // style 通道需要风格档案：新结构 06-写作风格.md，老作品回落 06-写作规则.md
+      const docsDir = join(project.ref.root, PROJECT_DIRS.docs);
+      let styleMissing = true;
+      for (const name of [STYLE_DOC, RULES_DOC]) {
+        try {
+          const st = await fs.stat(join(docsDir, name));
+          if (st && !st.isDir) { styleMissing = false; break; }
+        } catch { /* 下一个 */ }
       }
-      busyRef.current = true;
-      setBusy(true);
-      setChatError(null);
-      setStreamText("");
-      setStreamThink("");
-      setToolLog([]);
-      const signal = { aborted: false };
-      abortRef.current = signal;
-      const coldSession: SessionFile = { ...newSession(project.ref.root), title: coldReadSessionTitle(label) };
-      setSession(coldSession); // 切到冷读会话：用户看着这位"只读正文的陌生读者"工作
-      try {
-        const res = await sendIsolated({
-          dirs: b.dirs,
-          prefs: b.prefs,
-          session: coldSession,
-          systemPrompt: coldReadSystem(goal),
-          userText: buildColdReadUserMessage(label, tab.content, priors),
-          transport,
-          onEvent: onAgentEvent,
-          signal,
-          // B-4 UI 接线（D-014）：冷读跟随会话级思考档位 —— 用户在主界面
-          // 关掉思考后，冷读不再按配置默认开思考
-          thinking: thinkLevel,
-        });
-        setSession(res.session);
-        const aiText =
-          [...res.session.messages].reverse().find((m) => m.role === "assistant")?.text ?? "";
-        if (aiText.trim()) {
-          const rel = (
-            await nextColdReadReportRel(
-              label,
-              goal,
-              new Date(),
-              async (candidate) =>
-                (await fs.stat(join(project.ref.root, candidate.replace(/\//g, "\\")))) !== null,
-            )
-          ).replace(/\//g, "\\");
-          const abs = join(project.ref.root, rel);
-          const previousStat = await fs.stat(abs);
-          const previousContent = previousStat && !previousStat.isDir ? await fs.readText(abs) : null;
-          await fs.mkdir(dirname(abs));
-          await recordSnapshot(fs, b.dirs.snapshotsDir, {
-            sessionId: res.session.id,
-            callId: `coldread_${Date.now()}`,
-            operation: "write",
-            relativePath: rel.replace(/\\/g, "/"),
-            previousContent,
-            previousExists: previousStat !== null,
-            previousType: previousStat?.isDir ? "directory" : previousStat ? "file" : "none",
-          });
-          await fs.writeText(abs, coldReadReportBody(label, goal, priors, aiText));
-          await appendOplog(fs, project.ref.root, "coldread", rel, res.session.id, { note: goal });
-          setStatus(`冷读完成，报告已存：${rel}`);
-        } else {
-          setStatus("冷读结束：未获得审读输出（可能被中止）");
-        }
-        await refreshSessions();
-        await refreshProject();
-      } catch (e) {
-        setChatError(String(e));
-      } finally {
-        busyRef.current = false;
-        setBusy(false);
-        setStreamText("");
-        setStreamThink("");
-        setToolLog([]);
-        void drainReflow(); // 冷读占用的生成槽释放后，排空待跑回流
-      }
+      setCold({
+        tabRel: tab.rel,
+        chapterLabel: chapterLabelOf(tab.name) ?? stripMd(tab.name),
+        channel: "plot",
+        priorCount: 1,
+        phase: "setup",
+        rows: [],
+        leftover: "",
+        noIssues: false,
+        note: "",
+        error: null,
+        streaming: "",
+        styleMissing,
+      });
     },
-    [project, transport, onAgentEvent, refreshSessions, refreshProject, drainReflow, thinkLevel],
+    [project],
   );
+
+  /**
+   * 冷读执行（D-045）：独立实例（零工具、零技能、零项目块），**不落盘**——
+   * 不建会话、不写报告，结果只进悬浮面板；oplog 留一行最小痕迹。
+   * 流式原文走面板自己的 streaming 通道，不碰主聊天的 streamText（避免"两个界面"）。
+   */
+  const runColdRead = useCallback(async () => {
+    const cur = cold;
+    const b = currentBoot();
+    if (!cur || !b || !project) return;
+    if (busyRef.current) {
+      setStatus("当前有生成任务在跑，请稍后再冷读");
+      return;
+    }
+    const tab = tabs.find((t) => t.rel === cur.tabRel);
+    if (!tab) {
+      setCold(null);
+      setStatus("被审读的章节标签已关闭，冷读取消");
+      return;
+    }
+    const fs = getFs();
+    const label = cur.chapterLabel;
+    // plot 通道：从正式正文取章号在前的 priorCount 章（缺章跳过，不阻断冷读）
+    const no = parseChapterName(stripMd(tab.name))?.no ?? 0;
+    const priors: ColdReadPrior[] = [];
+    if (cur.channel === "plot" && cur.priorCount > 0 && no > 0) {
+      for (let i = Math.max(1, no - cur.priorCount); i < no; i++) {
+        const c = project.chapters.find((x) => parseChapterName(stripMd(x.name))?.no === i);
+        if (!c) continue;
+        try {
+          priors.push({ title: chapterLabelOf(c.name) ?? stripMd(c.name), text: await fs.readText(c.path) });
+        } catch {
+          /* 前文读取失败不阻断 */
+        }
+      }
+    }
+    // style 通道：读风格档案（新结构 06-写作风格.md；老作品回落 06-写作规则.md）
+    let styleDossier = "";
+    if (cur.channel === "style") {
+      const docsDir = join(project.ref.root, PROJECT_DIRS.docs);
+      for (const name of [STYLE_DOC, RULES_DOC]) {
+        try {
+          const st = await fs.stat(join(docsDir, name));
+          if (st && !st.isDir) { styleDossier = await fs.readText(join(docsDir, name)); break; }
+        } catch { /* 下一个 */ }
+      }
+      if (!styleDossier.trim()) {
+        setCold((c) => (c ? { ...c, phase: "setup", error: "风格档案读不到内容，无法做风格对照" } : c));
+        return;
+      }
+    }
+    busyRef.current = true;
+    setBusy(true);
+    const signal = { aborted: false };
+    abortRef.current = signal; // 主界面「停止生成」同样能停掉冷读
+    setCold((c) => (c ? { ...c, phase: "running", streaming: "", error: null, rows: [], leftover: "", noIssues: false, note: "" } : c));
+    // 冷读专用事件通道：只把正文增量推进面板，不喂主聊天的 streamText/toolLog
+    const onColdEvent = (e: AgentEvent) => {
+      if (e.type === "text_delta") setCold((c) => (c ? { ...c, streaming: c.streaming + e.text } : c));
+    };
+    try {
+      const res = await sendIsolated({
+        dirs: b.dirs,
+        prefs: b.prefs,
+        session: newSession(project.ref.root), // 一次性会话壳：persistSession:false，不落盘
+        persistSession: false,
+        systemPrompt: coldReadSystem(cur.channel),
+        userText: buildColdReadUserMessage(cur.channel, label, tab.content, priors, styleDossier),
+        transport,
+        onEvent: onColdEvent,
+        signal,
+        thinking: thinkLevel, // D-014：冷读跟随会话级思考档位
+      });
+      const aiText =
+        [...res.session.messages].reverse().find((m) => m.role === "assistant")?.text ?? "";
+      const parsed = parseColdReadIssues(aiText, cur.channel);
+      const rows: ColdRow[] = parsed.issues.map((it) => ({ ...it, checked: false, state: "open" }));
+      setCold((c) =>
+        c
+          ? {
+              ...c,
+              phase: "done",
+              rows,
+              leftover: parsed.leftover,
+              noIssues: parsed.noIssues,
+              note: parsed.note,
+              error: res.error ??
+                (res.truncated
+                  ? "审读输出撞到长度上限，清单可能不全（可调大 max_tokens 后重跑）"
+                  : aiText.trim() ? null : "冷读结束：未获得审读输出（可能被中止）"),
+            }
+          : c,
+      );
+      // oplog 最小痕迹（D-045 裁决保留）：时间/章/通道/前文数/查出几条；不含问题内容
+      await appendOplog(fs, project.ref.root, "coldread", cur.tabRel, "", {
+        coldChannel: cur.channel,
+        coldPriors: priors.length,
+        coldIssues: rows.length,
+      });
+    } catch (e) {
+      setCold((c) => (c ? { ...c, phase: "done", error: String(e) } : c));
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+      void drainReflow(); // 冷读占用的生成槽释放后，排空待跑回流
+    }
+  }, [cold, project, tabs, transport, drainReflow, thinkLevel]);
+
+  /** 行操作：勾选/删除（永久）/定位 */
+  const coldToggle = useCallback((id: string) => {
+    setCold((c) => (c ? { ...c, rows: c.rows.map((r) => (r.id === id && r.state === "open" ? { ...r, checked: !r.checked } : r)) } : c));
+  }, []);
+  const coldDelete = useCallback((ids: string[]) => {
+    const drop = new Set(ids);
+    setCold((c) => (c ? { ...c, rows: c.rows.filter((r) => !(r.state === "open" && drop.has(r.id))) } : c));
+  }, []);
+  const coldLocate = useCallback(
+    (quote: string) => {
+      if (!cold) return;
+      const tab = tabs.find((t) => t.rel === cold.tabRel);
+      if (!tab) { setStatus("被审读的章节标签已关闭"); return; }
+      if (activeRel !== tab.rel) setActiveRel(tab.rel);
+      const idx = tab.content.indexOf(quote);
+      if (idx < 0) { setStatus("引文在当前正文里找不到（可能已修改）"); return; }
+      // 等 React 把活动标签切过去再动 textarea
+      window.setTimeout(() => {
+        const el = editorRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(idx, idx + quote.length);
+        const lineHeight = parseFloat(getComputedStyle(el).lineHeight) || 24;
+        const lineNo = tab.content.slice(0, idx).split("\n").length;
+        el.scrollTop = Math.max(0, (lineNo - 4) * lineHeight);
+      }, 60);
+    },
+    [cold, tabs, activeRel],
+  );
+
+  /** 发送选中问题给 AI：行转「已提交」置灰，AI 回合成功才移除；失败/中止则恢复 */
+  const coldSend = useCallback(
+    async (ids: string[]) => {
+      const cur = cold;
+      if (!cur) return;
+      if (busyRef.current) { setStatus("当前有生成任务在跑，请稍后再提交修复"); return; }
+      const picked = cur.rows.filter((r) => ids.includes(r.id) && r.state === "open");
+      if (picked.length === 0) return;
+      const text = buildColdFixMessage(cur.chapterLabel, cur.tabRel.replace(/\\/g, "/"), picked);
+      const idSet = new Set(picked.map((r) => r.id));
+      setCold((c) => (c ? { ...c, rows: c.rows.map((r) => (idSet.has(r.id) ? { ...r, state: "submitted", checked: false } : r)) } : c));
+      const ok = await sendUserMessage(text);
+      setCold((c) =>
+        c
+          ? {
+              ...c,
+              rows: ok
+                ? c.rows.filter((r) => !idSet.has(r.id)) // 成功：永久移除
+                : c.rows.map((r) => (idSet.has(r.id) ? { ...r, state: "open" } : r)), // 失败/中止：恢复
+            }
+          : c,
+      );
+      setStatus(ok ? `已提交 ${picked.length} 条冷读问题给 AI 修复` : "修复未完成（被中止或出错），问题行已恢复");
+    },
+    [cold, sendUserMessage],
+  );
+
 
   /** 打开会话：若会话绑定了项目则恢复绑定。
    *  N-44：失败不再静默 —— 会话文件缺失/损坏（loadSession 返回 null）给状态条
@@ -1537,31 +1658,11 @@ export default function MainWorkbench({
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
-  /* ── 两个内联模态的无障碍接管 ──
-     冷读对话框与「需要你的选择」对话框此前都没有 role="dialog"、没有
-     焦点接管。更麻烦的是 App.tsx 的 Esc 处理会在检测到 .qmodal 时主动
-     让路（它假定模态自己会处理 Esc），而这两个模态谁都没处理 ——
-     于是冷读对话框一打开，Esc 就彻底失效，只能靠鼠标点「取消」。
-     冷读：Esc 关闭（等同取消）。下面用 useDialogFocus 接管焦点。 */
-  const coldPanelRef = useRef<HTMLDivElement | null>(null);
-  const coldSubmitRef = useRef<HTMLButtonElement | null>(null);
-  const coldTitleId = useId();
-  useDialogFocus(Boolean(coldReq), coldPanelRef, coldSubmitRef);
-
-  // escStack：叠层时一次 Esc 只关最上层（N-17）
-  useEffect(() => {
-    if (!coldReq) return;
-    // D-2：每次打开重置选项 —— 上一次留下的选择不属于这一次的冷读
-    //（与 NewBookWizard 打开即整体重置同一条纪律）
-    setColdPrior(1);
-    setColdGoal("clarity");
-    return pushEsc(() => setColdReq(null));
-  }, [coldReq]);
-
-  /* 「需要你的选择」是 AI 通过 ask 工具提出的必答问题，**没有取消语义** ——
-     所以这里刻意不给 Esc 绑定关闭（关掉它会让那次工具调用永远悬着）。
-     Esc 在这个模态里保持无操作是正确行为，不是遗漏；但它同样要
-     role="dialog" + 焦点接管，否则读屏用户不知道发生了什么。 */
+  /* ── 「需要你的选择」模态的无障碍接管 ──
+     冷读在 D-045 改为**无遮罩悬浮面板**：不夺焦点、不拦 Esc，用户要边看边改正文，
+     焦点接管与模态语义（useDialogFocus / escStack）对它反而是伤害。
+     「需要你的选择」是 AI 通过 ask 工具提出的必答问题，**没有取消语义** ——
+     刻意不给 Esc 绑定关闭（关掉它会让那次工具调用永远悬着）。 */
   const pendPanelRef = useRef<HTMLDivElement | null>(null);
   const pendFirstRef = useRef<HTMLButtonElement | null>(null);
   useDialogFocus(Boolean(pending), pendPanelRef, pendFirstRef);
@@ -1706,10 +1807,9 @@ export default function MainWorkbench({
           </button>
         </div>
 
-        {/* 鲸鱼：走廊夹在「面板开关簇」与「设置齿轮」之间（固定静止在走廊中点，D-039） */}
-        <TitlebarWhale dirs={dirs} prefs={bootPrefs} sessionUsage={sessionUsage} />
-
         <div className="win-tools">
+          {/* 用量入口（D-044）：文字按键，不再是鲸鱼图形；悬停预览、点按钉住 */}
+          <TitlebarUsage dirs={dirs} prefs={bootPrefs} sessionUsage={sessionUsage} />
           <button className="wbtn" title="设置" onClick={onOpenSettings}>
             <svg viewBox="0 0 20 20" className="ic">
               <circle cx="10" cy="10" r="2.4" />
@@ -2080,8 +2180,8 @@ export default function MainWorkbench({
                     </button>
                     <button
                       className="btn"
-                      onClick={() => setColdReq({ tab: activeTab })}
-                      title="冷读：让一位看不到设定与前情的陌生读者审读本章"
+                      onClick={() => void openColdRead(activeTab)}
+                      title="冷读：开一个悬浮审读面板（不占聊天界面），问题成行列出、可勾选交给 AI 修复"
                     >
                       冷读
                     </button>
@@ -2343,9 +2443,9 @@ export default function MainWorkbench({
             {activeTab && activeTab.kind !== "doc" ? (
               <button
                 className="chip"
-                title="冷读：让看不到设定与前情的陌生读者审读本章"
+                title="冷读：开一个悬浮审读面板（不占聊天界面），问题成行列出、可勾选交给 AI 修复"
                 disabled={busy}
-                onClick={() => setColdReq({ tab: activeTab })}
+                onClick={() => void openColdRead(activeTab)}
               >
                 <svg viewBox="0 0 20 20" className="ic">
                   <path d="M10 4.6c3.4 0 6.2 2.2 7.4 5.4-1.2 3.2-4 5.4-7.4 5.4S3.8 13.2 2.6 10C3.8 6.8 6.6 4.6 10 4.6z" />
@@ -2441,19 +2541,7 @@ export default function MainWorkbench({
                 <button
                   className="chip stop"
                   title="停止生成（立即中断当前流）"
-                  onClick={() => {
-                    abortRef.current.aborted = true;
-                    abortActiveStream();
-                    // question 弹窗挂起时点停止：关弹窗并以空选择 resolve，
-                    // agent 循环的中止检查随即以「已中止」收尾本轮
-                    const pq = pendingQuestionRef.current;
-                    if (pq) {
-                      pendingQuestionRef.current = null;
-                      setPending(null);
-                      pq.resolve(pq.items.map(() => []));
-                    }
-                    setStatus("正在停止…");
-                  }}
+                  onClick={stopGeneration}
                 >
                   <svg viewBox="0 0 20 20" className="ic">
                     <rect x="5.5" y="5.5" width="9" height="9" rx="1.6" fill="currentColor" stroke="none" />
@@ -2519,64 +2607,24 @@ export default function MainWorkbench({
         askConfirm={askConfirm}
       />
 
-      {coldReq ? (
-        <div className="qmodal scrim">
-          <div
-            className="qbox surface-raised sheet"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={coldTitleId}
-            tabIndex={-1}
-            ref={coldPanelRef}
-          >
-            <h3 id={coldTitleId}>冷读 · {coldReq.tab.name.replace(/\.md$/i, "")}</h3>
-            <p className="qhint">
-              冷读在独立会话中运行：审读者看不到大纲、设定、人物资料与任何作者解释，也没有文件工具，
-              就像一位第一次读到这份稿子的新读者。结束后报告自动存入 小说资料\审核\。
-            </p>
-            <div className="qgroup">
-              <div className="qg-label">提供前文（取自已采用的正式正文）</div>
-              <div className="qopts-row">
-                {([0, 1, 2] as const).map((n) => (
-                  <button
-                    key={n}
-                    className={coldPrior === n ? "qopt on" : "qopt"}
-                    onClick={() => setColdPrior(n)}
-                  >
-                    {n === 0 ? "无前文" : n === 1 ? "上一章" : "前两章"}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="qgroup">
-              <div className="qg-label">审读目标（单次只选一个）</div>
-              <div className="qopts-row">
-                {(["clarity", "pace"] as const).map((g) => (
-                  <button
-                    key={g}
-                    className={coldGoal === g ? "qopt on" : "qopt"}
-                    onClick={() => setColdGoal(g)}
-                  >
-                    {COLD_READ_GOAL_LABEL[g]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="qrow">
-              <button
-                className="qsubmit btn btn-accent"
-                disabled={busy}
-                ref={coldSubmitRef}
-                onClick={() => void runColdRead(coldReq.tab, coldPrior, coldGoal)}
-              >
-                开始冷读
-              </button>
-              <button className="btn" onClick={() => setColdReq(null)}>
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* 冷读悬浮面板（D-045）：无遮罩、不抢焦点；材料只在内存，关窗即弃 */}
+      {cold ? (
+        <ColdReadPanel
+          state={cold}
+          onChannel={(ch) => setCold((c) => (c ? { ...c, channel: ch } : c))}
+          onPrior={(n) => setCold((c) => (c ? { ...c, priorCount: n } : c))}
+          onStart={() => void runColdRead()}
+          onStop={stopGeneration}
+          onClose={() => {
+            // 审读进行中关闭 = 中止并丢弃
+            if (cold.phase === "running") stopGeneration();
+            setCold(null);
+          }}
+          onToggle={coldToggle}
+          onDelete={coldDelete}
+          onSend={(ids) => void coldSend(ids)}
+          onLocate={coldLocate}
+        />
       ) : null}
 
       {pending ? (

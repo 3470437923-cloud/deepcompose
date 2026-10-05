@@ -48,6 +48,12 @@ export interface OplogDetail {
   prompt?: string;
   /** 回流会话标题（pending 行携带） */
   title?: string;
+  /** 冷读通道（D-045：plot / style） */
+  coldChannel?: string;
+  /** 冷读附带的前文数 */
+  coldPriors?: number;
+  /** 冷读解析出的问题条数（不含内容，内容不落盘） */
+  coldIssues?: number;
 }
 
 export interface OplogEntry {

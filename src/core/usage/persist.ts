@@ -42,7 +42,7 @@ export async function saveUsageStats(fs: FsBridge, file: string, stats: UsageSta
 /**
  * 进程内串行队列（与 snapshot/session 同一手法）：三条 record* 都是
  * 「读 → 改 → 写」整条链，不串行的话并发更新互相整文件覆盖 ——
- * 生成结束落 token 与鲸鱼面板刷新余额时间重叠时，后写者盖掉先写者，
+ * 生成结束落 token 与用量面板刷新余额时间重叠时，后写者盖掉先写者，
  * 丢一日统计或丢余额快照。前序失败不阻塞后续；各调用方仍拿到自己的错误。
  */
 let queue: Promise<unknown> = Promise.resolve();

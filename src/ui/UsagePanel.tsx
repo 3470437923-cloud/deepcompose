@@ -1,5 +1,5 @@
 /**
- * 鲸鱼信息面板（标题栏鲸鱼悬停/聚焦时展开）。
+ * 用量信息面板（标题栏「用量」按键悬停/聚焦时展开；D-044 起入口是文字按键，不再是鲸鱼图形）。
  *
  * 四块内容与裁决依据（D-019 / D-020 / D-021）：
  *   1. 今日 token 汇总（输入 / 输出 / 缓存命中 / 未命中 + 命中率）——读 `usage_stats.json`；
@@ -182,7 +182,7 @@ export default function UsagePanel({ dirs, prefs, sessionUsage }: Props) {
       className="usage-pop surface-raised"
       role="dialog"
       aria-label="DeepSeek 用量与余额"
-      // 面板自己吃掉指针事件：从鲸鱼移进来不能让浮层关掉
+      // 面板自己吃掉指针事件：从「用量」按键移进来不能让浮层关掉
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div className="up-head">
