@@ -53,7 +53,6 @@ describe("file_read", () => {
   it("operation 缺失 → 逐字错误", async () => {
     expect(await executeTool(ctx(), "file_read", {})).toBe('{"error":"operation is required"}');
   });
-
   it("path 缺失 → 逐字错误", async () => {
     expect(await executeTool(ctx(), "file_read", { operation: "read" })).toBe('{"error":"path is required"}');
   });
@@ -656,5 +655,44 @@ describe("question / skill_lookup / create_project", () => {
     expect(await fs.exists(path.join(booksRoot, "新书", "小说资料", "02-核心设定.md"))).toBe(true);
     expect(await fs.exists(path.join(booksRoot, "新书", "小说资料", "00-项目状态.md"))).toBe(true);
     expect(await fs.exists(path.join(booksRoot, "新书", "待确认"))).toBe(true);
+  });
+});
+
+describe("AI 三态模式（执行层门槛，双闸之二）", () => {
+  it("只读模式：file_write / file_manage 写操作 / create_project 全拦；读与 search 放行", async () => {
+    const c = ctx({ mode: "readonly" });
+    const w = JSON.parse(await executeTool(c, "file_write", { operation: "write", path: "章节内容/第1章.md", content: "x" }));
+    expect(String(w.error)).toContain("只读模式");
+    const d = JSON.parse(await executeTool(c, "file_manage", { operation: "delete", path: "章节内容/第1章.md" }));
+    expect(String(d.error)).toContain("只读模式");
+    const p = JSON.parse(await executeTool(c, "create_project", { name: "只读建书" }));
+    expect(String(p.error)).toContain("开发模式");
+    const r = JSON.parse(await executeTool(c, "file_read", { operation: "read", path: "章节内容/第1章.md" }));
+    expect(r.content).toContain("第一行");
+    const s = JSON.parse(await executeTool(c, "file_manage", { operation: "search", path: ".", search_text: "第一行" }));
+    expect(s.success).toBe(true);
+  });
+
+  it("写作模式：正文/候选可写，小说资料/技能根/建仓拦", async () => {
+    const c = ctx({ mode: "writing" });
+    const w = JSON.parse(await executeTool(c, "file_write", { operation: "append", path: "章节内容/第1章.md", content: "新行\n" }));
+    expect(w.success).toBe(true);
+    const doc = JSON.parse(await executeTool(c, "file_write", { operation: "write", path: "小说资料/世界观.md", content: "x" }));
+    expect(String(doc.error)).toContain("写作模式");
+    const skill = JSON.parse(await executeTool(c, "file_write", { operation: "write", path: path.join(skillsDir, "x", "SKILL.md"), content: "x" }));
+    expect(String(skill.error)).toContain("写作模式");
+    const p = JSON.parse(await executeTool(c, "create_project", { name: "写作建书" }));
+    expect(String(p.error)).toContain("开发模式");
+  });
+
+  it("rename 两侧都过门：写作模式下目标是资料目录即拦", async () => {
+    const c = ctx({ mode: "writing" });
+    const r = JSON.parse(await executeTool(c, "file_manage", { operation: "rename", path: "章节内容/第2章.md", new_path: "小说资料/第2章.md" }));
+    expect(String(r.error)).toContain("写作模式");
+  });
+
+  it("缺省 = 开发模式（现状全量）：写资料也放行", async () => {
+    const r = JSON.parse(await executeTool(ctx(), "file_write", { operation: "append", path: "小说资料/世界观.md", content: "追加\n" }));
+    expect(r.success).toBe(true);
   });
 });

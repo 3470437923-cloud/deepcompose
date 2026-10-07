@@ -36,6 +36,7 @@ import { isoMicros } from "../ids";
 import { recordUsage } from "../usage/persist";
 import { ZERO_USAGE, type UsageTotals } from "../usage/stats";
 import { choiceOfLevel, effectiveThinking, thinkingSupportedFor, type ThinkingLevel } from "./thinking";
+import { DEFAULT_AI_MODE, toolsForMode, type AiMode } from "./mode";
 
 /** 当前注册给模型的工具（web_search/terminal/rank_data_query 尚未实现，故不在其中） */
 export const ENABLED_TOOLS = IMPLEMENTED_TOOLS.map((t) => t.name);
@@ -130,6 +131,11 @@ export interface SendOptions {
    * 回流这类后台任务由调用方显式传 `"off"`。
    */
   thinking?: ThinkingLevel | null;
+  /**
+   * AI 三态模式（只读/写作/开发；缺省开发 = 现状）。按它过滤发给模型的工具清单，
+   * 并把模式交给 exec 执行层做路径级硬拦（双闸，见 core/ai/mode.ts）。
+   */
+  mode?: AiMode;
 }
 
 export interface SendResult {
@@ -202,7 +208,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
   const result = await runAgent({
     cfg,
     systemPrompt,
-    tools: IMPLEMENTED_TOOLS,
+    tools: toolsForMode(opts.mode ?? DEFAULT_AI_MODE), // 双闸之一：只读模式连 file_write 都不发给模型
     messages: requestMessages,
     userText: opts.userText,
     // 轮次上限来自用户设置，钳制到 1..50（0/负数按 12 兜底，见 `|| 12`）
@@ -225,6 +231,7 @@ export async function send(opts: SendOptions): Promise<SendResult> {
       askQuestions: opts.askQuestions,
       confirmExternal: opts.confirmExternal,
       lookupSkill: (name) => lookupSkill(fs, opts.prefs.skillList, name),
+      mode: opts.mode ?? DEFAULT_AI_MODE, // 双闸之二：执行层按路径硬拦
     },
   });
 
