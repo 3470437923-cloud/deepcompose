@@ -62,6 +62,8 @@ export const APP_DATA_NAMES = {
   skills: "skills",
   /** token 统计（DeepCompose 新增契约：additive，可随时删除，见 DECISIONS D-023） */
   usageStats: "usage_stats.json",
+  /** 快捷提示词清单（B17，2026-10-06 新增契约：additive，可随时删除） */
+  quickPrompts: "writerd_quick_prompts.json",
   prefsDir: ["com.writerd", "writerD"],
   logDir: "diagnostics",
   logFile: "diagnostic.log",
@@ -87,6 +89,8 @@ export interface AppDirs {
   prefsDir: string;
   /** token 统计文件（`%APPDATA%\com.writerd\writerD\usage_stats.json`；additive 契约） */
   usageStatsFile: string;
+  /** 快捷提示词清单（`<Documents>\writerd_quick_prompts.json`；additive 契约，B17） */
+  quickPromptsFile: string;
   /** 诊断日志目录 */
   logDir: string;
   /** 诊断日志文件 */
@@ -180,6 +184,7 @@ export function resolveDirs(input: DirsInput): AppDirs {
     prefsDir,
     prefsFile: join(prefsDir, "shared_preferences.json"),
     usageStatsFile: join(prefsDir, APP_DATA_NAMES.usageStats),
+    quickPromptsFile: join(input.documents, APP_DATA_NAMES.quickPrompts),
     logDir,
     logFile: join(logDir, APP_DATA_NAMES.logFile),
   };

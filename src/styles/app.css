@@ -2790,6 +2790,66 @@ html[data-nav="back"] .win { --push-x: -10px; }
   box-shadow: inset 0 0 0 1px var(--accent-line);
 }
 
+/* ── 快捷提示词栏（B17）：取代旧的 .chat-quick 固定三 chip ──
+   收起态是一条窄栏；展开层从栏位向上长（.qp-pop 绝对定位，不挤压聊天区） */
+.qp-wrap { position: relative; }
+.qp-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 6px 2px 2px;
+  flex-wrap: wrap;
+}
+.qp-toggle { margin-left: auto; }
+.qp-toggle.on { color: var(--accent-text); }
+.qp-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 30;
+}
+.qp-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--r-xs);
+}
+.qp-row:hover { background: var(--ctl-hover); }
+.qp-pick {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 5px 8px;
+  color: var(--tx-2);
+  font-size: var(--fs-foot);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qp-pick:hover { color: var(--tx-1); }
+.qp-row .qp-rowact { opacity: 0; }
+.qp-row:hover .qp-rowact, .qp-rowact:focus-visible { opacity: 1; }
+.qp-empty { color: var(--tx-dim); font-size: var(--fs-caption); padding: 6px 8px; }
+.qp-add {
+  margin-top: 4px;
+  padding: 5px 8px;
+  text-align: left;
+  color: var(--tx-3);
+  font-size: var(--fs-foot);
+  border-radius: var(--r-xs);
+}
+.qp-add:hover { color: var(--tx-1); background: var(--ctl-hover); }
+.qp-form { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px 2px; }
+.qp-form-text { resize: vertical; line-height: 1.6; font-family: inherit; }
+.qp-form-acts { display: flex; gap: 8px; justify-content: flex-end; }
+
 /* ── 冷读悬浮面板（D-045）：无遮罩、可拖动、可最小化 ──
    z-index 35：高于编辑器内容（含 30 的浮层族），低于对话框 scrim（80/90）——
    AI 修复过程中弹出的 question 必须压在冷读面板之上。 */

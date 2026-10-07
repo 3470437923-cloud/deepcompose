@@ -85,6 +85,8 @@ import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycl
 import { deleteSessionsForProject } from "../core/store/session";
 import { dropCompressCache } from "../core/ai/compress";
 import NewBookWizard from "./NewBookWizard";
+import QuickPromptBar from "./QuickPromptBar";
+import { DEFAULT_QUICK_PROMPTS } from "../core/store/quickPrompts";
 import { onboardingOverrides, type OnboardingAnswers } from "../core/store/onboarding";
 import type { TrackerModule } from "../core/store/templates";
 import { RULES_DOC, STYLE_DOC } from "../core/store/templates";
@@ -189,21 +191,14 @@ function useDismiss(active: boolean, ref: React.RefObject<HTMLElement | null>, c
   }, [active, ref, close]);
 }
 
-/** 「写下一章」一键指令（单主线；采用与回写另走采用门） */
-export const WRITE_NEXT_MESSAGE =
-  "请按 novel-writer 主线写下一章候选：先读 小说资料/00-项目状态.md 恢复状态；" +
-  "按 00 的「当前细纲」指针读 细纲/ 下的当前细纲（没有就先按 04-粗纲 建一份覆盖 3 章的细纲），再读上一段已完成细纲（有则读）；据此检索本章需要的最小资料（相关人物、地点、物品、时间、资源、伏笔），不默认读整本书；" +
-  "完成完整起草、逐段修改与全文复读，只保留 待确认/第N章-候选.md 一个候选文件（N 为下一章节号），在同一文件内修改，写前快照由系统保留，不另存初稿或第二版；" +
-  "本次单候选要求优先于旧技能或书内规则的双文件约定；已有用户稿先保留，未经授权不覆盖；" +
-  "更新 00-项目状态 的候选指针与进度后交付，只报题目与完成状态，不附自评。先不采用、不回写正式追踪表。";
+/** 「写下一章」一键指令（单主线；采用与回写另走采用门）。
+ *  文本真源在 core/store/quickPrompts.ts（DEFAULT_QUICK_PROMPTS 首条）——
+ *  快捷提示词栏的默认条目与这里的欢迎页/一键指令同源，不各写一遍。 */
+export const WRITE_NEXT_MESSAGE = DEFAULT_QUICK_PROMPTS[0].text;
 
-/** 对话空态的快捷提示（点击预填输入框，用户可改后再发送） */
-const STARTER_TIPS: { label: string; text: string }[] = [
-  { label: "补齐开书材料", text: "请读 小说资料/00-项目状态.md 和 01-开书定位.md，逐项和我讨论待填写内容，讨论清楚后再整理进文件，关键方向不确定的保留为候选。" },
-  { label: "写下一章候选", text: WRITE_NEXT_MESSAGE },
-  { label: "续补下一段细纲", text: "请按 细纲/ 的规则建下一段细纲（覆盖 3 章，每章约四段自然段）：先列出你计划细排的章节范围和依据，经我确认后再写入文件。" },
-  { label: "总结我的改稿习惯", text: "请读 小说资料/个人改稿/ 下的改稿对比记录、规则台账和 writerd_oplog 日志，归纳我跨章重复出现的改稿判断，逐条列出并用 question 请我确认；确认的条目合并进 06-写作风格.md（禁用列表或风格规则，按条目性质），不复制我的原句。" },
-];
+/** 对话空态的快捷提示（点击预填输入框，用户可改后再发送）。
+ *  与快捷提示词栏的默认清单同源（同一份常量派生，避免两处文案漂移） */
+const STARTER_TIPS: { label: string; text: string }[] = DEFAULT_QUICK_PROMPTS.map((p) => ({ label: p.label, text: p.text }));
 
 /** 「采用为正文」一键指令（采用门 → 采用回写；N 由 AI 按候选章号解析） */
 export function adoptMessage(pendingRel: string): string {
@@ -2524,43 +2519,15 @@ export default function MainWorkbench({
           ) : null}
           </div>
 
-          <div className="chat-quick">
-            <button className="chip" onClick={() => setMemoOpen(true)}>
-              <svg viewBox="0 0 20 20" className="ic">
-                <rect x="3" y="2.8" width="14" height="14.4" rx="2.2" />
-                <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
-              </svg>
-              备忘录
-            </button>
-            {project ? (
-              <button
-                className="chip"
-                title="一键指令：按主线写下一章候选（完整初稿 → 逐段修改 → 全文复读）"
-                disabled={busy}
-                onClick={() => void sendUserMessage(WRITE_NEXT_MESSAGE)}
-              >
-                <svg viewBox="0 0 20 20" className="ic">
-                  <path d="M4 5.4h7M4 9.4h7M4 13.4h4.5" />
-                  <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
-                </svg>
-                写下一章
-              </button>
-            ) : null}
-            {activeTab && activeTab.kind !== "doc" ? (
-              <button
-                className="chip"
-                title="冷读：开一个悬浮审读面板（不占聊天界面），问题成行列出、可勾选交给 AI 修复"
-                disabled={busy}
-                onClick={() => void openColdRead(activeTab)}
-              >
-                <svg viewBox="0 0 20 20" className="ic">
-                  <path d="M10 4.6c3.4 0 6.2 2.2 7.4 5.4-1.2 3.2-4 5.4-7.4 5.4S3.8 13.2 2.6 10C3.8 6.8 6.6 4.6 10 4.6z" />
-                  <circle cx="10" cy="10" r="2.2" />
-                </svg>
-                冷读本章
-              </button>
-            ) : null}
-          </div>
+          {/* B17 快捷提示词栏：取代旧的固定三 chip（备忘录 → 标题栏已有入口；
+              冷读本章 → 编辑器工具栏已有「冷读」按钮；写下一章 → 默认快捷词）。
+              栏内条目用户可新建/修改/删除，点击填入输入框 */}
+          <QuickPromptBar
+            onPick={(text) => {
+              setComposer(text);
+              composerRef.current?.focus();
+            }}
+          />
 
           <div className="composer surface-well">
             {/* AI 三态模式（输入框内部、思考档上方；用户裁决的落点）。
