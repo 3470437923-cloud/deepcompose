@@ -1330,13 +1330,22 @@ function ParamsSection({
         </div>
         <div className="a-card-row">
           <span>工具调用轮次上限</span>
-          <NumInput
-            value={form.toolRoundLimit}
+          {/* B16：滑杆取代数字框；最右端 = 无上限（落盘 0）。
+              用户裁决：一次完整回流做不完的 50 上限太小；无上限 = 跑到模型自己停手。 */}
+          <input
+            className="a-slider"
+            type="range"
             min={1}
-            max={50}
-            ariaLabel="工具调用轮次上限"
-            onCommit={(n) => update("toolRoundLimit", n)}
+            max={51}
+            step={1}
+            aria-label="工具调用轮次上限"
+            value={form.toolRoundLimit > 0 ? Math.min(50, form.toolRoundLimit) : 51}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              update("toolRoundLimit", v >= 51 ? 0 : v);
+            }}
           />
+          <span className="a-card-num">{form.toolRoundLimit > 0 ? form.toolRoundLimit : "无上限"}</span>
         </div>
       </div>
 

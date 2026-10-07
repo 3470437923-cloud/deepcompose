@@ -128,3 +128,57 @@ describe("send：配置缺失时用户消息不丢（B12-8）", () => {
     expect(second.session.title).toContain("第一条");
   });
 });
+
+describe("send：工具轮次上限（B16：0 = 无上限，不再钳 50/兜底 12）", () => {
+  /** 前 13 轮都请求工具、第 14 轮给正文的传输层：旧口径（0→12）会在第 12 轮截停 */
+  function loopTransport(counter: { calls: number }): StreamTransport {
+    return {
+      async stream(_req, h) {
+        counter.calls += 1;
+        if (counter.calls <= 13) {
+          h.onLine(
+            `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c${counter.calls}","type":"function","function":{"name":"file_read","arguments":"{\\"operation\\":\\"read\\",\\"path\\":\\"x.md\\"}"}}]}}]}`,
+          );
+          h.onLine('data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}');
+        } else {
+          h.onLine('data: {"choices":[{"delta":{"content":"好了"}}]}');
+          h.onLine('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}');
+        }
+        h.onLine("data: [DONE]");
+      },
+    };
+  }
+
+  it("toolRoundLimit=0（无上限）：14 轮跑完不截停", async () => {
+    const { fs } = memFs();
+    setFs(fs);
+    const counter = { calls: 0 };
+    const res = await send({
+      dirs: DIRS,
+      prefs: { ...DEFAULT_PREFS, apiKey: "k", llmBaseUrl: "https://api.deepseek.com", model: "deepseek-flash", toolRoundLimit: 0 },
+      session: null,
+      projectRoot: null,
+      userText: "开工",
+      transport: loopTransport(counter),
+    });
+    expect(counter.calls).toBe(14);
+    expect(res.error).toBeUndefined();
+    expect(res.session.messages.some((m) => m.text === "好了")).toBe(true);
+  });
+
+  it("toolRoundLimit=2：第二轮工具执行完即收（轮次耗尽文案）", async () => {
+    const { fs } = memFs();
+    setFs(fs);
+    const counter = { calls: 0 };
+    const res = await send({
+      dirs: DIRS,
+      prefs: { ...DEFAULT_PREFS, apiKey: "k", llmBaseUrl: "https://api.deepseek.com", model: "deepseek-flash", toolRoundLimit: 2 },
+      session: null,
+      projectRoot: null,
+      userText: "开工",
+      transport: loopTransport(counter),
+    });
+    expect(counter.calls).toBe(2);
+    expect(res.error).toContain("工具调用轮次超过上限");
+  });
+});

@@ -211,8 +211,10 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     tools: toolsForMode(opts.mode ?? DEFAULT_AI_MODE), // 双闸之一：只读模式连 file_write 都不发给模型
     messages: requestMessages,
     userText: opts.userText,
-    // 轮次上限来自用户设置，钳制到 1..50（0/负数按 12 兜底，见 `|| 12`）
-    maxToolRounds: Math.max(1, Math.min(50, opts.prefs.toolRoundLimit || 12)),
+    // 轮次上限来自用户设置（B16：滑杆 1–50 + 最右端「无上限」落盘 0）。
+    // 0/负数 = 不限制（跑到模型自己停手为止；agent 循环的终止条件本就不是轮数而是
+    // 「模型不再请求工具」）；正数即用其值，不再钳 50（一次完整回流/建仓可能远超 50）。
+    maxToolRounds: opts.prefs.toolRoundLimit > 0 ? opts.prefs.toolRoundLimit : Number.MAX_SAFE_INTEGER,
     transport: opts.transport,
     onEvent: opts.onEvent,
     signal: opts.signal,
