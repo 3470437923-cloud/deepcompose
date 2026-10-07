@@ -526,14 +526,47 @@ export function applyInsertBlock(text: string, atLine: number, blockText: string
   const eol = dominantEol(doc);
   const lines = blockText.split(/\r\n|\r|\n/);
   const at = Math.max(0, Math.min(atLine, doc.lines.length));
-  // 插在文件中间（at 指向既有行之前）：块每行都带主导 EOL，与原下一行自然分行；
-  // 追加到文件末尾：原末行无 EOL 时先补上（否则块首行与原文末行粘连），块末行不带 EOL。
+  // 块每行都带主导 EOL（插入点后还有内容时，块末行靠它与原下一行分行）；
+  // 追加到文件末尾且原末行无 EOL 时先补上（否则块首行与原文末行粘连）。
   const eols = lines.map(() => eol);
-  if (at === doc.lines.length && doc.eols.length > 0) {
-    if (doc.eols[doc.eols.length - 1] === "") doc.eols[doc.eols.length - 1] = eol;
-    eols[eols.length - 1] = "";
+  if (at === doc.lines.length && doc.eols.length > 0 && doc.eols[doc.eols.length - 1] === "") {
+    doc.eols[doc.eols.length - 1] = eol;
   }
   doc.lines.splice(at, 0, ...lines);
   doc.eols.splice(at, 0, ...eols);
   return joinLines(doc);
+}
+
+/**
+ * 生成新条目块文本（grid 加行）：只支持「## 标题 + `- 键：值` 字段」形态
+ * （五份追踪表 + 规则台账）；其余形态（细纲章块、粗纲弧段、禁用列表行）返回 null。
+ * 编号自动续：F/T/R/D 取「现有最大编号 +1」，GL 带连字符；角色状态按人名，占位「新人物」。
+ * 块首带一个空行，与上一条目分隔（追踪表的既有排版习惯）。
+ */
+export function buildEntryBlock(fileName: string, columns: readonly string[], existingTitles: readonly string[]): string | null {
+  const PREFIX: Record<string, string> = {
+    "追踪-伏笔.md": "F",
+    "追踪-时间线.md": "T",
+    "追踪-资源与权限.md": "R",
+    "追踪-废弃设定.md": "D",
+    "规则台账.md": "GL-",
+  };
+  if (!(fileName.startsWith("追踪-") || fileName === "规则台账.md")) return null;
+  const prefix = PREFIX[fileName];
+  let title: string;
+  if (prefix !== undefined) {
+    let max = 0;
+    const re = new RegExp(`^${prefix.replace("-", "\\-")}(\\d+)$`);
+    for (const t of existingTitles) {
+      const m = re.exec(t.trim());
+      if (m) max = Math.max(max, Number(m[1]));
+    }
+    title = `${prefix}${String(max + 1).padStart(3, "0")}`;
+  } else {
+    // 追踪-角色状态.md：条目按人名，占位名由用户随手改掉
+    title = "新人物";
+  }
+  const lines = [`## ${title}`];
+  for (const c of columns.slice(1)) lines.push(`- ${c}：待填写`);
+  return "\n" + lines.join("\n");
 }

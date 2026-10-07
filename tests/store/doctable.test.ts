@@ -8,6 +8,7 @@ import {
   applyCellEdit,
   applyInsertBlock,
   applyRangeDelete,
+  buildEntryBlock,
   defaultTableView,
   docTableFor,
   type CellAddr,
@@ -173,6 +174,36 @@ describe("行级手术：applyCellEdit / applyRangeDelete / applyInsertBlock", (
     const g2 = gridOf(docTableFor("追踪-伏笔.md", out));
     expect(g2.rows[0].cells[5]).toBe("已回收");
     expect(g2.rows[0].cells[1]).toBe("贝壳");
+  });
+});
+
+describe("buildEntryBlock（grid 加行）", () => {
+  it("追踪表：编号自动续、列字段逐条待填写", () => {
+    const block = buildEntryBlock("追踪-伏笔.md", ["条目", "内容与涉及对象", "状态"], ["F001", "F002"])!;
+    expect(block).toContain("## F003");
+    expect(block).toContain("- 内容与涉及对象：待填写");
+    expect(block).toContain("- 状态：待填写");
+    expect(block.startsWith("\n")).toBe(true); // 与上一条目空行分隔
+  });
+
+  it("规则台账 GL 带连字符；角色状态占位人名", () => {
+    expect(buildEntryBlock("规则台账.md", ["编号", "规则", "状态"], ["GL-001", "GL-009"])).toContain("## GL-010");
+    expect(buildEntryBlock("追踪-角色状态.md", ["条目", "当前目标", "状态"], ["林砚"])).toContain("## 新人物");
+  });
+
+  it("不支持的形态返回 null（细纲章块/粗纲弧段/禁用列表）", () => {
+    expect(buildEntryBlock("第1-3章细纲.md", ["章"], [])).toBeNull();
+    expect(buildEntryBlock("04-粗纲.md", ["弧段"], [])).toBeNull();
+    expect(buildEntryBlock("06-写作风格.md", ["禁止项"], [])).toBeNull();
+  });
+
+  it("加行 → 重解析：新条目出现在表格里", () => {
+    const text = "# 追踪-伏笔\n\n## F001\n- 内容与涉及对象：贝壳\n- 状态：开放\n";
+    const g1 = gridOf(docTableFor("追踪-伏笔.md", text));
+    const block = buildEntryBlock("追踪-伏笔.md", g1.columns, g1.rows.map((r) => r.cells[0]))!;
+    const out = applyInsertBlock(text, g1.appendAt!, block);
+    const g2 = gridOf(docTableFor("追踪-伏笔.md", out));
+    expect(g2.rows.map((r) => r.cells[0])).toEqual(["F001", "F002"]);
   });
 });
 
