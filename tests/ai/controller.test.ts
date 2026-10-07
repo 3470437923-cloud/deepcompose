@@ -66,6 +66,7 @@ const DIRS: AppDirs = {
   sessionsDir: "C:\\sessions",
   snapshotsDir: "C:\\snapshots",
   memosFile: "C:\\cfg\\writerd_memos.json",
+  quickPromptsFile: "C:\\cfg\\writerd_quick_prompts.json",
   prefsFile: "C:\\cfg\\shared_preferences.json",
   prefsDir: "C:\\cfg",
   usageStatsFile: "C:\\cfg\\usage_stats.json",
