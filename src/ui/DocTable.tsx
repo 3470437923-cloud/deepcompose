@@ -318,17 +318,20 @@ function PartView({
     return (
       <div className="dt-part">
         {part.title ? <div className="dt-part-title">{part.title}</div> : null}
-        <Cell
-          text={part.text}
-          addr={part.addr}
-          enumOptions={null}
-          cellKey={`${partIdx}:p`}
-          editing={editing}
-          onEdit={handlers.onEdit}
-          onBeginEdit={handlers.onBeginEdit}
-          onCommit={handlers.onCommit}
-          onCancelEdit={handlers.onCancelEdit}
-        />
+        {/* dt-prose：散文卡用阅读字号与 1.7 行距（与正文卡区分），包着 Cell 的编辑态 */}
+        <div className="dt-prose">
+          <Cell
+            text={part.text}
+            addr={part.addr}
+            enumOptions={null}
+            cellKey={`${partIdx}:p`}
+            editing={editing}
+            onEdit={handlers.onEdit}
+            onBeginEdit={handlers.onBeginEdit}
+            onCommit={handlers.onCommit}
+            onCancelEdit={handlers.onCancelEdit}
+          />
+        </div>
       </div>
     );
   }
