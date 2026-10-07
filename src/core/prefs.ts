@@ -13,16 +13,21 @@ export const PREFIX = "flutter.";
  * 主题模式（DeepCompose 扩展）：
  *   dark   = 曜石黑（实色深色）
  *   light  = 晨雾白（实色浅色，冷调）
- *   dsblue = 深海 DS 蓝（DeepSeek 品牌蓝作强调色）
  * 键名 `theme_mode` 为 DeepCompose 自有扩展（既有格式中无此键，如实标注）；
  * 兼容策略：配置里没有 theme_mode 时按既有键 is_dark_mode 派生。
- * 注意：这三个字符串是**磁盘格式**，已经被写进用户的配置文件里，
+ * 注意：这两个字符串是**磁盘格式**，已经被写进用户的配置文件里，
  * 改字符串等于让老配置失效 —— 只能改注释，不能改值。
+ * 2026-10-06 起 dsblue（DS 蓝）主题撤下（用户裁决：只留黑白两套）：旧配置里的
+ * dsblue 值在解析时迁移为 dark（dsblue 本身是暗色主题，落 dark 语义最近）。
  */
-export type ThemeMode = "dark" | "light" | "dsblue";
+export type ThemeMode = "dark" | "light";
 
-/** DS 品牌蓝（0xAARRGGBB）：默认强调色，也是 DS 蓝主题的身份色 */
+/** DS 品牌蓝（0xAARRGGBB）：**历史默认值**，2026-10-06 起强调色默认改为「跟随主题」（ACCENT_AUTO）。
+ *  保留此常量只为解析期识别老配置（读到的旧默认值一律迁移为 ACCENT_AUTO）。 */
 export const DS_BLUE_ARGB = 4283263998; // 0xFF4D6BFE
+
+/** 强调色「跟随主题」哨兵（0 = 主题自带的黑白墨：暗色主题近白、浅色主题近黑） */
+export const ACCENT_AUTO = 0;
 
 /** 供应商平台：两个内置预设 + 自定义（DeepCompose 扩展字段，磁盘上以字符串落库） */
 export type ProviderPlatform = "deepseek" | "siliconflow" | "custom";
@@ -198,7 +203,7 @@ export const DEFAULT_PREFS: Prefs = {
   webdavConfig: { url: "", username: "", password: "", remotePath: "", lastSyncTime: "" },
   webdavSyncMeta: {},
 
-  customAccentColor: DS_BLUE_ARGB,
+  customAccentColor: ACCENT_AUTO,
   isDarkMode: true,
   themeMode: "dark",
 
@@ -442,16 +447,18 @@ export function parsePrefs(text: string): Prefs {
   p.webdavSyncMeta = parseJsonField<Record<string, unknown>>(get("webdavSyncMeta"), p.webdavSyncMeta, "object");
 
   p.customAccentColor = asNumber(get("customAccentColor"), p.customAccentColor);
+  // 旧默认强调色迁移为「跟随主题」：这两个值当年是默认色（DS 蓝 / 2.x 紫罗兰），
+  // 不是用户的刻意选择；2026-10-06 起产品只给灰阶色板（用户裁决）。
+  if (p.customAccentColor === DS_BLUE_ARGB || p.customAccentColor === 4286343935) {
+    p.customAccentColor = ACCENT_AUTO;
+  }
   p.isDarkMode = asBool(get("isDarkMode"), p.isDarkMode);
   // theme_mode 为 DeepCompose 扩展键：合法值直接采用；缺失/非法时按既有键
   // is_dark_mode 派生（旧配置文件平滑升级，两个键独立往返以保 round-trip）
   const tm = get("themeMode");
-  p.themeMode =
-    tm === "dark" || tm === "light" || tm === "dsblue"
-      ? tm
-      : p.isDarkMode
-        ? "dark"
-        : "light";
+  // dsblue 已于 2026-10-06 撤下（用户裁决：只留黑白两套）：旧配置里的 dsblue
+  // 落 dark（它本身是暗色主题，语义最近）
+  p.themeMode = tm === "dark" || tm === "light" ? tm : tm === "dsblue" ? "dark" : p.isDarkMode ? "dark" : "light";
 
   p.customNovelsDir = asString(get("customNovelsDir"), p.customNovelsDir);
   p.customSkillsDir = asString(get("customSkillsDir"), p.customSkillsDir);

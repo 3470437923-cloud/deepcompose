@@ -37,7 +37,7 @@ import urllib.request
 
 import websocket  # pip install websocket-client
 
-THEMES = ["dark", "light", "dsblue"]
+THEMES = ["dark", "light"]
 SIZES = [(1600, 1000), (1280, 800), (1024, 700)]
 
 # Runs in the page: returns a JSON string of everything we want asserted.

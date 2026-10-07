@@ -122,17 +122,35 @@ export async function savePrefs(prefs: Prefs): Promise<void> {
   }
 }
 
-/** 把配置里的强调色（ARGB int，既有键 custom_accent_color）应用到 CSS 令牌。
- *  只写 --accent 本体；--accent-2/--accent-soft 等派生色在 tokens.css 里
- *  以 color-mix(var(--accent)) 定义，随主题与强调色自动联动。 */
-export function applyAccentFromPrefs(prefs: Prefs): void {
-  // 与 prefs.accentHex 同一份实现（KL-TL-10：这里原先自带一遍位运算，
-  // 两处大小写还不一致；CSS 十六进制大小写不敏感，但"两处各写一遍"迟早会漂）
-  document.documentElement.style.setProperty("--accent", accentHex(prefs.customAccentColor));
+/** 按亮度决定强调色上的文字色（灰阶体系：白墨上的字要近黑，黑墨上的字要白） */
+function onAccentFor(hex: string): string {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 0xff;
+  const g = (n >> 8) & 0xff;
+  const b = n & 0xff;
+  // 相对亮度（sRGB 简化：亮度 > 0.6 视为浅色底）
+  const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return lum > 0.6 ? "#14171B" : "#FFFFFF";
 }
 
-/** 应用主题（DeepCompose：dark / light / dsblue 三套实色主题；
- *  theme_mode 扩展键缺省时按既有键 is_dark_mode 派生，见 prefs.parsePrefs） */
+/** 把配置里的强调色应用到 CSS 令牌。
+ *  只写 --accent 本体与 --on-accent；--accent-2/--accent-soft 等派生色在 tokens.css 里
+ *  以 color-mix(var(--accent)) 定义，随主题与强调色自动联动。
+ *  customAccentColor = 0（ACCENT_AUTO，2026-10-06 起默认）= 跟随主题：
+ *  暗色主题近白墨（#E9ECF2）、浅色主题近黑墨（#14171B）。 */
+export function applyAccentFromPrefs(prefs: Prefs): void {
+  const hex =
+    prefs.customAccentColor === 0
+      ? prefs.themeMode === "light"
+        ? "#14171B"
+        : "#E9ECF2"
+      : accentHex(prefs.customAccentColor);
+  document.documentElement.style.setProperty("--accent", hex);
+  document.documentElement.style.setProperty("--on-accent", onAccentFor(hex));
+}
+
+/** 应用主题（DeepCompose：dark / light 两套实色主题；dsblue 已于 2026-10-06 撤下，
+ *  旧配置里的 dsblue 在 parsePrefs 迁移为 dark） */
 export function applyThemeFromPrefs(prefs: Prefs): void {
   document.documentElement.dataset.theme = prefs.themeMode;
 }

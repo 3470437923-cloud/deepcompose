@@ -168,10 +168,10 @@ def load(c, url, state):
 
 
 def media_checks(c, base_url, theme):
-    """按主题逐套验。必须逐主题跑：三套主题的令牌定义在选择器
+    """按主题逐套验。必须逐主题跑：两套主题的令牌定义在选择器
     `:root` 与 `html[data-theme="..."]` 上，特异性不同 —— 曾经就有
-    一个 @media (prefers-contrast) 块只写 `:root`，于是对 light/dark
-    完全失效、只在 dsblue 上碰巧命中。只在默认主题上验会漏掉它。"""
+    一个 @media (prefers-contrast) 块只写 `:root`，于是对 light
+    完全失效、只在默认主题上碰巧命中。只在默认主题上验会漏掉它。"""
     url = "%s?theme=%s" % (base_url, theme)
     bad = 0
     for feature, probes in PROBES.items():
@@ -234,7 +234,7 @@ def flat_checks(c, base_url):
     ]
     bad = 0
     set_media(c, DEFAULT_FEATURES)
-    for theme in ("dsblue", "light", "dark"):
+    for theme in ("dark", "light"):
         for view, clicks in views:
             u = "%s?theme=%s" % (base_url, theme)
             c.cmd("Page.navigate", url=u)
@@ -293,7 +293,7 @@ def alive_checks(c, base_url):
     bad = 0
     checked = 0
     set_media(c, DEFAULT_FEATURES)
-    for theme in ("dsblue", "light", "dark"):
+    for theme in ("dark", "light"):
         c.cmd("Page.navigate", url="%s?theme=%s" % (base_url, theme))
         if not c.wait_ready(min_text=60):
             print("  FAIL %s 未就绪" % theme)
@@ -336,7 +336,7 @@ def main():
           deviceScaleFactor=1, mobile=False)
 
     bad = 0
-    for theme in ("dsblue", "light", "dark"):
+    for theme in ("dark", "light"):
         bad += media_checks(c, url, theme)
     bad += flat_checks(c, url)
     alive = alive_checks(c, url)

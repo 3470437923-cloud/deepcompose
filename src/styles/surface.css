@@ -691,12 +691,12 @@ select:focus:not(:focus-visible) {
      一次全加强 —— 这是本体系把"线"收敛成令牌才拿得到的好处。
 
      选择器必须写成 `:root, html[data-theme]`，不能只写 `:root`：
-     三套主题里 light / dark 定义在 `html[data-theme="..."]` 上，
+     两套主题里 light 定义在 `html[data-theme="..."]` 上，
      特异性是 (0,1,1)，高过 `:root` 的 (0,1,0)。只写 `:root` 的话，
-     这个块对这两套主题**完全不生效**（dsblue 因为定义里带了 `:root,`
+     这个块对浅色主题**完全不生效**（dark 因为定义里带了 `:root,`
      才碰巧命中）—— 也就是说"一次抬高所有发丝线"这句话本来是假的。
      `html[data-theme]` 与主题块同特异性，靠加载顺序（tokens → surface）
-     取胜，三套主题一视同仁。 */
+     取胜，两套主题一视同仁。 */
   :root,
   html[data-theme] {
     --line: var(--tx-3);

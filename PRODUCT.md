@@ -57,9 +57,9 @@ web
 
 - 产品名：**DeepCompose**（前身 writerD → KeepCompose；设置页名称与版本取自 Rust `app_info`，与产物永远一致）。
   与 DeepSeek 官方**无隶属/赞助/背书关系**：内置其 API 预设只说明"兼容哪家接口"。
-- **三套主题是绑定契约**，键名必须保留：`dark` / `light` / `dsblue`。设置页展示名为曜石黑 / 晨雾白 / DS 蓝。
-- **强调色契约**：`core/app.ts` 只把 `--accent` 本体写成 `documentElement` 内联样式；`--accent-2 / -text / -soft / -fill / -line` 等派生色一律由 `color-mix(var(--accent))` 派生，用户换强调色时全站即时联动。
-- **品牌色**：`#4D6BFE`（DS 蓝）为默认强调色。
+- **两套主题是绑定契约**，键名必须保留：`dark` / `light`。设置页展示名为曜石黑 / 晨雾白（DS 蓝主题已于 2026-10-06 撤下，旧配置自动迁移为 dark）。
+- **强调色契约**：`core/app.ts` 只把 `--accent` 本体与 `--on-accent` 写成 `documentElement` 内联样式；`--accent-2 / -text / -soft / -fill / -line` 等派生色一律由 `color-mix(var(--accent))` 派生，用户换强调色时全站即时联动。默认强调色是「跟随主题」的黑白墨（`customAccentColor = 0`；暗色主题近白、浅色主题近黑），设置页色板为灰阶。
+- **品牌面**：logo 为灰阶「鲸 + 纸笔」圆徽（2026-10-06 更换），界面与 exe 图标同一套。
 - **字体**：Inter Variable 出拉丁与数字，MiSans VF 出汉字，均本地自托管并随包携带许可证（Inter = OFL-1.1，MiSans = Apache-2.0）。
 - **绑定视觉约束**：实色「付印单」体系——零玻璃材质、零渐变、零背景模糊；三套主题必须保留；详见 `DESIGN.md`。
 

@@ -3,13 +3,14 @@
  *
  * 用内存文件系统拦截 Tauri IPC（window.__TAURI_INTERNALS__.invoke），
  * 喂入示例作品 / 会话 / 配置，让 App 在纯浏览器里完整启动，
- * 供 Playwright 截图三主题。主题由 URL ?theme=dark|light|dsblue 控制。
+ * 供截图两主题。主题由 URL ?theme=dark|light 控制。
  */
 
 import { promoScript, PROMO_BOOK, PROMO_FILES, PROMO_CH1234 } from "./promoScript";
 
 const q = new URLSearchParams(location.search);
-const THEME = (q.get("theme") === "light" || q.get("theme") === "dsblue") ? q.get("theme") : "dark";
+// 主题两套（dsblue 已于 2026-10-06 撤下）：?theme=dark|light，其余一律回落 dark
+const THEME = q.get("theme") === "light" ? "light" : "dark";
 // 宣传片模式:?promo=1 → 演示书《沉梦之海》+ 剧本化 SSE 回放(剧本在 promoScript.ts)
 const PROMO = q.get("promo") === "1";
 // 故障注入：?fail=prefs 让 prefs_load 抛错 —— 抛错走 boot() 的失败路径，
@@ -287,7 +288,7 @@ const seedPrefs: Record<string, unknown> = {
   "flutter.model": "deepseek-flash",
   "flutter.temperature": 0.8,
   "flutter.context_limit": 1000000,
-  "flutter.custom_accent_color": 4283263998, // DS 蓝
+  "flutter.custom_accent_color": 0, // 跟随主题（黑白灰）
   "flutter.is_dark_mode": THEME !== "light",
   "flutter.theme_mode": THEME,
   "flutter.current_novel_project": p1,
