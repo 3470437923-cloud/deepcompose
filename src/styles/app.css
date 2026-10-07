@@ -1880,11 +1880,6 @@ html[data-nav="back"] .win { --push-x: -10px; }
   --tc-panel: var(--pv-dark-panel);
   --tc-line: var(--pv-dark-line);
 }
-.a-tc-prev.t-dsblue {
-  --tc-bg: var(--pv-dsblue-bg);
-  --tc-panel: var(--pv-dsblue-panel);
-  --tc-line: var(--pv-dsblue-line);
-}
 .a-tc-label {
   display: flex;
   align-items: center;
@@ -2841,6 +2836,14 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .qp-form { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px 2px; }
 .qp-form-text { resize: vertical; line-height: 1.6; font-family: inherit; }
 .qp-form-acts { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* 「跟随主题」强调色板：左右双半实色（白纸/墨黑），不用渐变（零渐变硬约束） */
+.a-swatch { position: relative; overflow: hidden; }
+.a-swatch-auto { position: absolute; inset: 0; display: block; }
+.a-swatch-auto::before,
+.a-swatch-auto::after { content: ""; position: absolute; top: 0; bottom: 0; width: 50%; }
+.a-swatch-auto::before { left: 0; background: #e9ecf2; }
+.a-swatch-auto::after { right: 0; background: #14171b; }
 
 /* ── 编辑器底部快捷键行（B18）：编辑器栏下缘的一行 chip，与正文版心同宽对齐 ── */
 .editor-quickbar {

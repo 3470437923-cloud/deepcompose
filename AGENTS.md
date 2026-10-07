@@ -19,7 +19,7 @@
 - 作品内：`小说资料\ 章节内容\ 待确认\ 已处理\ 审核\ 个人改稿\`、`.openwrite_manifest.json`、`.openwrite_recycle\`、`recycle_manifest.json`、`.openwrite_backup\`（压缩归档，`.` 前缀不进内容树）、`writerd_oplog\`
 - 应用数据：`writerd_sessions\`、`writerd_snapshots\`、`writerd_memos.json`、`skills\`
 - 配置：`%APPDATA%\com.writerd\writerD\shared_preferences.json`（`flutter.` 前缀键名、封闭键集合）、同目录 `window_state.json`
-- 主题键值：`dark` / `light` / `dsblue`
+- 主题键值：`dark` / `light`（dsblue 已于 2026-10-06 撤下，旧配置在 parsePrefs 迁移为 dark；强调色默认 `customAccentColor=0` = 跟随主题的黑白墨）
 - 判定函数：`isSystemEntryName` 的 `writerd_` 前缀、`.` 前缀、`recycle_manifest.json`
 
 看到代码里出现 `writerd_*` / `com.writerd` **不是遗漏，是契约**。

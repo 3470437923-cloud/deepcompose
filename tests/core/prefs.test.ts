@@ -4,6 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ACCENT_AUTO,
   DEFAULT_PREFS,
   DEFAULT_SYSTEM_PROMPT,
   DS_BLUE_ARGB,
@@ -51,7 +52,7 @@ const REAL_SHAPE = JSON.stringify({
   ]),
   "flutter.active_skill_ids": JSON.stringify(["builtin_novel-writer"]),
   "flutter.default_skills_initialized": true,
-  "flutter.custom_accent_color": 4286343935,
+  "flutter.custom_accent_color": 4285952412,
   "flutter.is_dark_mode": true,
   "flutter.chat_font_size": 15.0,
   "flutter.editor_font_size": 15.0,
@@ -79,7 +80,7 @@ describe("配置解析", () => {
     expect(p.skillList[0].id).toBe("builtin_novel-writer");
     expect(p.skillList[0].isBuiltIn).toBe(true);
     expect(p.activeSkillIds).toEqual(["builtin_novel-writer"]);
-    expect(p.customAccentColor).toBe(4286343935);
+    expect(p.customAccentColor).toBe(4285952412); // 0xFF8A919C 中灰（非默认值，不参与旧默认迁移）
     expect(p.chatFontSize).toBe(15.0);
   });
 
@@ -118,10 +119,9 @@ describe("主题模式（theme_mode 扩展键）", () => {
     expect(parsePrefs("").themeMode).toBe("dark");
   });
 
-  it("显式 theme_mode 三态直读", () => {
+  it("显式 theme_mode 两态直读", () => {
     expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "light" })).themeMode).toBe("light");
     expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dark" })).themeMode).toBe("dark");
-    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" })).themeMode).toBe("dsblue");
   });
 
   it("缺失 theme_mode 时按既有 is_dark_mode 派生（旧配置平滑升级）", () => {
@@ -134,14 +134,21 @@ describe("主题模式（theme_mode 扩展键）", () => {
     expect(p.themeMode).toBe("light");
   });
 
-  it("往返保留 themeMode", () => {
-    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" }));
-    expect(parsePrefs(serializePrefs(p)).themeMode).toBe("dsblue");
+  it("dsblue 旧配置迁移为 dark（dsblue 主题已于 2026-10-06 撤下，本身是暗色主题）", () => {
+    expect(parsePrefs(JSON.stringify({ "flutter.theme_mode": "dsblue" })).themeMode).toBe("dark");
   });
 
-  it("默认强调色为 DS 品牌蓝", () => {
-    expect(DEFAULT_PREFS.customAccentColor).toBe(DS_BLUE_ARGB);
-    expect(accentHex(DS_BLUE_ARGB).toLowerCase()).toBe("#4d6bfe");
+  it("往返保留 themeMode", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.theme_mode": "light" }));
+    expect(parsePrefs(serializePrefs(p)).themeMode).toBe("light");
+  });
+
+  it("默认强调色为「跟随主题」（ACCENT_AUTO=0；旧默认 DS 蓝/紫罗兰迁移为 0）", () => {
+    expect(DEFAULT_PREFS.customAccentColor).toBe(ACCENT_AUTO);
+    expect(parsePrefs(JSON.stringify({ "flutter.custom_accent_color": DS_BLUE_ARGB })).customAccentColor).toBe(ACCENT_AUTO);
+    expect(parsePrefs(JSON.stringify({ "flutter.custom_accent_color": 4286343935 })).customAccentColor).toBe(ACCENT_AUTO);
+    // 用户自选的灰阶值不被动
+    expect(parsePrefs(JSON.stringify({ "flutter.custom_accent_color": 0xff8a919c })).customAccentColor).toBe(0xff8a919c);
   });
 });
 

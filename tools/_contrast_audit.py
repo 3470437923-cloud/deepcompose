@@ -232,7 +232,7 @@ def main():
     report = {}
     bad = 0
     measured_total = 0
-    for theme in ("dsblue", "light", "dark"):
+    for theme in ("dark", "light"):
         rows, n, m = run_pass(c, theme, targets, "主工作台", prep_main)
         if rows is not None:
             report["%s/main" % theme] = rows

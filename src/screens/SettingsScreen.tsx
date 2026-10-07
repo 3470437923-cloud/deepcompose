@@ -3,9 +3,10 @@
  *
  * 结构：左侧实色导航（6 项：AI 提供商 / Skill / 参数 / 主题 / 数据 / 关于）
  * + 右侧实色内容区（分组卡片）。
- * 主题页支持三套主题：曜石黑（dark）/ 晨雾白（light）/ DS 蓝（dsblue），
- * 外加强调色色板与字号调节（既有实现键 chat_font_size / editor_font_size）。
- * 这三个主题键是**磁盘格式契约**（prefs 里的 theme_mode），不可改名。
+ * 主题页两套主题：曜石黑（dark）/ 晨雾白（light）（dsblue 已于 2026-10-06 撤下，
+ * 用户裁决：只留黑白两色，黑白灰极简），外加强调色色板与字号调节
+ * （既有实现键 chat_font_size / editor_font_size）。
+ * 这两个主题键是**磁盘格式契约**（prefs 里的 theme_mode），不可改名。
  *
  * 只展示**已实现**的能力：未实现的同步/备份/导入导出等入口一律不存在，
  * 宁可少一个按钮，不给用户一个点了只会说"后续批次"的假按钮。
@@ -39,7 +40,7 @@ import {
 import { getFs } from "../core/fsbridge";
 import { isDriveRoot, isSystemEntryName } from "../core/dirs";
 import {
-  DS_BLUE_ARGB,
+  ACCENT_AUTO,
   platformOf,
   platformOfUrl,
   type Prefs,
@@ -50,25 +51,22 @@ import {
 
 type NavSection = "provider" | "skill" | "params" | "theme" | "data" | "about";
 
-/** 强调色色板：DS 蓝打头（品牌色），其余为常见备选 */
+/** 强调色色板（2026-10-06 起全灰阶，用户裁决「黑白灰极简」）：
+ *  0 = 跟随主题（暗色主题近白墨、浅色主题近黑墨；解析与应用在 core/app.ts） */
 const ACCENT_SWATCHES = [
-  { argb: DS_BLUE_ARGB, label: "DS 蓝" },
-  { argb: 0xff7c6aff, label: "紫罗兰" },
-  { argb: 0xff0ea5e9, label: "天青" },
-  { argb: 0xff10b981, label: "翠绿" },
-  { argb: 0xfff59e0b, label: "琥珀" },
-  { argb: 0xffec4899, label: "粉" },
+  { argb: ACCENT_AUTO, label: "跟随主题" },
+  { argb: 0xffffffff, label: "纸白" },
+  { argb: 0xffc7cbd3, label: "浅灰" },
+  { argb: 0xff8a919c, label: "中灰" },
+  { argb: 0xff4e5560, label: "深灰" },
+  { argb: 0xff14171b, label: "近黑" },
 ];
 
-/** 三套实色主题（theme_mode 扩展键；键值是磁盘契约，只能改展示名不能改值） */
+/** 两套实色主题（theme_mode 扩展键；键值是磁盘契约，只能改展示名不能改值） */
 const THEME_MODES: { mode: ThemeMode; label: string; preview: string }[] = [
   { mode: "light", label: "晨雾白", preview: "t-light" },
   { mode: "dark", label: "曜石黑", preview: "t-dark" },
-  { mode: "dsblue", label: "DS 蓝", preview: "t-dsblue" },
 ];
-
-/** 旧版（2.x）默认强调色紫罗兰：切到 DS 蓝主题时视为"未自定义"，一并换成品牌蓝 */
-const LEGACY_DEFAULT_ACCENT = 4286343935; // 0xFF7C6AFF
 
 /** 数字输入守卫：空串/非法中间态返回 null（保持原值，不打断输入），合法则原样返回。
  *  修的是旧实现 `parseInt(v) || 默认值` 的老 bug —— 输入 0 或清空会被立刻弹回默认值。 */
@@ -303,18 +301,12 @@ export default function SettingsScreen({ onBack }: Props) {
     }
   };
 
-  /** 切换主题：即时生效 + 立即持久化。
-   *  选 DS 蓝时若强调色仍是默认色，自动同步为 DS 品牌蓝。 */
+  /** 切换主题：即时生效 + 立即持久化。 */
   const applyThemeMode = (mode: ThemeMode) => {
     const next: Prefs = {
       ...form,
       themeMode: mode,
       isDarkMode: mode !== "light",
-      customAccentColor:
-        mode === "dsblue" &&
-        (form.customAccentColor === DS_BLUE_ARGB || form.customAccentColor === LEGACY_DEFAULT_ACCENT)
-          ? DS_BLUE_ARGB
-          : form.customAccentColor,
     };
     setForm(next);
     document.documentElement.dataset.theme = mode;
@@ -1424,19 +1416,18 @@ function ThemeSection({
           {ACCENT_SWATCHES.map((s) => {
             const rgb = `#${(s.argb & 0xffffff).toString(16).padStart(6, "0")}`;
             const on = form.customAccentColor === s.argb;
+            const isAuto = s.argb === ACCENT_AUTO;
             return (
               <button
                 key={s.argb}
                 className={on ? "a-swatch on" : "a-swatch"}
-                /* 色板必须是**实色**。原来这里是
-                   `linear-gradient(160deg, rgb, rgb 70% + 黑)` ——
-                   一块渐变既违反"零渐变"的硬约束，又让这块色板
-                   看起来比它代表的强调色更暗更花：用户是在这里挑
-                   "墨是什么色"，不是挑"渐变好不好看"。 */
-                style={{ background: rgb }}
+                /* 色板必须是**实色**。「跟随主题」用左右双半实色（白纸/墨黑），
+                   不用渐变 —— 零渐变是硬约束。 */
+                style={isAuto ? undefined : { background: rgb }}
                 onClick={() => onAccent(s.argb)}
-                title={`${s.label} · ${rgb.toUpperCase()}`}
+                title={isAuto ? "跟随主题（暗色主题近白、浅色主题近黑）" : `${s.label} · ${rgb.toUpperCase()}`}
               >
+                {isAuto ? <span className="a-swatch-auto" aria-hidden="true" /> : null}
                 {on ? (
                   <svg viewBox="0 0 20 20" className="ic">
                     <path d="M4.5 10.5l3.5 3.5 7.5-8" />

@@ -88,7 +88,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=9223)
     ap.add_argument("--base", default="http://localhost:5183")
-    ap.add_argument("--themes", default="dsblue,dark,light")
+    ap.add_argument("--themes", default="dark,light")
     ap.add_argument("--flows", default="none,chat,memo,theme,params,about")
     ap.add_argument("--size", default="1600x1000")
     ap.add_argument("--min-text", type=int, default=60)
