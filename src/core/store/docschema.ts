@@ -252,11 +252,32 @@ function rulesFor(fileName: string): Rule[] {
 }
 
 /**
+ * 旧结构文件名 → 新结构替代（2026-10-06 用户裁决「以后只能是硬格式」）。
+ * **新建**这些名字的文件一律硬拒并指向新名；编辑已存在的存量旧文件仍放行
+ * （老作品没迁移前，AI 照旧按盘上实际文件工作，不锁死）。
+ */
+const LEGACY_FORBIDDEN_NEW: Record<string, string> = {
+  "04-分卷大纲.md": "04-粗纲.md（弧段级：## 第N-M章 弧段名 + 一段缩略内容）",
+  "05-滚动细纲.md": "细纲/第N-M章细纲.md（每份覆盖 3 章，完成改名（已完成））",
+  "06-写作规则.md": "06-写作风格.md（只有「风格规则」与「禁用列表」两节）",
+  "章节摘要.md": "细纲/ 栏目（已完成细纲即章节摘要的替身；旧摘要只在老作品里继续存在）",
+};
+
+/**
  * 校验一次写入（prev = 写入前的全文，新文件传 null）。
  * 变坏才拦：同一规则在 prev 上已违反 → 本次降级为警告（存量不背锅）；
  * prev 为 null（新文件）→ 任何违规都硬拒。
  */
 export function validateDocWrite(fileName: string, next: string, previous: string | null): DocWriteVerdict {
+  // 旧结构名新建拦截（先于一切规则；存量编辑走下面的常规规则，这些名字 rulesFor 为空 = 不拦）
+  const replacedBy = LEGACY_FORBIDDEN_NEW[fileName];
+  if (previous === null && replacedBy) {
+    return {
+      ok: false,
+      message: `写入被拦截（${fileName} 是旧结构文件名，新作品一律使用新结构）：请改用 ${replacedBy}。`,
+      warnings: [],
+    };
+  }
   const warnings: string[] = [];
   for (const rule of rulesFor(fileName)) {
     const badNext = rule.test(next);
@@ -284,6 +305,8 @@ export function isValidatedDocPath(rel: string): boolean {
   if (r.startsWith("小说资料\\审核\\")) return false;
   if (!r.toLowerCase().endsWith(".md")) return false;
   const base = r.split("\\").pop() ?? "";
+  // 旧结构名也要进门：validateDocWrite 里有「禁止新建旧名」的拦截
+  if (base in LEGACY_FORBIDDEN_NEW) return true;
   return rulesFor(base).length > 0;
 }
 
