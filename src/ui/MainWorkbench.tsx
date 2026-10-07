@@ -2603,6 +2603,7 @@ export default function MainWorkbench({
               冷读本章 → 编辑器工具栏已有「冷读」按钮；写下一章 → 默认快捷词）。
               栏内条目用户可新建/修改/删除，点击填入输入框 */}
           <QuickPromptBar
+            dirs={dirs}
             onPick={(text) => {
               setComposer(text);
               composerRef.current?.focus();
