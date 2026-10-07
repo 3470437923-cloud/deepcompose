@@ -1757,6 +1757,67 @@ export default function MainWorkbench({
     if (el) springScrollToBottom(el, FOLLOW_SPRING, markSpringWrite);
   }, [markSpringWrite]);
 
+  /* ── 编辑器底部快捷键（B18，用户裁决）：复制全文常显；
+     剪切/全选/粘贴只在可编辑态出现（资料恒可编辑；正文/候选点「修改」后）── */
+
+  const edCopyAll = useCallback(async () => {
+    if (!activeTab) return;
+    try {
+      await navigator.clipboard.writeText(activeTab.content);
+      setStatus(`已复制 ${activeTab.name} 全文（${countWords(activeTab.content)} 字）`);
+    } catch {
+      setStatus("复制失败：剪贴板不可用");
+    }
+  }, [activeTab]);
+
+  const edCutAll = useCallback(async () => {
+    if (!activeTab || !tabEditable(activeTab)) return;
+    try {
+      await navigator.clipboard.writeText(activeTab.content);
+    } catch {
+      setStatus("剪切失败：剪贴板不可用");
+      return;
+    }
+    editContent("");
+    setStatus(`已剪切 ${activeTab.name} 全文（未落盘，Ctrl+S 保存）`);
+  }, [activeTab, editContent]);
+
+  const edSelectAll = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.focus();
+    el.select();
+  }, []);
+
+  const edPaste = useCallback(async () => {
+    if (!activeTab || !tabEditable(activeTab)) return;
+    let text: string;
+    try {
+      text = await navigator.clipboard.readText();
+    } catch {
+      setStatus("读取剪贴板失败（需要在窗口里操作）");
+      return;
+    }
+    if (text === "") {
+      setStatus("剪贴板是空的");
+      return;
+    }
+    const el = editorRef.current;
+    // 焦点在编辑器里 → 插到光标处（替换选区）；否则追加到文末
+    if (el && document.activeElement === el) {
+      const s = el.selectionStart ?? el.value.length;
+      const e = el.selectionEnd ?? s;
+      editContent(el.value.slice(0, s) + text + el.value.slice(e));
+      window.setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(s + text.length, s + text.length);
+      }, 0);
+    } else {
+      editContent(activeTab.content + text);
+    }
+    setStatus("已粘贴（未落盘，Ctrl+S 保存）");
+  }, [activeTab, editContent]);
+
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
 
   /* ── 「需要你的选择」模态的无障碍接管 ──
@@ -2311,6 +2372,25 @@ export default function MainWorkbench({
                   spellCheck={false}
                 />
               )}
+              {/* 编辑器底部快捷键（B18）：复制全文常显；剪切/全选/粘贴只在可编辑态出现 */}
+              <div className="editor-quickbar">
+                <button type="button" className="chip" title="复制当前文档全文到剪贴板" onClick={() => void edCopyAll()}>
+                  复制全文
+                </button>
+                {tabEditable(activeTab) ? (
+                  <>
+                    <button type="button" className="chip" title="复制全文并清空（未落盘，Ctrl+S 保存）" onClick={() => void edCutAll()}>
+                      剪切全文
+                    </button>
+                    <button type="button" className="chip" title="选中全文" onClick={edSelectAll}>
+                      选中全文
+                    </button>
+                    <button type="button" className="chip" title="粘贴到光标处（编辑器未聚焦时追加到文末）" onClick={() => void edPaste()}>
+                      粘贴
+                    </button>
+                  </>
+                ) : null}
+              </div>
             </div>
           )}
         </main>

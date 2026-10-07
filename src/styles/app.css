@@ -2850,6 +2850,17 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .qp-form-text { resize: vertical; line-height: 1.6; font-family: inherit; }
 .qp-form-acts { display: flex; gap: 8px; justify-content: flex-end; }
 
+/* ── 编辑器底部快捷键行（B18）：编辑器栏下缘的一行 chip，与正文版心同宽对齐 ── */
+.editor-quickbar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 0 0;
+  border-top: 1px solid var(--line-soft);
+  flex: none;
+  width: 100%;
+  max-width: min(var(--editor-measure), 100%);
+}
+
 /* ── 冷读悬浮面板（D-045）：无遮罩、可拖动、可最小化 ──
    z-index 35：高于编辑器内容（含 30 的浮层族），低于对话框 scrim（80/90）——
    AI 修复过程中弹出的 question 必须压在冷读面板之上。 */
