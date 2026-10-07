@@ -2767,6 +2767,29 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .dt-append .dt-act { opacity: 0.7; }
 .dt-append .dt-act:hover { opacity: 1; }
 
+/* ── AI 三态模式切换（输入框内部、思考档上方；B15） ──
+   分段控件：三个文字档，选中态浅染（导航级选中，不消耗实心主按钮语义） */
+.mode-row {
+  display: flex;
+  gap: 2px;
+  padding: 0 2px 6px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 6px;
+}
+.mode-btn {
+  font-size: var(--fs-caption);
+  color: var(--tx-3);
+  padding: 2px 10px;
+  border-radius: var(--r-xs);
+  letter-spacing: var(--tr-caption);
+}
+.mode-btn:hover { color: var(--tx-1); background: var(--ctl-hover); }
+.mode-btn.on {
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
 /* ── 冷读悬浮面板（D-045）：无遮罩、可拖动、可最小化 ──
    z-index 35：高于编辑器内容（含 30 的浮层族），低于对话框 scrim（80/90）——
    AI 修复过程中弹出的 question 必须压在冷读面板之上。 */

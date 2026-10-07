@@ -49,6 +49,7 @@ import {
   thinkingSupportedFor,
   type ThinkingLevel,
 } from "../core/ai/thinking";
+import { AI_MODES, DEFAULT_AI_MODE, type AiMode } from "../core/ai/mode";
 import { buildReflowPrompt, buildStyleReflowPrompt, newReflowId, normalizeReflowMode, reflowSessionTitle, reflowTracksFor, REFLOW_MODES, type ReflowMode } from "../core/ai/reflow";
 import {
   buildColdFixMessage,
@@ -358,6 +359,35 @@ export default function MainWorkbench({
         });
       }),
     [],
+  );
+
+  /**
+   * AI 三态模式（只读/写作/开发；2026-10-06 用户裁决）：默认开发、只存内存、
+   * 重启回开发（「不记住」）。双闸在 core/ai/mode.ts → controller → exec。
+   * 采用门与回流要写 小说资料/，只在开发模式可用（只读/写作下弹窗告知）。
+   */
+  const [aiMode, setAiMode] = useState<AiMode>(DEFAULT_AI_MODE);
+  /** aiMode 的 ref 镜像（回流排空等回调读最新值，避开闭包过期） */
+  const aiModeRef = useRef(aiMode);
+  aiModeRef.current = aiMode;
+
+  /**
+   * 「需要开发模式」弹窗门（用户裁决：只读/写作模式下采用与回流直接弹窗，
+   * 不静默跳过）。返回 true = 已是开发模式或用户当场切到开发模式。
+   */
+  const requireDevMode = useCallback(
+    async (what: string): Promise<boolean> => {
+      if (aiMode === "dev") return true;
+      const cur = AI_MODES.find((m) => m.id === aiMode)?.label ?? aiMode;
+      const switchNow = await askConfirm(
+        `「${what}」需要开发模式`,
+        `当前是${cur}模式：${what}会让 AI 读写 小说资料/ 下的维护文档，只有开发模式允许。\n要现在切到开发模式吗？`,
+        { confirmLabel: "切到开发模式" },
+      );
+      if (switchNow) setAiMode("dev");
+      return switchNow;
+    },
+    [aiMode, askConfirm],
   );
 
   // ── 根外路径确认（B-1 UI 接线）──
@@ -981,6 +1011,9 @@ export default function MainWorkbench({
   /** 回流队列排空：专属会话运行（不切换用户当前视图）；单生成并发 */
   const drainReflow = useCallback(async () => {
     if (busyRef.current || reflowQueue.current.length === 0) return;
+    // 模式门：回流要写 小说资料/，非开发模式不跑（队列与 oplog pending 都保留，
+    // 切回开发模式时由 aiMode 的 effect 重新触发排空）
+    if (aiModeRef.current !== "dev") return;
     const b = currentBoot();
     if (!b || !project) return;
     busyRef.current = true;
@@ -1049,6 +1082,11 @@ export default function MainWorkbench({
   useEffect(() => {
     resumePendingRef.current = (root: string) => void resumePendingRefrows(root);
   }, [resumePendingRefrows]);
+
+  // 切回开发模式时排空积压的回流（非开发模式下回流被模式门拦在队列里）
+  useEffect(() => {
+    if (aiMode === "dev") void drainReflow();
+  }, [aiMode, drainReflow]);
 
   /** 回流模式切换：本地生效 + 写进作品清单（按书记住；清单写失败则本次会话内有效） */
   const persistReflowMode = useCallback(
@@ -1177,7 +1215,10 @@ export default function MainWorkbench({
       const kind = latest.kind === "candidate" ? "candidate" : "chapter";
       const label = chapterLabelOf(latest.name);
       // D-043 四态路由：off 不排；facts 轻改动不审；style 轻改动也排（词级改动是最纯的文风证据）
-      const tracks = noChange ? [] : reflowTracksFor(reflowMode, light);
+      // 模式门（2026-10-06 裁决）：回流要写 小说资料/，只读/写作模式弹窗告知「需要开发模式」；
+      // 用户当场不切 → 本次回流不排（保存与 oplog 都已照常完成，不丢稿）
+      let tracks = noChange ? [] : reflowTracksFor(reflowMode, light);
+      if (tracks.length > 0 && !(await requireDevMode("回流"))) tracks = [];
       await appendOplog(fs, project.ref.root, "edit_end", latest.rel, session?.id ?? "", {
         changedChars: diff.changedChars,
         addedLines: diff.added.length,
@@ -1218,7 +1259,7 @@ export default function MainWorkbench({
       void drainReflow();
       return true;
     },
-    [tabs, project, session, saveTabAs, drainReflow],
+    [tabs, project, session, saveTabAs, drainReflow, requireDevMode, reflowMode],
   );
 
   /** 关闭标签：自动保存；编辑态先走「完成」（保存 + 回流），不再询问 */
@@ -1292,6 +1333,8 @@ export default function MainWorkbench({
           allowedDirs: allowedDirsRef.current,
           // 会话级临时档位（null = 配置默认）；平台不支持时由 providerOf 统一过滤掉
           thinking: thinkLevel,
+          // AI 三态模式（只读/写作/开发；内存态，默认开发）
+          mode: aiMode,
         });
         setSession(res.session);
         // 会话级累计用量（面板第二块）：把本次运行的合计并进该会话
@@ -1352,6 +1395,8 @@ export default function MainWorkbench({
         setStatus("当前有生成任务在跑，请等它结束后再采用");
         return;
       }
+      // 采用回写要让 AI 维护 小说资料/ —— 只在开发模式可用（用户裁决：弹窗告知）
+      if (!(await requireDevMode("采用回写"))) return;
       const ok = await askConfirm(
         "采用为正式正文？",
         `将「${tab.name}」采用为最终稿：AI 会登记采用版本、保存正式正文、按最终稿增量回写追踪表与章节摘要，并把本章旧稿移入 待确认\\已处理 留档、推进章节指针。`,
@@ -2518,6 +2563,23 @@ export default function MainWorkbench({
           </div>
 
           <div className="composer surface-well">
+            {/* AI 三态模式（输入框内部、思考档上方；用户裁决的落点）。
+                默认开发、只存内存、重启回默认；只读/写作下采用门与回流跳弹窗。 */}
+            <div className="mode-row" role="radiogroup" aria-label="AI 模式">
+              {AI_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={aiMode === m.id}
+                  className={aiMode === m.id ? "mode-btn on" : "mode-btn"}
+                  title={m.hint}
+                  onClick={() => setAiMode(m.id)}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
             <textarea
               ref={composerRef}
               className="composer-input"

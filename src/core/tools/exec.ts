@@ -20,6 +20,7 @@ import { createProject } from "../store/project";
 import { dominantEol, joinLines, splitLines } from "../store/markdown";
 import { contentHash, recordSnapshot, type PreviousType, type SnapshotOperation } from "../store/snapshot";
 import { validateDocWrite, isValidatedDocPath } from "../store/docschema";
+import { modeGate, type AiMode } from "../ai/mode";
 import {
   NEEDS_CONFIRMATION_PREFIX,
   guardPath,
@@ -76,6 +77,12 @@ export interface ToolContext {
   confirmExternal?: (absPath: string) => Promise<boolean>;
   /** skill_lookup 的技能读取 */
   lookupSkill?: (nameOrId: string) => Promise<SkillHit | null>;
+  /**
+   * AI 三态模式（只读/写作/开发；缺省 dev = 现状全量）。执行层门槛是双闸的第二道
+   * （第一道是发给模型的工具清单过滤），模型幻觉调用也会被这里按路径拦下。
+   * 见 core/ai/mode.ts（策略唯一真源）。
+   */
+  mode?: AiMode;
 }
 
 type Args = Record<string, unknown>;
@@ -317,6 +324,10 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   const { abs } = g.resolved;
   const reported = slashPath(reportPath(g.resolved));
 
+  // 模式门槛（双闸之二）：file_write 全是写操作，先过模式再动手
+  const modeHit = modeGate(ctx.mode ?? "dev", "write", g.resolved.rel);
+  if (modeHit) return err(modeHit);
+
   // 写前先取旧内容与存在性：既是 append/replace/insert/delete_lines 的输入，也是快照的"写前"半段
   const st = await ctx.fs.stat(abs);
   if (st?.isLink) return err(linkError(reported));
@@ -510,6 +521,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped });
     }
     case "delete": {
+      const modeHit = modeGate(ctx.mode ?? "dev", "write", g.resolved.rel);
+      if (modeHit) return err(modeHit);
       const st = await ctx.fs.stat(abs);
       if (st === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
       const previous = st.isDir ? null : await ctx.fs.readText(abs);
@@ -530,6 +543,9 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       if (!newPathArg) return err(`new_path is required for ${operation} operation`);
       const g2 = await guardWithConfirm(ctx, newPathArg);
       if (!g2.ok) return err(g2.message);
+      // 模式门槛：源与目标两侧都要过（写作模式下两侧都得在 章节内容/待确认 内）
+      const modeHit = modeGate(ctx.mode ?? "dev", "write", g.resolved.rel) ?? modeGate(ctx.mode ?? "dev", "write", g2.resolved.rel);
+      if (modeHit) return err(modeHit);
       const srcSt = await ctx.fs.stat(abs);
       if (srcSt === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
       const srcText = srcSt.isDir ? null : await ctx.fs.readText(abs);
@@ -587,6 +603,9 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
  * 业务失败（重名/非法书名）以 {"error":"…"} 回报，不抛出。
  */
 async function createProjectTool(ctx: ToolContext, a: Args): Promise<string> {
+  // 建仓是开发动作：只读/写作模式硬拒（模式门槛双闸之二）
+  const modeHit = modeGate(ctx.mode ?? "dev", "create", null);
+  if (modeHit) return err(modeHit);
   const name = str(a, "name");
   if (!name) return err("name is required");
   try {
