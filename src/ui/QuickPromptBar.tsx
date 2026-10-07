@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { currentBoot } from "../core/app";
+import type { AppDirs } from "../core/dirs";
 import { getFs } from "../core/fsbridge";
 import {
   DEFAULT_QUICK_PROMPTS,
@@ -27,28 +28,31 @@ import {
 interface Props {
   /** 点击条目：把提示词文本填进输入框（不直接发送） */
   onPick: (text: string) => void;
+  /** 装配完成的目录（null = 尚未装配完）。装载 effect 以它为闸——
+      组件挂在 MainWorkbench 首帧时 boot() 还没跑完，没有它就读不到文件 */
+  dirs: AppDirs | null;
 }
 
 /** 收起态直出的条目数（其余收进展开层） */
 const PEEK_COUNT = 3;
 
-export default function QuickPromptBar({ onPick }: Props) {
+export default function QuickPromptBar({ onPick, dirs }: Props) {
   const [prompts, setPrompts] = useState<QuickPrompt[]>([]);
   const [open, setOpen] = useState(false);
   /** 正在编辑的条目；id === "" 表示新建 */
   const [editing, setEditing] = useState<QuickPrompt | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
-  /* 装载 + 首次播种（文件不存在时把默认清单落盘一次，与内置技能「只补缺失」同手法） */
+  /* 装载 + 首次播种（文件不存在时把默认清单落盘一次，与内置技能「只补缺失」同手法）。
+     依赖 dirs：装配完成后才真正读盘（首帧 currentBoot() 尚未装配，直接读会拿到空清单并误判缺失） */
   useEffect(() => {
-    const b = currentBoot();
-    if (!b) return;
+    if (!dirs) return;
     void (async () => {
       try {
-        const loaded = await loadQuickPrompts(getFs(), b.dirs.quickPromptsFile);
+        const loaded = await loadQuickPrompts(getFs(), dirs.quickPromptsFile);
         if (loaded === null) {
           setPrompts([...DEFAULT_QUICK_PROMPTS]);
-          await saveQuickPrompts(getFs(), b.dirs.quickPromptsFile, DEFAULT_QUICK_PROMPTS);
+          await saveQuickPrompts(getFs(), dirs.quickPromptsFile, DEFAULT_QUICK_PROMPTS);
         } else {
           setPrompts(loaded);
         }
@@ -56,15 +60,17 @@ export default function QuickPromptBar({ onPick }: Props) {
         setPrompts([...DEFAULT_QUICK_PROMPTS]); // 读失败按默认清单工作，不打扰界面
       }
     })();
-  }, []);
+  }, [dirs]);
 
   /** 落盘（旁路：写失败只影响这份清单，下次启动重新读） */
-  const persist = useCallback((next: QuickPrompt[]) => {
-    setPrompts(next);
-    const b = currentBoot();
-    if (!b) return;
-    void saveQuickPrompts(getFs(), b.dirs.quickPromptsFile, next).catch(() => {});
-  }, []);
+  const persist = useCallback(
+    (next: QuickPrompt[]) => {
+      setPrompts(next);
+      if (!dirs) return;
+      void saveQuickPrompts(getFs(), dirs.quickPromptsFile, next).catch(() => {});
+    },
+    [dirs],
+  );
 
   // 展开层：点外部 / Esc 收起（与应用内其它弹层同一条纪律；组词中的 Esc 不算）
   useEffect(() => {
@@ -97,9 +103,7 @@ export default function QuickPromptBar({ onPick }: Props) {
       persist(prompts.map((p) => (p.id === editing.id ? { ...p, label, text } : p)));
     }
     setEditing(null);
-  }, [editing, prompts, persist]);
-
-  const remove = useCallback(
+  }, [editing, prompts, persist]);  const remove = useCallback(
     (id: string) => persist(prompts.filter((p) => p.id !== id)),
     [prompts, persist],
   );
@@ -124,7 +128,7 @@ export default function QuickPromptBar({ onPick }: Props) {
           快捷词
           <svg
             viewBox="0 0 12 12"
-            className={open ? "caret open" : "caret"}
+            className={open ? "qp-caret open" : "qp-caret"}
             fill="none"
             stroke="currentColor"
             strokeWidth="1.6"

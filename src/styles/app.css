@@ -1303,17 +1303,7 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .cw-tip:active { transform: scale(0.985); transition: transform 0.07s var(--ease-out); }
 .cw-tip .ic { color: var(--accent-text); flex: none; }
 
-/* ── 快捷指令行 + 输入区 ── */
-.chat-quick {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 8px 12px 0;
-  flex-wrap: wrap;
-  position: relative;
-  z-index: 2;
-}
+/* ── 快捷指令行（B17：.chat-quick 已删，由 QuickPromptBar 的 .qp-bar 接替）+ 输入区 ── */
 .composer {
   flex: none;
   position: relative;
@@ -2800,7 +2790,9 @@ html[data-nav="back"] .win { --push-x: -10px; }
   padding: 6px 2px 2px;
   flex-wrap: wrap;
 }
-.qp-toggle { margin-left: auto; }
+.qp-toggle { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 3px; }
+.qp-toggle .qp-caret { flex: none; width: 12px; height: 12px; transition: transform var(--t-fast) var(--ease); }
+.qp-toggle .qp-caret.open { transform: rotate(180deg); }
 .qp-toggle.on { color: var(--accent-text); }
 .qp-pop {
   position: absolute;
