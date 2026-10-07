@@ -77,7 +77,7 @@ import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
 import DocTableView from "./DocTable";
 import ModulesDialog from "./ModulesDialog";
-import { defaultTableView, docTableFor } from "../core/store/doctable";
+import { defaultTableView, docTableFor, applyCellEdit, applyInsertBlock, applyRangeDelete, buildEntryBlock, type CellAddr, type DocTablePart } from "../core/store/doctable";
 import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
 import RecycleBin from "./RecycleBin";
 import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycle";
@@ -1085,6 +1085,67 @@ export default function MainWorkbench({
       }
     },
     [project],
+  );
+
+  /* ── 表格手改（B14）：行级手术写回内容并置脏，落盘走既有保存管线 ──
+     三个动作都不新造写路径：改了 tab.content 就交给 saveTabAs（写前快照 + oplog）。 */
+
+  /** 单元格编辑提交（落点漂移/无变化时 applyCellEdit 原样返回，不置脏） */
+  const applyTableCellEdit = useCallback(
+    (addr: CellAddr, newText: string) => {
+      const rel = activeRel;
+      if (!rel) return;
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.rel !== rel) return t;
+          const next = applyCellEdit(t.content, addr, newText);
+          return next === t.content ? t : { ...t, content: next, dirty: true };
+        }),
+      );
+    },
+    [activeRel],
+  );
+
+  /** 删条目（grid 行）：确认后删整块行区间 */
+  const deleteTableRow = useCallback(
+    async (block: CellAddr, label: string) => {
+      if (!activeTab) return;
+      const ok = await askConfirm(
+        "删除这条记录？",
+        `将从 ${activeTab.name} 删除「${label}」整条。未保存前关闭标签可放弃这次改动。`,
+        { danger: true, confirmLabel: "删除" },
+      );
+      if (!ok) return;
+      const rel = activeTab.rel;
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.rel !== rel) return t;
+          const next = applyRangeDelete(t.content, block);
+          return next === t.content ? t : { ...t, content: next, dirty: true };
+        }),
+      );
+      setStatus(`已删除「${label}」（未落盘，Ctrl+S 或切换标签时保存）`);
+    },
+    [activeTab, askConfirm],
+  );
+
+  /** 加条目（grid 表尾）：按列结构生成待填写条目，编号自动续 */
+  const appendTableRow = useCallback(
+    (part: Extract<DocTablePart, { kind: "grid" }>) => {
+      if (!activeTab) return;
+      const block = buildEntryBlock(activeTab.name, part.columns, part.rows.map((r) => r.cells[0]));
+      if (!block || part.appendAt === null) return;
+      const rel = activeTab.rel;
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.rel !== rel) return t;
+          const next = applyInsertBlock(t.content, part.appendAt!, block);
+          return next === t.content ? t : { ...t, content: next, dirty: true };
+        }),
+      );
+      setStatus(`已在 ${activeTab.name} 追加新条目（待填写，点各格「改」逐格填写）`);
+    },
+    [activeTab],
   );
 
   /** 「修改/完成」按钮：正文与候选默认只读，点击后进入/结束编辑态。
@@ -2198,8 +2259,8 @@ export default function MainWorkbench({
                 )}
               </div>
               {activeTableView && activeDocTable ? (
-                /* B7 表格视图：只读展示（编辑请切回原文；表格不改写文件） */
-                <DocTableView table={activeDocTable} />
+                /* B7 表格视图 + B14 手改：编辑经行级手术写回内容（落盘走既有保存管线） */
+                <DocTableView table={activeDocTable} onEdit={applyTableCellEdit} onDeleteRow={(b, l) => void deleteTableRow(b, l)} onAppendRow={appendTableRow} />
               ) : (
                 <textarea
                   ref={editorRef}

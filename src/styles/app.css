@@ -2730,6 +2730,43 @@ html[data-nav="back"] .win { --push-x: -10px; }
 .dt-empty-doc { padding: 16px; color: var(--tx-dim); font-size: var(--fs-foot); }
 /* 窄栏退化：编辑器太窄时网格表横向滚动（dt-scroll），kv 两栏自然收窄 */
 
+/* ── 表格手改（B14）：编辑入口与编辑器 ──
+   「改」钮平时半隐，行/格悬停时浮现；视觉权重让位给内容本身 */
+.dt-cellwrap { position: relative; display: inline-block; max-width: 100%; }
+.dt-act {
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  line-height: 1.6;
+  opacity: 0;
+  transition: opacity 0.12s;
+  vertical-align: top;
+}
+.dt-cellwrap:hover .dt-act, .dt-rowact .dt-act:focus-visible { opacity: 1; }
+.dt-act:hover { color: var(--tx-1); background: var(--ctl-hover); }
+.dt-act.danger:hover { color: var(--warn); }
+.dt-rowact { width: 34px; text-align: center; }
+.dt-editor {
+  font: inherit;
+  color: var(--tx-1);
+  background: var(--well);
+  border: none;
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+  border-radius: var(--r-xs);
+  padding: 2px 6px;
+  width: 100%;
+  min-width: 180px;
+}
+.dt-editor:focus { outline: none; box-shadow: inset 0 0 0 1.5px var(--accent); }
+.dt-editing { display: flex; flex-direction: column; gap: 4px; }
+.dt-editor-area { resize: vertical; line-height: 1.6; font-family: inherit; }
+.dt-edit-acts { display: flex; gap: 6px; }
+.dt-edit-acts .dt-act { opacity: 1; }
+.dt-append { margin-top: 6px; }
+.dt-append .dt-act { opacity: 0.7; }
+.dt-append .dt-act:hover { opacity: 1; }
+
 /* ── 冷读悬浮面板（D-045）：无遮罩、可拖动、可最小化 ──
    z-index 35：高于编辑器内容（含 30 的浮层族），低于对话框 scrim（80/90）——
    AI 修复过程中弹出的 question 必须压在冷读面板之上。 */
