@@ -92,6 +92,32 @@ describe("isValidatedDocPath：范围", () => {
     expect(isValidatedDocPath("章节内容\\第1章.md")).toBe(false);
     expect(isValidatedDocPath("小说资料\\世界观.md")).toBe(false); // 用户自建文档不设防
   });
+
+  it("旧结构文件名也进门（为了拦「新建旧名」）", () => {
+    expect(isValidatedDocPath("小说资料\\04-分卷大纲.md")).toBe(true);
+    expect(isValidatedDocPath("小说资料\\06-写作规则.md")).toBe(true);
+    expect(isValidatedDocPath("小说资料\\章节摘要.md")).toBe(true);
+  });
+});
+
+describe("旧结构文件名：禁止新建，存量放行（「以后只能是硬格式」）", () => {
+  it("新建 04-分卷大纲.md → 硬拒并指向 04-粗纲.md", () => {
+    const v = validateDocWrite("04-分卷大纲.md", "# 分卷大纲\n\n## 第一卷\n目标。\n", null);
+    expect(v.ok).toBe(false);
+    expect(v.message).toContain("04-粗纲");
+  });
+
+  it("新建 06-写作规则.md / 05-滚动细纲.md / 章节摘要.md → 硬拒", () => {
+    expect(validateDocWrite("06-写作规则.md", "# 写作规则\n", null).ok).toBe(false);
+    expect(validateDocWrite("05-滚动细纲.md", "# 滚动细纲\n", null).ok).toBe(false);
+    expect(validateDocWrite("章节摘要.md", "# 章节摘要\n", null).ok).toBe(false);
+  });
+
+  it("编辑已存在的旧文件 → 放行（存量不背锅，老作品迁移前照常工作）", () => {
+    const prev = "# 分卷大纲\n\n## 第一卷\n目标。\n";
+    const v = validateDocWrite("04-分卷大纲.md", prev + "补一句。\n", prev);
+    expect(v.ok).toBe(true);
+  });
 });
 
 describe("file_write 接线（工具层）", () => {

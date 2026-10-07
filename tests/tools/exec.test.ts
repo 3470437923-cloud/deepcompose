@@ -145,10 +145,12 @@ describe("file_write", () => {
   });
 
   it("append → 只给 success/operation/path", async () => {
+    // 路径用 小说资料/世界观.md（用户自建文档不受落点校验；章节摘要.md 是旧结构名，
+    // 新建会被「以后只能是硬格式」拦截，不再适合做中性的 append 形状用例）
     const r = JSON.parse(
-      await executeTool(ctx(), "file_write", { operation: "append", path: "小说资料/章节摘要.md", content: "## 第1章 摘要\n" }),
+      await executeTool(ctx(), "file_write", { operation: "append", path: "小说资料/世界观.md", content: "## 第1章 摘要\n" }),
     );
-    expect(r).toEqual({ success: true, operation: "append", path: "小说资料/章节摘要.md" });
+    expect(r).toEqual({ success: true, operation: "append", path: "小说资料/世界观.md" });
   });
 
   it("replace → 带 replace_all 字段；默认只替换首个", async () => {
