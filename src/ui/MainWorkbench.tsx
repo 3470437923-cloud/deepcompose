@@ -36,6 +36,8 @@ import {
   type ProjectRef,
 } from "../core/store/project";
 import { parseChapterName, stripMd } from "../core/store/chapter";
+import { childNameProblem } from "../core/store/names";
+import { isManagedDocName } from "../core/store/docschema";
 import { appendOplog, diffLines, isLightEdit, pendingRefrows, readOplog, type DiffResult } from "../core/store/oplog";
 import { pairedDiff } from "../core/store/pairedDiff";
 import { unifyDoubleQuotes } from "../core/store/quotes";
@@ -380,13 +382,14 @@ export default function MainWorkbench({
   /** 补跑回流的间接引用（函数声明在组件后段，openProject 在前段 —— 用 ref 打通顺序） */
   const resumePendingRef = useRef<(root: string) => void>(() => {});
 
-  /** 应用内输入框（替代 window.prompt；resolve 时同步关闭对话框） */
+  /** 应用内输入框（替代 window.prompt；resolve 时同步关闭对话框）；initial 预填（重命名场景） */
   const askText = useCallback(
-    (title: string, placeholder?: string) =>
+    (title: string, placeholder?: string, initial?: string) =>
       new Promise<string | null>((resolve) => {
         setInputReq({
           title,
           placeholder,
+          initial,
           resolve: (v) => {
             setInputReq(null);
             resolve(v);
@@ -1973,11 +1976,150 @@ export default function MainWorkbench({
     );
   };
 
-  /** 通用内容树渲染：目录可折叠（已处理默认收起），所有内容文件左栏可见 */
+  /* ── 小说资料树内文件管理（D-056，2026-10-09 用户裁决）：
+     范围只到 小说资料\ 子树（章节内容/待确认是管线受管，不提供树内操作）；
+     受管文件名操作前先警告；删除走「确认 → 写前快照 → 动盘」同一纪律。 ── */
+
+  /** 该树节点是否落在 小说资料\ 子树（含其自身） */
+  const isDocsTreeRel = (rel: string) =>
+    rel === PROJECT_DIRS.docs || rel.startsWith(PROJECT_DIRS.docs + "\\");
+
+  /** 新增资料文档：在指定目录下建 .md（名字规则与新建作品共用同一份 childNameProblem） */
+  const docCreate = useCallback(
+    async (parent: ContentNode) => {
+      if (!project) return;
+      const name = await askText(`在「${parent.name}」下新增资料文档`, "文件名（自动补 .md）");
+      if (!name) return;
+      const base = name.replace(/\.md$/i, "").trim();
+      const problem = childNameProblem(base);
+      if (problem) {
+        setStatus(`无法创建：${problem}`);
+        return;
+      }
+      const fileName = `${base}.md`;
+      const rel = parent.rel === "" ? fileName : join(parent.rel, fileName);
+      const abs = join(project.ref.root, rel);
+      const fs = getFs();
+      try {
+        if (await fs.exists(abs)) {
+          setStatus(`「${fileName}」已存在，换个名字`);
+          return;
+        }
+        await fs.writeText(abs, "");
+        await appendOplog(fs, project.ref.root, "doc_create", rel.replace(/\\/g, "/"), session?.id ?? "");
+        await refreshProject();
+        setStatus(`已创建 ${rel}`);
+        // 建好直接打开（空文档；kind 由路径判定 = doc，恒可编辑）
+        void openFile({ name: fileName, rel, path: abs, size: 0, mtimeMs: Date.now() }, kindForRel(rel));
+      } catch (e) {
+        setStatus(`创建失败：${String(e)}`);
+      }
+    },
+    [project, session, askText, refreshProject, openFile],
+  );
+
+  /** 重命名资料文档：已打开的标签同步改指向（未保存的手改稿跟着新路径走，不丢） */
+  const docRename = useCallback(
+    async (node: ContentNode) => {
+      if (!project) return;
+      const oldBase = node.name.replace(/\.md$/i, "");
+      const name = await askText(`重命名「${node.name}」`, "新文件名（自动补 .md）", oldBase);
+      if (!name) return;
+      const base = name.replace(/\.md$/i, "").trim();
+      if (base === "" || base === oldBase) return;
+      const problem = childNameProblem(base);
+      if (problem) {
+        setStatus(`无法重命名：${problem}`);
+        return;
+      }
+      if (isManagedDocName(node.name)) {
+        const ok = await askConfirm(
+          "重命名受管文档？",
+          `「${node.name}」是受管文档：改名后校验、表格视图与 AI 的读取约定会对它失效。`,
+          { confirmLabel: "仍要重命名" },
+        );
+        if (!ok) return;
+      }
+      const fileName = `${base}.md`;
+      const parentRel = dirname(node.rel);
+      const newRel = parentRel === "" ? fileName : join(parentRel, fileName);
+      const newAbs = join(project.ref.root, newRel);
+      const fs = getFs();
+      try {
+        if (await fs.exists(newAbs)) {
+          setStatus(`「${fileName}」已存在，换个名字`);
+          return;
+        }
+        await fs.rename(node.path, newAbs);
+        setTabs((prev) => prev.map((t) => (t.rel === node.rel ? { ...t, rel: newRel, path: newAbs, name: fileName } : t)));
+        setActiveRel((cur) => (cur === node.rel ? newRel : cur));
+        await appendOplog(fs, project.ref.root, "doc_rename", node.rel.replace(/\\/g, "/"), session?.id ?? "", {
+          renameTo: newRel.replace(/\\/g, "/"),
+        });
+        await refreshProject();
+        setStatus(`已重命名为 ${newRel}`);
+      } catch (e) {
+        setStatus(`重命名失败：${String(e)}`);
+      }
+    },
+    [project, session, askText, askConfirm, refreshProject],
+  );
+
+  /** 删除资料文档：确认 → 写前快照（内容可回滚）→ 动盘；打开中的标签直接摘掉，
+   *  不走 closeTab —— 它会把脏内容自动保存回磁盘，等于把刚删的文件救活。 */
+  const docDelete = useCallback(
+    async (node: ContentNode) => {
+      if (!project) return;
+      const openTab = tabs.find((t) => t.rel === node.rel);
+      const managed = isManagedDocName(node.name)
+        ? `\n注意：「${node.name}」是受管文档，删除后校验、表格视图与 AI 的读取约定会对它失效。`
+        : "";
+      const dirty = openTab?.dirty
+        ? "\n这个文件正在编辑且有未保存的改动 —— 删除后标签直接关闭，未保存的改动只存在于快照里。"
+        : "";
+      const ok = await askConfirm(
+        `删除「${node.name}」？`,
+        `文件将从磁盘删除（删除前落一次写前快照，内容可从快照恢复）。${dirty}${managed}`,
+        { danger: true, confirmLabel: "删除" },
+      );
+      if (!ok) return;
+      const fs = getFs();
+      try {
+        const b = currentBoot();
+        const content = await fs.readText(node.path);
+        if (b) {
+          await recordSnapshot(fs, b.dirs.snapshotsDir, {
+            sessionId: session?.id ?? "manual-edits",
+            callId: `manual_${Date.now()}`,
+            operation: "delete",
+            relativePath: node.rel.replace(/\\/g, "/"),
+            previousContent: content,
+            previousExists: true,
+            previousType: "file",
+          });
+        }
+        await fs.remove(node.path, false);
+        const remaining = tabs.filter((t) => t.rel !== node.rel);
+        setTabs(remaining);
+        if (activeRel === node.rel) setActiveRel(remaining[0]?.rel ?? null);
+        await appendOplog(fs, project.ref.root, "doc_delete", node.rel.replace(/\\/g, "/"), session?.id ?? "");
+        await refreshProject();
+        setStatus(`已删除 ${node.rel}（内容已留快照）`);
+      } catch (e) {
+        setStatus(`删除失败：${String(e)}`);
+      }
+    },
+    [project, session, tabs, activeRel, askConfirm, refreshProject],
+  );
+
+  /** 通用内容树渲染：目录可折叠（已处理默认收起），所有内容文件左栏可见。
+      D-056：小说资料\ 子树的节点带悬停操作钮（目录 = 新增；文件 = 重命名/删除）。
+      操作钮与节点本体平级（.trow 包裹）—— button 里套 button 是非法 HTML。 */
   const renderNodes = (nodes: ContentNode[], depth: number): React.ReactElement[] =>
     nodes.map((n) =>
       n.isDir ? (
         <div key={n.rel} role="group">
+          <div className="trow">
           <button
             className="tnode grp"
             role="treeitem"
@@ -2008,11 +2150,29 @@ export default function MainWorkbench({
               </span>
             ) : null}
           </button>
+          {isDocsTreeRel(n.rel) ? (
+            <span className="tacts">
+              <button
+                className="tact"
+                title={`在「${n.name}」下新增资料文档`}
+                aria-label={`在「${n.name}」下新增资料文档`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void docCreate(n);
+                }}
+              >
+                <svg viewBox="0 0 20 20" className="ic">
+                  <path d="M10 4.5v11M4.5 10h11" />
+                </svg>
+              </button>
+            </span>
+          ) : null}
+          </div>
           {treeFolders[n.rel] !== false ? renderNodes(n.children, depth + 1) : null}
         </div>
       ) : (
+        <div key={n.rel} className="trow">
         <button
-          key={n.rel}
           className={activeRel === n.rel ? "tnode on" : "tnode"}
           role="treeitem"
           aria-selected={activeRel === n.rel}
@@ -2025,6 +2185,40 @@ export default function MainWorkbench({
           </svg>
           <span className="lbl">{n.name}</span>
         </button>
+        {isDocsTreeRel(n.rel) ? (
+          <span className="tacts">
+            <button
+              className="tact"
+              title="重命名"
+              aria-label={`重命名 ${n.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                void docRename(n);
+              }}
+            >
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M13.9 13.3l2.6-2.6 1.1 1.1-2.6 2.6-1.5.4.4-1.5z" />
+                <path d="M4 16.2h12" />
+              </svg>
+            </button>
+            <button
+              className="tact danger"
+              title="删除（先留快照）"
+              aria-label={`删除 ${n.name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                void docDelete(n);
+              }}
+            >
+              <svg viewBox="0 0 20 20" className="ic">
+                <path d="M4.4 6.6h11.2M8 6.6V5.2a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.4" />
+                <path d="M6 6.6l.7 8.6a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.6" />
+                <path d="M8.6 9.4v4.4M11.4 9.4v4.4" />
+              </svg>
+            </button>
+          </span>
+        ) : null}
+        </div>
       ),
     );
 
