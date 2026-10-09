@@ -58,10 +58,10 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1
 - `PrintWindow` 对未聚焦的 WebView2 会返回白图：截屏前必须 `SetForegroundWindow` 并等 0.5–1 秒。
 - 运行中的 `deepcompose` 会占用 exe，重新打包前先关掉。
 
-## 4. 浏览器预览沙箱（三主题取证，免 Playwright）
+## 4. 浏览器预览沙箱（两主题取证，免 Playwright）
 
 `preview.html` + `src/preview/`（内存文件系统替身劫持 `__TAURI_INTERNALS__`）让界面脱离 Tauri
-直接在浏览器里跑，`?theme=dark|light|dsblue` 切主题、`?fail=prefs` 注入启动故障。dev-only，不进构建产物。
+直接在浏览器里跑，`?theme=dark|light` 切主题(dsblue 随 2026-10-06 主题撤下,旧配置值在 parsePrefs 迁移为 dark)、`?promo=1` 换演示书、`?welcome=1` 让首启弹窗在沙箱出现(缺省视为已「不再显示」,不挡截图与几何断言)、`?fail=prefs` 注入启动故障。dev-only，不进构建产物。
 
 ```powershell
 .\node_modules\.bin\vite.cmd --port 5183 --strictPort      # 后台常驻
@@ -69,7 +69,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\capture.ps1
   --headless=new --remote-debugging-port=9223 --remote-allow-origins=* `
   --user-data-dir="$env:TEMP\deepcompose-edge" --window-size=1600,1000 `
   --enable-unsafe-swiftshader about:blank                  # 后台常驻
-python tools\preview_shot.py                               # 三主题 × 三尺寸截图 + 几何断言
+python tools\preview_shot.py                               # 两主题 × 三尺寸截图 + 几何断言
 python tools\preview_shot.py --view settings
 python tools\preview_diag.py --click ".wbtn"               # 抓页面异常原文
 ```
@@ -138,7 +138,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 |---|---|
 | `package.ps1` | 打包：tsc 类型闸门 → vite build → cargo build --release → 复制 exe → 刷新快捷方式 |
 | `capture.ps1` | 真机截屏取证到 `shots/`（`SetForegroundWindow` 后等 0.5–1s，否则 WebView2 白图） |
-| `preview_shot.py` / `preview_diag.py` | 预览沙箱三主题截图 + 几何断言 / 页面异常原文 |
+| `preview_shot.py` / `preview_diag.py` | 预览沙箱两主题截图 + 几何断言 / 页面异常原文 |
 | `mock_provider.py` + `e2e_chat.ps1` / `e2e_live.ps1` | 本地 mock 提供商端到端 / 真实配置直连端到端 |
 | `ds_probe.py` | 真实 Key 的 DeepSeek 接口探针（用法见 `AGENTS.md` §3；只读本机 Key，绝不打印） |
 
@@ -162,12 +162,46 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 
 | 脚本 | 作用 | 用法与前提 |
 |---|---|---|
-| `_shot_flow.py` | 按交互流程截图（气泡/思考块/工具行/备忘录/输入聚焦）；同时是上面三个审计脚本的公共库 | `python tools/_shot_flow.py --out shots/_tmp --label chat --themes dsblue --flows chat`；FLOWS 的选择器钉死 mockBackend 预置文案，改预置数据会让流程 miss |
+| `_shot_flow.py` | 按交互流程截图（气泡/思考块/工具行/备忘录/输入聚焦）；同时是上面三个审计脚本的公共库 | `python tools/_shot_flow.py --out shots/_tmp --label chat --themes dark --flows chat`；FLOWS 的选择器钉死 mockBackend 预置文案，改预置数据会让流程 miss。**设置屏导航序号与 `SettingsScreen` 的 `navItems` 必须一一对应**(A-1 教训:B19 加「使用教程」后 about 从第 6 项变第 7 项,写死 `nth-of-type(6)` 会让 about 取证静默落在帮助页上) |
 | `_compare_sheet.py` | 把 before/after 两套截图拼成并排对比图（`shots/compare/*.png`） | **必须指定输出目录**：`preview_shot.py --label before --out shots\preview-before` 与 `--label after --out shots\preview-after`（默认 `--out shots\preview` 与对比脚本要读的两个目录不同名，照抄会 0 张图且不报错）；`pip install pillow`；**输入缺文件是"跳过"不是"报错"，产出变少不等于验收全过** |
 | `cdp_probe.py` | 物理屏幕关闭/会话锁定时仍可做 UI 交互验证（`eval` / `click` / `shot` / `alive`） | 应用须带 `$env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"` 启动（发布版刻意不开调试口）；`pip install websocket-client` |
 | `uiwalk.ps1` | 脚本化 UI 走查：`click\|x,y` / `keys\|text` / `cap\|out.png` / `wait\|ms` 步骤串 | `.\tools\uiwalk.ps1 -Steps "wait\|2000;click\|640,400;cap\|shots\w1.png"`；坐标相对窗口左上角，跑动中移动/缩放窗口会让坐标失效；跑挂也只会清掉自己启动的进程 |
 | `probe_window.ps1` | 真机窗口几何记忆（T0–T5 六个用例：默认居中 / 缩放后记住 / 最大化恢复 / 离屏回收） | 默认钉打包产物 `release\DeepCompose.exe`；会改写 `%APPDATA%\com.writerd\writerD\window_state.json`（**冻结契约路径，别改名**） |
 | `probe_win_style.ps1` | 实测无边框窗口能否拖边缩放（`WS_THICKFRAME`）与最大化是否真的改变尺寸 | 需要真实交互桌面会话；锁定/无头会话的测量无意义 |
+
+### 9.4 B19 崩溃取证与署名验收(2026-10-08 登记)
+
+| 脚本 | 作用 | 用法与前提 |
+|---|---|---|
+| `_qp_probe.py` | 快捷提示词崩溃复现:按用户真实路径走一遍(点提示词条 → 发送 → 流式 → 工具行 → question 弹窗),**逐条打印页面异常原文** | vite 5183 + 无头 Edge CDP 9223;退出 0 无异常 / 1 有异常 / 2 跑不起来 |
+| `_qp_perf_probe.py` | 单次发送期间的渲染成本读数(长任务、帧间隔、DOM 节点数、堆) | 同上;**纯测量,退出码恒 0 —— 它的 0 不是「通过」,只是「跑完了」**(判据看输出数字) |
+| `_qp_stress_probe.py` | KL-PF-01 的复现与 A/B:按 N 轮脚本化发送把历史堆厚,再在下一次发送中测每 token 渲染成本;合批修复前后跑同一条序列即得对照 | 同上;退出码恒 0(测量)。修复前基线:35 消息 / 25 工具行 = 51ms 长任务、13 帧 >33ms;修复后长任务归零、worstGap 33.3ms |
+| `b19_probe.py` | B19 端到端验收 7 组断言(A 首启弹窗形态 / B 勾「不再显示」落 `welcome_dismissed` / C 不勾下次仍弹 / D 标题栏「帮助」/ E 设置屏「使用教程」分页 / F 关于页作者卡与构建烙印 / G `open_url` 接线) | 同上;退出 0 / 1 / 2 与其它审计脚本同一口径。截图落 `shots/b19-*.png`;`?welcome=1` 控制弹窗在沙箱里出现(缺省视为已关闭,不挡两主题截图) |
+
+> **B19 的验收顺序**(§8 口径:先闸门、再探针、最后发布件):
+> `tsc` + `vitest` + `cargo test --lib` → `_qp_stress_probe.py`(确认长任务归零)→
+> `b19_probe.py`(功能面)→ `_contrast_audit.py` + `_a11y_check.py` + `_style_audit.py`
+> (新增的 `help` / `welcome` 两组 flow 必须一起跑,否则署名相关样式不在审计范围内)→
+> `npm.cmd run package` → `capture.ps1` 真机截屏。
+> 关于页作者卡与帮助页脚的署名**只在真机产物里**取自 Rust `app_info`;预览沙箱走
+> `mockBackend.ts` 的同形替身 —— 沙箱全绿不等于发布件署名正确,打包后按 §10 第 3 条核 exe。
+
+## 10. 署名与许可的验收(开源发布前必做)
+
+1. **许可证三件套齐备**:根目录 `LICENSE`(GPL-3.0 全文)、`LICENSE.third-party.txt`
+   (三方清单,与 `src/assets/fonts/*/LICENSE-*.txt` 互指)、`src-tauri/Cargo.toml` 的
+   `license = "GPL-3.0-only"` 与 `tauri.conf.json` 的 `bundle.license` 三处一致。
+2. **署名唯一真源在 Rust**:`src-tauri/src/lib.rs` 的 `AUTHOR / AUTHOR_SINCE / QQ_GROUP /
+   DOUYIN_URL` 是编译期常量,经 `app_info` 命令下发;前端(`src/core/author.ts`)**只读不写**、
+   不留第二份字面量。同一组常量由 `tauri-build` 写进 PE 版本资源(`LegalCopyright` /
+   `CompanyName`),`build.rs` 另把提交号与构建时间烙进 `app_info.build`。
+3. **核发布件**:打包后在 `release\DeepCompose.exe` 里搜得到 `Liumorrow` 与
+   `Copyright © 2026 Liumorrow`(PE 资源段是 UTF-16LE,按宽字节搜)。搜不到 = 这批
+   没带上 B19 的 Rust 改动,别发。
+4. **仓库里不得有密钥**:发布前 `git grep -I -E "sk-[A-Za-z0-9]{16,}"` 必须无命中
+   (API Key 只存在于 `%APPDATA%\com.writerd\writerD\shared_preferences.json`,硬纪律 2)。
+5. **防「去署名再卖」靠结构性锚定**:单文件 exe 的资产可解包,字符串加密是减速带不是防线;
+   真正的约束是 GPL-3.0 的传染性 + 编译期锚定 + 构建烙印可追溯(裁决 D-053)。
 
 > **进程纪律（N-16）**：以上会启动 exe 的脚本，**只允许停"与自己 -Exe 同路径"的实例**，
 > 一律不得按进程名强杀 —— 用户可能同时开着别的 checkout / 安装副本，按名字强杀等于删用户的后台程序。

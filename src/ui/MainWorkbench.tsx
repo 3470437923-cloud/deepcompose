@@ -10,7 +10,7 @@
  * 数据纪律（与存储层同一口径）：写前快照、操作日志、候选未采用不回写、
  * 用户手改是最高权威（回流只出报告，动文字必须过 question）。
  */
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useMaximized } from "./useMaximized";
 import { useDialogFocus } from "./useDialogFocus";
@@ -60,7 +60,11 @@ import {
   type ColdReadPrior,
 } from "../core/ai/coldread";
 import ColdReadPanel, { type ColdPanelState, type ColdRow } from "./ColdReadPanel";
+import { useStreamBatcher } from "./useStreamBatcher";
+import HelpModal from "./HelpModal";
+import WelcomeModal from "./WelcomeModal";
 import type { AgentEvent } from "../core/ai/agent";
+import type { ChatMessage as ChatMessageType } from "../core/ai/protocol";
 import type { QuestionItem } from "../core/tools/exec";
 import { isToolErrorResult } from "../core/tools/exec";
 import {
@@ -160,6 +164,47 @@ export function groupSessions(
   }
   return groups.filter((g) => g.items.length > 0);
 }
+
+/**
+ * 历史消息行(B19:memo 化)。
+ *
+ * 为什么要单独成组件并 memo:流式期间在变的只有 streamText / streamThink / toolLog,
+ * session.messages 里每条旧消息的**对象引用都没变**(只在回合结束时整体替换一次)。
+ * 但旧写法把这段 JSX 摊在主工作台里,于是每帧都要重新 diff 全部历史
+ * (真实最大会话:108 条消息 + 120K 字符思考流 + 171 行工具调用)——
+ * 快捷提示词跑的正是这条最长的流程,主线程被逐帧占满,表现为「偶尔崩溃/无响应」。
+ * 抽成 memo 组件后,流式期间的每次重渲染整段历史子树直接跳过。
+ */
+const ChatMessageRow = memo(function ChatMessageRow({ m }: { m: ChatMessageType }) {
+  if (m.role === "user") {
+    return (
+      <div className="msg user">
+        <div className="bubble">{m.text}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="msg ai">
+      <div className="who">DeepCompose</div>
+      {m.thinking ? <div className="think">{m.thinking}</div> : null}
+      {(m.toolCalls ?? []).map((t) => {
+        // N-42:失败判定走契约结构(isToolErrorResult),不再子串嗅探
+        const bad = isToolErrorResult(t.result);
+        return (
+          <div key={t.callId} className="tool-line">
+            <svg viewBox="0 0 20 20" className="ic ic-14">
+              <path d="M7.5 3.5h-3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3" />
+              <path d="M11.5 8.5l6-6M17.5 5.5v-3h-3" />
+            </svg>
+            {t.name} {bad ? <span className="bad">✕</span> : <span className="ok">✓</span>}
+            {bad ? " " + extractError(t.result ?? "") : ""}
+          </div>
+        );
+      })}
+      {m.text ? <div className="bubble">{m.text}</div> : null}
+    </div>
+  );
+});
 
 /** 目录树默认开合：全部展开，「已处理」归档默认折叠 */
 function defaultTreeFolders(tree: ContentNode[], acc: Record<string, boolean> = {}): Record<string, boolean> {
@@ -313,6 +358,10 @@ export default function MainWorkbench({
 
   // ── 备忘录与应用内对话框 ──
   const [memoOpen, setMemoOpen] = useState(false);
+  /** 使用教程(B19/D-053):标题栏「帮助」入口 */
+  const [helpOpen, setHelpOpen] = useState(false);
+  /** 首启欢迎弹窗:装配完成后按 prefs.welcomeDismissed 决定 */
+  const [welcomeOpen, setWelcomeOpen] = useState(false);
   const [inputReq, setInputReq] = useState<InputRequest | null>(null);
   const [confirmReq, setConfirmReq] = useState<ConfirmRequest | null>(null);
   const [typedReq, setTypedReq] = useState<TypedConfirmRequest | null>(null);
@@ -613,6 +662,9 @@ export default function MainWorkbench({
         setProjects(list);
         setReady(true);
         setStatus(`作品根：${b.dirs.booksRoot}`);
+        // 首启欢迎弹窗(B19/D-053):用户没勾「不再显示」才弹;装配完成才判,
+        // 避免拿默认值在配置读出来之前抢弹一次。
+        setWelcomeOpen(!b.prefs.welcomeDismissed);
         const last = b.prefs.currentNovelProject?.trim();
         if (last) {
           const ref = list.find((p) => p.root.toLowerCase() === last.toLowerCase());
@@ -699,6 +751,13 @@ export default function MainWorkbench({
     const b = currentBoot();
     if (b && b.prefs.panelShowSession !== next) void savePrefs({ ...b.prefs, panelShowSession: next });
   }, [showChat]);
+
+  /** 永久关闭首启弹窗:落 prefs 扩展键 welcome_dismissed(D-053 的 ADR;只写不删) */
+  const dismissWelcome = useCallback(() => {
+    setWelcomeOpen(false);
+    const b = currentBoot();
+    if (b && !b.prefs.welcomeDismissed) void savePrefs({ ...b.prefs, welcomeDismissed: true });
+  }, []);
 
   const openFile = useCallback(
     async (ref: FileRef, kind: FileKind) => {
@@ -948,34 +1007,53 @@ export default function MainWorkbench({
     [],
   );
 
-  const onAgentEvent = useCallback((e: AgentEvent) => {
-    switch (e.type) {
-      case "thinking_delta":
-        setStreamThink((t) => t + e.text);
-        break;
-      case "text_delta":
-        setStreamText((t) => t + e.text);
-        break;
-      case "tool_started":
-        setToolLog((l) => [...l, { name: e.call.name, status: "run" }]);
-        break;
-      case "tool_completed":
-        setToolLog((l) => {
-          const next = [...l];
-          const i = next.findIndex((x) => x.name === e.call.name && x.status === "run");
-          // N-42：失败判定走契约结构（isToolErrorResult），不再子串嗅探
-          const bad = isToolErrorResult(e.call.result);
-          if (i >= 0) next[i] = { name: e.call.name, status: bad ? "bad" : "ok" };
-          return next;
-        });
-        break;
-      case "error":
-        setChatError(e.message);
-        break;
-      default:
-        break;
-    }
-  }, []);
+  /* 流式增量合批(B19 崩溃根因修复):每个 token 一次 setState = 每 token 重渲染
+     整棵工作台(全部历史 + 每条思考块 + 每条工具行),且 `t => t + delta` 每 token
+     复制一遍已流出全文(O(n²) 分配)。快捷词跑的是最长的流程,几万字时主线程被压死,
+     表现为「偶尔崩溃/无响应」。这里改成按帧合流:一帧内几十个 token 只落一次 state。 */
+  const textBatch = useStreamBatcher(useCallback((merged: string) => setStreamText((t) => t + merged), []));
+  const thinkBatch = useStreamBatcher(useCallback((merged: string) => setStreamThink((t) => t + merged), []));
+
+  /* 冷读同理(它是第二条流):增量只进悬浮面板,但 setState 挂在本组件上,
+     每 token 一次同样会重渲染整棵树。这里合批到每帧一次。 */
+  const coldBatch = useStreamBatcher(
+    useCallback((merged: string) => setCold((c) => (c ? { ...c, streaming: c.streaming + merged } : c)), []),
+  );
+
+  const onAgentEvent = useCallback(
+    (e: AgentEvent) => {
+      switch (e.type) {
+        case "thinking_delta":
+          thinkBatch.push(e.text);
+          break;
+        case "text_delta":
+          textBatch.push(e.text);
+          break;
+        case "tool_started":
+          setToolLog((l) => [...l, { name: e.call.name, status: "run" }]);
+          break;
+        case "tool_completed":
+          setToolLog((l) => {
+            const next = [...l];
+            const i = next.findIndex((x) => x.name === e.call.name && x.status === "run");
+            // N-42:失败判定走契约结构(isToolErrorResult),不再子串嗅探
+            const bad = isToolErrorResult(e.call.result);
+            if (i >= 0) next[i] = { name: e.call.name, status: bad ? "bad" : "ok" };
+            return next;
+          });
+          break;
+        case "error":
+          // 报错/中止先把本帧缓冲落地:已流出的内容必须可见,不能留在缓冲里等下一帧
+          textBatch.flush();
+          thinkBatch.flush();
+          setChatError(e.message);
+          break;
+        default:
+          break;
+      }
+    },
+    [textBatch, thinkBatch],
+  );
 
   /** 重载作品索引（保留用户的文件夹开合，新目录按默认规则） */
   const refreshProject = useCallback(async () => {
@@ -1292,6 +1370,8 @@ export default function MainWorkbench({
       setBusy(true);
       setChatError(null);
       setTruncNote(null);
+      textBatch.drop(); // 先丢缓冲再清 state:否则上一帧的残量会追加在空串之后
+      thinkBatch.drop();
       setStreamText("");
       setStreamThink("");
       setToolLog([]);
@@ -1356,13 +1436,17 @@ export default function MainWorkbench({
       } finally {
         busyRef.current = false;
         setBusy(false);
+        // 回合收尾:正文已由 res.session 的 assistant 消息完整接管显示,缓冲里的
+        // 残量必须丢弃而不是落地(否则会追加在刚清空的流式区之后)。
+        textBatch.drop();
+        thinkBatch.drop();
         setStreamText("");
         setStreamThink("");
         setToolLog([]);
         void drainReflow(); // 生成槽空出后排空待跑回流
       }
     },
-    [session, project, transport, onAgentEvent, askQuestions, refreshSessions, drainReflow, thinkLevel, confirmExternal],
+    [session, project, transport, onAgentEvent, textBatch, thinkBatch, askQuestions, refreshSessions, drainReflow, thinkLevel, confirmExternal],
   );
 
   const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
@@ -1532,10 +1616,11 @@ export default function MainWorkbench({
     setBusy(true);
     const signal = { aborted: false };
     abortRef.current = signal; // 主界面「停止生成」同样能停掉冷读
+    coldBatch.drop(); // 残量会在清空后被追加回去,必须先丢
     setCold((c) => (c ? { ...c, phase: "running", streaming: "", error: null, rows: [], leftover: "", noIssues: false, note: "" } : c));
     // 冷读专用事件通道：只把正文增量推进面板，不喂主聊天的 streamText/toolLog
     const onColdEvent = (e: AgentEvent) => {
-      if (e.type === "text_delta") setCold((c) => (c ? { ...c, streaming: c.streaming + e.text } : c));
+      if (e.type === "text_delta") coldBatch.push(e.text);
     };
     try {
       const res = await sendIsolated({
@@ -1550,6 +1635,7 @@ export default function MainWorkbench({
         signal,
         thinking: thinkLevel, // D-014：冷读跟随会话级思考档位
       });
+      coldBatch.drop(); // 面板改为显示解析后的清单,流式缓冲不再需要
       const aiText =
         [...res.session.messages].reverse().find((m) => m.role === "assistant")?.text ?? "";
       const parsed = parseColdReadIssues(aiText, cur.channel);
@@ -1967,6 +2053,13 @@ export default function MainWorkbench({
               <path d="M6.6 7h6.8M6.6 10.2h6.8M6.6 13.4h4" />
             </svg>
           </button>
+            <button className="tb-btn" title="使用教程(按功能分类的软件说明书)" aria-label="使用教程" onClick={() => setHelpOpen(true)}>
+              <svg viewBox="0 0 20 20" className="ic">
+                <circle cx="10" cy="10" r="7" />
+                <path d="M8.2 8.2a1.9 1.9 0 1 1 3.2 1.3c-.6.5-1.4.8-1.4 1.7" />
+                <circle cx="10" cy="14.1" r="0.75" fill="currentColor" stroke="none" />
+              </svg>
+            </button>
         </div>
 
         <div className="win-tools">
@@ -2496,33 +2589,9 @@ export default function MainWorkbench({
                   drainReflow 只置 busy 不设会话 —— 此时 hasMessages 因 busy 成立，
                   旧代码 `session!.messages` 直接 TypeError 卸载整棵树（白屏）。
                   空会话就渲染空气泡区，打字指示照常工作。 */}
-              {(session?.messages ?? []).map((m) =>
-                m.role === "user" ? (
-                  <div key={m.id} className="msg user">
-                    <div className="bubble">{m.text}</div>
-                  </div>
-                ) : (
-                  <div key={m.id} className="msg ai">
-                    <div className="who">DeepCompose</div>
-                    {m.thinking ? <div className="think">{m.thinking}</div> : null}
-                    {(m.toolCalls ?? []).map((t) => {
-                      // N-42：失败判定走契约结构（isToolErrorResult），不再子串嗅探
-                      const bad = isToolErrorResult(t.result);
-                      return (
-                        <div key={t.callId} className="tool-line">
-                          <svg viewBox="0 0 20 20" className="ic ic-14">
-                            <path d="M7.5 3.5h-3a1 1 0 0 0-1 1v11a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1v-3" />
-                            <path d="M11.5 8.5l6-6M17.5 5.5v-3h-3" />
-                          </svg>
-                          {t.name} {bad ? <span className="bad">✕</span> : <span className="ok">✓</span>}
-                          {bad ? " " + extractError(t.result ?? "") : ""}
-                        </div>
-                      );
-                    })}
-                    {m.text ? <div className="bubble">{m.text}</div> : null}
-                  </div>
-                ),
-              )}
+              {(session?.messages ?? []).map((m) => (
+                  <ChatMessageRow key={m.id} m={m} />
+                ))}
               {toolLog.map((t, i) => (
                 <div key={`live-${i}`} className="tool-line">
                   <svg viewBox="0 0 20 20" className="ic ic-14">
@@ -2857,6 +2926,21 @@ export default function MainWorkbench({
       <NewBookWizard open={newBookOpen} onCancel={() => setNewBookOpen(false)} onCreate={createBook} />
 
       {/* 追踪模块管理（B8：启用/停用 + 中途建仓） */}
+      {/* 使用教程(B19/D-053):标题栏「帮助」打开;同一份内容也内嵌在设置屏「帮助」分页 */}
+      <HelpModal open={helpOpen} onClose={() => setHelpOpen(false)} onStatus={setStatus} />
+
+      {/* 首启欢迎弹窗(B19/D-053):logo + 作者声明 + 抖音入口 + QQ 群,可永久关闭 */}
+      <WelcomeModal
+        open={welcomeOpen}
+        onClose={() => setWelcomeOpen(false)}
+        onNeverShow={dismissWelcome}
+        onHelp={() => {
+          setWelcomeOpen(false);
+          setHelpOpen(true);
+        }}
+        onStatus={setStatus}
+      />
+
       <ModulesDialog
         open={modulesOpen}
         onClose={() => setModulesOpen(false)}

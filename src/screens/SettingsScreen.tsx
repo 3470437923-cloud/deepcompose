@@ -1,7 +1,7 @@
 /**
  * 设置屏 —— DeepCompose「付印单」实色版。
  *
- * 结构：左侧实色导航（6 项：AI 提供商 / Skill / 参数 / 主题 / 数据 / 关于）
+ * 结构:左侧实色导航(7 项:AI 提供商 / Skill / 参数 / 主题 / 数据 / 使用教程 / 关于)
  * + 右侧实色内容区（分组卡片）。
  * 主题页两套主题：曜石黑（dark）/ 晨雾白（light）（dsblue 已于 2026-10-06 撤下，
  * 用户裁决：只留黑白两色，黑白灰极简），外加强调色色板与字号调节
@@ -23,6 +23,8 @@ import { useMaximized } from "../ui/useMaximized";
 import { useDialogFocus } from "../ui/useDialogFocus";
 import { pushEsc } from "../ui/escStack";
 import logo from "../assets/logo.png";
+import { HelpTopics } from "../ui/HelpModal";
+import { DOUYIN_LABEL, QQ_LABEL, authorStatement, openAuthorPage } from "../core/author";
 import { applyAccentFromPrefs, currentBoot, savePrefs } from "../core/app";
 import { ConfirmDialog, type ConfirmRequest } from "../ui/Dialogs";
 import { fetchModels, filterModelOptions } from "../core/ai/models";
@@ -49,7 +51,7 @@ import {
   type ThemeMode,
 } from "../core/prefs";
 
-type NavSection = "provider" | "skill" | "params" | "theme" | "data" | "about";
+type NavSection = "provider" | "skill" | "params" | "theme" | "data" | "help" | "about";
 
 /** 强调色色板（2026-10-06 起全灰阶，用户裁决「黑白灰极简」）：
  *  0 = 跟随主题（暗色主题近白墨、浅色主题近黑墨；解析与应用在 core/app.ts） */
@@ -403,6 +405,16 @@ export default function SettingsScreen({ onBack }: Props) {
       ),
     },
     {
+      key: "help",
+      label: "使用教程",
+      icon: (
+        <svg viewBox="0 0 20 20" className="ic">
+          <path d="M3.4 3.6h5.1c.9 0 1.5.6 1.5 1.4v10c0-.7-.6-1.2-1.4-1.2H3.4z" />
+          <path d="M16.6 3.6h-5.1c-.9 0-1.5.6-1.5 1.4v10c0-.7.6-1.2 1.4-1.2h5.2z" />
+        </svg>
+      ),
+    },
+    {
       key: "about",
       label: "关于",
       icon: (
@@ -541,6 +553,7 @@ export default function SettingsScreen({ onBack }: Props) {
                 onReset={handleResetSync}
               />
             )}
+              {section === "help" && <HelpTopics compact onStatus={setFlash} />}
             {section === "about" && <AboutSection />}
           </div>
         </div>
@@ -1632,15 +1645,26 @@ function DataSection({
   );
 }
 
-/* ── 关于分节（名称与版本取自 Rust 侧 app_info，与产物永远一致） ── */
+/** Rust app_info 的完整形态(名称/版本之外,B19 起还带署名、社群与构建烙印;预览沙箱同形) */
+interface AppInfoFull {
+  name: string;
+  version: string;
+  author?: string;
+  copyright?: string;
+  qqGroup?: string;
+  douyinUrl?: string;
+  build?: string;
+}
+
+/* ── 关于分节(名称/版本/署名与社群均取自 Rust 侧 app_info,与产物永远一致;B19/D-053) ── */
 function AboutSection() {
   const boot = currentBoot();
-  const [info, setInfo] = useState<{ name: string; version: string } | null>(null);
+  const [info, setInfo] = useState<AppInfoFull | null>(null);
 
   // 预览沙箱未实现 app_info（替身返回 null）：回落常量，界面不出现空洞
   useEffect(() => {
     let alive = true;
-    void invoke<{ name: string; version: string } | null>("app_info")
+    void invoke<AppInfoFull | null>("app_info")
       .then((i) => {
         if (alive) setInfo(i);
       })
@@ -1653,6 +1677,23 @@ function AboutSection() {
   }, []);
 
   /** 打开目录（失败静默：关于页的入口不该弹错误） */
+  const [authorNote, setAuthorNote] = useState("");
+  /** 打开作者主页(Rust open_url;失败如实回显,不静默) */
+  const openAuthor = async () => {
+    const err = await openAuthorPage(info?.douyinUrl ?? "");
+    setAuthorNote(err ? "打开失败:" + err : "已在系统浏览器打开作者主页");
+  };
+  const copyGroup = async () => {
+    const qq = info?.qqGroup ?? "";
+    if (!qq) return;
+    try {
+      await navigator.clipboard.writeText(qq);
+      setAuthorNote("QQ 群号已复制:" + qq);
+    } catch {
+      setAuthorNote("复制失败,群号可直接选中复制:" + qq);
+    }
+  };
+
   const openDir = async (path?: string) => {
     if (!path) return;
     try {
@@ -1668,8 +1709,40 @@ function AboutSection() {
         <div className="a-about-logo"><img src={logo} alt="" /></div>
         <h2>{info?.name || "DeepCompose"}</h2>
         <span className="a-version">版本 {info?.version || "1.1.0"}</span>
+          {info?.author ? <span className="author-name">作者 {info.author}</span> : null}
+          {info?.build ? <span className="a-build">构建 {info.build}</span> : null}
         <p>你的 AI 小说写作助手</p>
       </div>
+
+        <div className="a-card">
+          <div className="a-card-head">
+            <span className="a-card-title">作者与社群</span>
+          </div>
+          <div className="a-card-desc">
+            {info?.author ? authorStatement(info.author) : "作者信息未取得(检查产物是否完整)。"}
+          </div>
+          {info?.qqGroup ? (
+            <div className="a-group">
+              <span className="a-card-title">{QQ_LABEL}</span>
+              <span className="a-qq">{info.qqGroup}</span>
+              <button className="btn btn-quiet a-copy" onClick={() => void copyGroup()}>复制群号</button>
+            </div>
+          ) : null}
+          <button className="a-list-row" onClick={() => void openAuthor()} disabled={!info?.douyinUrl}>
+            <span>{DOUYIN_LABEL}</span>
+            <em>›</em>
+          </button>
+          {authorNote ? (
+            <div className="a-card-desc" role="status">
+              {authorNote}
+            </div>
+          ) : null}
+          {info?.copyright ? (
+            <div className="a-card-desc">
+              {info.copyright} · 本软件以 GPL-3.0 发布,再分发须保留本署名。
+            </div>
+          ) : null}
+        </div>
 
       <div className="a-card">
         <div className="a-card-head">

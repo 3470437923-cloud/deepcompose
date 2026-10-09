@@ -105,6 +105,8 @@ export interface Prefs {
   activeApiProfile: string;
   /** 平台选择提示已关闭（DeepCompose 扩展键 `platform_notice_dismissed`；D-022 的「不再提示」） */
   platformNoticeDismissed: boolean;
+  /** 首启弹窗永久关闭（DeepCompose 扩展键 `welcome_dismissed`；2026-10-06 新增，弹窗左下「永久关闭」落点） */
+  welcomeDismissed: boolean;
   /** 闲置时停下游动（DeepCompose 扩展键 `whale_idle_pause`；默认开，D-030） */
   whaleIdlePause: boolean;
   systemPrompt: string;
@@ -179,6 +181,7 @@ export const DEFAULT_PREFS: Prefs = {
   savedProviders: [],
   activeApiProfile: "",
   platformNoticeDismissed: false,
+  welcomeDismissed: false,
   whaleIdlePause: true,
   systemPrompt: DEFAULT_SYSTEM_PROMPT,
   reservedOutputTokens: 16000,
@@ -229,6 +232,7 @@ const KEY_MAP: Record<keyof Prefs, string> = {
   savedProviders: "saved_providers",
   activeApiProfile: "active_api_profile", // DeepCompose 扩展键（既有格式无此键，见 DECISIONS D-007）
   platformNoticeDismissed: "platform_notice_dismissed", // DeepCompose 扩展键（D-027）
+  welcomeDismissed: "welcome_dismissed", // DeepCompose 扩展键（2026-10-06 首启弹窗，D-053）
   whaleIdlePause: "whale_idle_pause", // DeepCompose 扩展键（D-030）
   systemPrompt: "system_prompt",
   reservedOutputTokens: "reserved_output_tokens",
@@ -421,6 +425,7 @@ export function parsePrefs(text: string): Prefs {
   );
   p.activeApiProfile = asString(get("activeApiProfile"), p.activeApiProfile);
   p.platformNoticeDismissed = asBool(get("platformNoticeDismissed"), p.platformNoticeDismissed);
+  p.welcomeDismissed = asBool(get("welcomeDismissed"), p.welcomeDismissed);
   p.whaleIdlePause = asBool(get("whaleIdlePause"), p.whaleIdlePause);
   p.systemPrompt = asString(get("systemPrompt"), p.systemPrompt);
   p.reservedOutputTokens = asNumber(get("reservedOutputTokens"), p.reservedOutputTokens);

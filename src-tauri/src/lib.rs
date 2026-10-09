@@ -8,20 +8,39 @@ mod fs;
 mod sys;
 mod winstate;
 
-/// 应用身份信息（名称 + 版本），供设置屏「关于」分节展示。
-/// 版本取自 Cargo.toml（env! 编译期注入），保证界面显示与产物版本永远一致。
+/// 应用身份信息(名称 + 版本 + 署名与社群),供设置屏「关于」、首启弹窗、使用教程共同读取。
+/// 版本与署名都是编译期常量(B19/D-053 的结构锚定):Rust 侧是唯一权威源,前端只读不写;
+/// 同一组常量由 build.rs 写进 PE 版本资源(LegalCopyright / Comments),于是任何未改源码的
+/// 再分发都会在用户自己的机器上替作者留名。改署名要重编 Rust,改不动前端就行不通。
 #[derive(Serialize, Clone)]
 pub struct AppInfo {
     pub name: String,
     pub version: String,
+    pub author: String,
+    pub copyright: String,
+    pub qq_group: String,
+    /// 作者抖音主页(https;open_url 只放行 https)
+    pub douyin_url: String,
+    /// 构建烙印:提交号 + 构建时间(由 build.rs 注入;git 不可用时提交号为空)
+    pub build: String,
 }
 
+/// 署名与社群的唯一真源(与前端 src/core/author.ts 内容一致;改动须两边同批改并记 ADR)。
+pub const AUTHOR: &str = "Liumorrow";
+pub const AUTHOR_SINCE: &str = "2026";
+pub const QQ_GROUP: &str = "1071188925";
+pub const DOUYIN_URL: &str = "https://v.douyin.com/cKG2h8pU1IM/";
 #[tauri::command]
 fn app_info() -> AppInfo {
     AppInfo {
-        // 「关于」面板显示的名字：与 productName / 产物 / crate 名保持同一代际
+        // 「关于」面板显示的名字:与 productName / 产物 / crate 名保持同一代际
         name: "DeepCompose".into(),
         version: env!("CARGO_PKG_VERSION").into(),
+        author: AUTHOR.into(),
+        copyright: format!("Copyright © {} {}", AUTHOR_SINCE, AUTHOR),
+        qq_group: QQ_GROUP.into(),
+        douyin_url: DOUYIN_URL.into(),
+        build: format!("{} @ {}", env!("DC_BUILD_COMMIT"), env!("DC_BUILD_TIME")),
     }
 }
 
@@ -36,6 +55,7 @@ pub fn run() {
             sys::prefs_load,
             sys::prefs_save,
             sys::open_dir,
+            sys::open_url,
             fs::fs_read_text,
             fs::fs_write_text,
             fs::fs_append_text,

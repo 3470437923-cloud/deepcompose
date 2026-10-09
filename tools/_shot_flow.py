@@ -9,7 +9,8 @@ _contrast_audit.py / _style_audit.py 都从这里 import CDP、FLOWS、run_flow
 docs/DEVELOPMENT.md）；pip install websocket-client。
 
 用法：
-    python tools/_shot_flow.py --out shots/_tmp --label chat --themes dsblue --flows chat
+    python tools/_shot_flow.py --out shots/_tmp --label chat --themes dark --flows chat
+    (welcome 流程需要 URL 带 ?welcome=1,用 --query welcome=1 传)
 
 已知坑：
     - FLOWS 里的选择器钉死了 mockBackend 的预置文案（会话标题
@@ -45,19 +46,31 @@ FLOWS = {
     # 设置 → 主题分节（看主题卡与色板）
     "theme": [
         (".wbtn", 0.6),
-        (".a-nav-item:nth-of-type(4)", 0.6),
+        ("__nav__:主题", 0.6),
     ],
     # 设置 → 参数分节（看表单控件：输入井/开关/滑杆/分段）
     "params": [
         (".wbtn", 0.6),
-        (".a-nav-item:nth-of-type(3)", 0.6),
+        ("__nav__:参数", 0.6),
     ],
-    # 设置 → 关于（看 hero 与版本行）。A-1：about 是第 6 项，旧序号 7
-    # 不匹配任何导航项，所有 about 截图静默停在 provider 页。
+    # A-1 教训 x2:写死 nth-of-type 的序号是位置耦合 —— B19 插入「使用教程」后
+    # about 变第 7 项,旧序号会静默测错视图;现在按文本点(__nav__)。
     "about": [
         (".wbtn", 0.6),
-        (".a-nav-item:nth-of-type(6)", 0.6),
+        ("__nav__:关于", 0.6),
     ],
+    # 设置 → 使用教程分页（B19/D-053：与帮助弹层同一份 core/help.ts 的内嵌形态）
+    "settings-help": [
+        (".wbtn", 0.6),
+        ("__nav__:使用教程", 0.6),
+    ],
+    # 标题栏「帮助」弹层（B19：分类导航 + 正文 + 页脚署名）
+    "help": [
+        ('.tb-btn[aria-label="使用教程"]', 0.8),
+    ],
+    # 首启欢迎弹窗（B19/D-053：需要 ?welcome=1，否则 mockBackend 视为已「不再显示」；
+    # 本流程自身不点击，弹窗随页面加载出现）
+    "welcome": [],
     # 真实发一条 → 等流式生成跑起来（看 .streaming 的边缘光晕与三点指示）
     "stream": [
         ("__focus_composer__", 0.3),
@@ -83,6 +96,21 @@ JS_CLICK_TEXT = """
   const el = els.find((e) => (e.textContent || "").trim().includes(text));
   if (!el) return "miss:" + sel + "|" + text;
   el.scrollIntoView({block: "nearest"});
+  el.click();
+  return "ok";
+})()
+"""
+
+# 按文本点设置屏导航(参数形如 "使用教程|AI 提供商")。
+# 为什么不用 .a-nav-item:nth-of-type(N):序号是**位置耦合** —— B19 在「数据」与
+# 「关于」之间插入「使用教程」后,所有写死 nth-of-type(6) 的 about 取证静默落在
+# 帮助页上(A-1 的同型事故第二次发生)。文本才是稳定契约。
+JS_NAV_TEXT = """
+(() => {
+  const want = %s;
+  const els = [...document.querySelectorAll(".a-nav-item")];
+  const el = els.find((e) => (e.textContent || "").trim() === want);
+  if (!el) return "miss:" + want;
   el.click();
   return "ok";
 })()
@@ -187,6 +215,8 @@ def run_flow(c, steps, verbose):
             res = c.eval(JS_FOCUS_COMPOSER)
         elif sel.startswith("__type__:"):
             res = c.eval(JS_TYPE % json.dumps(sel[len("__type__:"):]))
+        elif sel.startswith("__nav__:"):
+            res = c.eval(JS_NAV_TEXT % json.dumps(sel[len("__nav__:"):]))
         elif sel.startswith("__text__:"):
             spec = sel[len("__text__:"):].split("|", 1)
             res = c.eval(JS_CLICK_TEXT % json.dumps(spec))
@@ -207,6 +237,11 @@ def main():
     ap.add_argument("--size", default="1600x1000")
     ap.add_argument("--flows", default="chat")
     ap.add_argument("--min-text", type=int, default=60)
+    ap.add_argument(
+        "--query",
+        default="",
+        help="extra URL query for preview.html, e.g. welcome=1 (首启弹窗验收)",
+    )
     ap.add_argument(
         "--emulate",
         default="",
@@ -238,7 +273,8 @@ def main():
                 mobile=False,
             )
             c.cmd("Emulation.setEmulatedMedia", features=features)
-            c.cmd("Page.navigate", url="%s/preview.html?theme=%s" % (args.base, theme))
+            c.cmd("Page.navigate", url="%s/preview.html?theme=%s%s" % (
+                args.base, theme, ("&" + args.query) if args.query else ""))
             if not c.wait_ready(min_text=args.min_text):
                 print("FAIL %s/%s -> 页面未渲染" % (theme, flow))
                 ok = False

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import MainWorkbench from "./ui/MainWorkbench";
 import SettingsScreen from "./screens/SettingsScreen";
+import ErrorBoundary from "./ui/ErrorBoundary";
 import { pushEsc } from "./ui/escStack";
 
 type View = "main" | "settings";
@@ -43,7 +44,9 @@ export default function App() {
   return (
     <div className="app-shell">
       {view === "settings" ? (
-        <SettingsScreen onBack={() => go("main")} />
+        <ErrorBoundary label="设置">
+          <SettingsScreen onBack={() => go("main")} />
+        </ErrorBoundary>
       ) : null}
       {/* N-05：主工作台**常驻挂载**——进设置只隐藏不卸载。旧实现条件渲染切屏，
           MainWorkbench 整棵卸载，未落盘的编辑稿、进行中的生成/回流、会话级思考档位
@@ -52,7 +55,9 @@ export default function App() {
           代价与对策：全局按键监听挂 suspended 闸；存储路径变更由 onBootReplaced
           通知主工作台重新装配（见 MainWorkbench 的 assembleTick）。 */}
       <div style={{ display: view === "settings" ? "none" : "contents" }}>
-        <MainWorkbench suspended={view === "settings"} onOpenSettings={() => go("settings")} />
+        <ErrorBoundary label="主界面">
+          <MainWorkbench suspended={view === "settings"} onOpenSettings={() => go("settings")} />
+        </ErrorBoundary>
       </div>
     </div>
   );

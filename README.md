@@ -29,7 +29,7 @@
 | 追踪模块管理 | 作品菜单「追踪模块…」：启用/停用写 00 的「启用模块」行；启用而文件未建可发起**建仓**（AI 分段读取重构，产物先落 `待确认\` 过目） |
 | 操作日志 | 每个用户操作（打开/编辑/保存/采用/冷读/回流…）落盘 `writerd_oplog\log.jsonl`，既是学习原料也可追溯 |
 | AI 三态模式 | 输入框内切换只读/写作/开发：只读=AI 只能读；写作=只能改正文与候选、不动小说资料；开发=完全权限。默认开发、不持久化；非开发模式下采用门与回流跳弹窗提示 |
-| AI 对话 | 流式正文与思考渲染、工具调用行内展示、**停止生成（真中断上游连接）**、会话按日分组；回流跑在后台专属会话，不打断当前对话；**截断自动续写**（撞 max_tokens 自动「继续」拼成一整条，至多 3 程）与**瞬时错误自动重试**（429/5xx/断流，空回合退避重试 2 次） |
+| AI 对话 | 流式正文与思考渲染、工具调用行内展示、**停止生成（真中断上游连接）**、会话按日分组；回流跑在后台专属会话，不打断当前对话；**截断自动续写**（撞 max_tokens 自动「继续」拼成一整条，至多 3 程）与**瞬时错误自动重试**（429/5xx/断流，空回合退避重试 2 次）；**流式每帧合批渲染**（正文/思考/冷读增量每帧一次 setState、历史消息行 memo、渲染抛错降级为可读面板不白屏,B19 崩溃修复） |
 | 工具调用 | `file_read` / `file_write` / `file_manage` / `create_project` / `question` / `skill_lookup`；写入前自动落快照 |
 | 技能系统 | `SKILL.md` 三级渐进加载；内置技能（5 个：novel-writer / novel-deslop / novel-structure-quality-coordinator / skill-creator / token-optimizer）随应用发布，首次启动自动释放到技能目录（只补缺失、不覆盖用户改过的副本，见 `docs/DECISIONS.md` D-037），首次扫描默认全部开启 |
 | 上下文压缩 | 超阈值把旧对话压成摘要，只影响发给模型的请求序列，**不删聊天记录** |
@@ -38,7 +38,8 @@
 | 编辑器快捷键 | 编辑器底部一行：复制全文（常显）/ 剪切全文 / 选中全文 / 粘贴（后三者仅可编辑态出现） |
 | 作品删除 | **两段式**：先「移入回收站」（可还原，同时删除该作品的会话），再「彻底删除」/「清空回收站」；四道安全门按结构保证（见 `docs/DECISIONS.md` D-001–D-003、D-032） |
 | 用量与余额 | 标题栏「用量」按键 + 面板：今日 token 汇总、本次会话累计、闲时/忙时倒计时、账户余额；统计数据落 `usage_stats.json`（只加不减，90 天滚动） |
-| 设置 | AI 提供商（**DeepSeek 官方 / 硅基流动 / 自定义**，Base URL 内置可改；每个「名称 + URL + Key」可具名保存并一键切换；OpenAI / Anthropic 双协议、模型清单检测 + **只能点选**的模型选择框 `ModelSelect`，不支持手填）、思考档位、参数、Skill 开关、**两套主题（曜石黑/晨雾白）+ 灰阶强调色（默认跟随主题）** + 字号、**存储位置更改/打开**、数据概览、关于（名称版本取自产物） |
+| 帮助与署名 | 标题栏「帮助」→ 使用教程弹层（与设置屏「使用教程」分页同一份内容 `core/help.ts`，只讲已实现能力）；首启欢迎弹窗（「不再显示」落 `welcome_dismissed`，已读纪律与 D-030 同款）；作者/QQ 群/抖音在关于页、帮助页脚、欢迎窗三处同源，唯一真源在 Rust `app_info` 编译期常量（前端只读不写）；同一组常量由 `build.rs` 写进 PE 版本资源，构建烙印（提交号@构建时间）随 `app_info.build` 下发（B19 / D-053） |
+| 设置 | AI 提供商（**DeepSeek 官方 / 硅基流动 / 自定义**，Base URL 内置可改；每个「名称 + URL + Key」可具名保存并一键切换；OpenAI / Anthropic 双协议、模型清单检测 + **只能点选**的模型选择框 `ModelSelect`，不支持手填）、思考档位、参数、Skill 开关、**两套主题（曜石黑/晨雾白）+ 灰阶强调色（默认跟随主题）** + 字号、**存储位置更改/打开**、数据概览、**使用教程**、关于（名称版本取自产物；作者卡与构建烙印取自 Rust `app_info`） |
 
 ## 快速开始
 
@@ -65,15 +66,15 @@ DeepCompose/
 ├─ src/
 │  ├─ App.tsx                应用外壳（主界面 ⇄ 设置屏两屏切换）
 │  ├─ core/                  核心层（纯逻辑，可单测）
-│  │  ├─ app.ts dirs.ts fsbridge.ts ids.ts prefs.ts
+│  │  ├─ app.ts dirs.ts fsbridge.ts ids.ts prefs.ts author.ts help.ts
 │  │  ├─ ai/                 protocol agent controller prompt transport compress reflow coldread errors models platforms profiles thinking balance
 │  │  ├─ store/              project templates status tracking style chapter markdown manifest snapshot session memo recycle names oplog
 │  │  │                        xigang（细纲栏目）pairedDiff（配对对照）ledger（规则台账）docschema（写入落点校验）doctable（表格视图解析）onboarding
 │  │  ├─ skills/             registry scan
 │  │  ├─ usage/              stats peak persist view
 │  │  └─ tools/              spec exec pathGuard
-│  ├─ ui/                    MainWorkbench / MemoModal / Dialogs / RecycleBin / TitlebarWhale / UsagePanel / DocTable / ModulesDialog / NewBookWizard / motion / useMaximized / useDialogFocus
-│  ├─ screens/               SettingsScreen（6 分页）
+│  ├─ ui/                    MainWorkbench / ColdReadPanel / MemoModal / Dialogs / RecycleBin / TitlebarUsage / UsagePanel / DocTable / ModulesDialog / NewBookWizard / QuickPromptBar / HelpModal / WelcomeModal / ErrorBoundary / motion / useMaximized / useDialogFocus / useStreamBatcher
+│  ├─ screens/               SettingsScreen（7 分页）
 │  ├─ preview/               dev-only 浏览器预览沙箱（内存文件系统替身）
 │  └─ styles/                tokens.css（主题令牌）/ surface.css（材质）/ app.css（布局）/ fonts.css
 ├─ src-tauri/src/            sys.rs（目录与配置）fs.rs（文件桥）ai.rs（流式转发 + 中断）winstate.rs（窗口几何）

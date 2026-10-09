@@ -237,6 +237,17 @@ describe("往返与容错回归锁（审计补强）", () => {
     expect(parsePrefs("{}").whaleIdlePause).toBe(true);
     expect(parsePrefs(JSON.stringify({ "flutter.whale_idle_pause": "no" })).whaleIdlePause).toBe(true);
   });
+  it("welcome_dismissed 可往返(D-053 新增键:缺失/类型不符回落 false —— 默认会弹首启欢迎窗)", () => {
+    const p = parsePrefs(JSON.stringify({ "flutter.welcome_dismissed": true }));
+    expect(p.welcomeDismissed).toBe(true);
+    expect(parsePrefs(serializePrefs(p)).welcomeDismissed).toBe(true);
+    // 老配置没有这个键 → 默认 false(第一次启动要见到欢迎窗)
+    expect(parsePrefs("{}").welcomeDismissed).toBe(false);
+    expect(parsePrefs(REAL_SHAPE).welcomeDismissed).toBe(false);
+    expect(parsePrefs(JSON.stringify({ "flutter.welcome_dismissed": "yes" })).welcomeDismissed).toBe(false);
+    // 写出的键名逐字(snake_case + flutter. 前缀,与既有扩展键同一口径)
+    expect(serializePrefs({ ...DEFAULT_PREFS, welcomeDismissed: true })).toContain('"flutter.welcome_dismissed":true');
+  });
 });
 
 describe("供应商平台与具名配置（DeepCompose 扩展，DECISIONS D-006 / D-007）", () => {

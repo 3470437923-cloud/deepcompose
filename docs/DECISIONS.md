@@ -109,6 +109,10 @@
 
 | D-052 | **品牌面黑白灰化（2026-10-06 用户裁决）**：① logo 全面替换为灰阶「鲸 + 纸笔」圆徽（`src/assets/logo.png` 透明底 512² + `src-tauri/icons` 全量经 `tauri icon` 重生成）；② DS 蓝主题撤下，只留 曜石黑/晨雾白 两套——旧配置里的 `theme_mode: dsblue` 在 parsePrefs 迁移为 `dark`（它本身是暗色主题）；③ 强调色默认改「跟随主题」黑白墨（`customAccentColor = 0` 哨兵：暗色主题近白 #E9ECF2、浅色主题近黑 #14171B；`--on-accent` 按亮度翻转），设置页色板全灰阶；旧默认色（DS 蓝 / 2.x 紫罗兰）解析时迁移为 0（它们是默认值而非刻意选择）。功能色（ok/bad/warn/close-hover）保留——它们承载语义反馈，不是装饰 | 用户口头裁决（"把软件logo全面替换为这个…删除ds蓝，只留黑白两色，黑色主题的所有内容都要黑白灰极简风，白色也是"）。回归锁 tests/core/prefs.test.ts（dsblue→dark 迁移、ACCENT_AUTO 默认与旧默认迁移、灰阶自选不被动） |
 
+| D-053 | **帮助与作者署名(2026-10-08 用户裁决)**:① 内置「使用教程」—— 标题栏左上加「帮助」按键 + 设置屏导航第 7 项「使用教程」,同一份内容(`core/help.ts` 的 `HELP_TOPICS`),只讲已实现能力,不含「后续会有」;② 首启欢迎弹窗(logo + 作者声明 + 抖音入口 + QQ 群,左下「不再显示」落 `welcome_dismissed`,已读与 D-030 同一纪律);③ 作者/群号/抖音在关于页、帮助页脚、欢迎窗三处同源,**一律从 Rust `app_info` 下发**(`lib.rs` 的 `AUTHOR/QQ_GROUP/DOUYIN_URL` 是编译期常量,前端只读不写);同一组常量由 build.rs 写进 PE 版本资源 `LegalCopyright`;④ 开源许可 = **GPL-3.0**(仓库补 `LICENSE` 全文 + `LICENSE.third-party.txt` 三方许可清单;`tauri.conf.json` 的 `bundle.license` 同步)——防「去署名再卖」靠许可证与编译期锚定,不靠字符串加密(单文件 exe 的资产可解包,加密是减速带不是防线);**不做**隐蔽提示词陷阱(会进入付费用户的合法请求、且违反「AI 永不静默改写用户稿」) | 用户裁决(「多层加密/注入提示词攻击」经实测说明后改选结构性锚定)。回归锁 `tests/core/author.test.ts`(作者信息形态校验);`tests/ui/streamBatcher.test.ts` 见 D-054 |
+
+| D-054 | **流式渲染崩溃修复(B19)**:真实最大会话 108 条消息 / 171 个工具调用 / 120K 字符思考流,每个 token 触发一次 `setState` → 每次重渲染都要整树 diff(含全部历史消息与思考块),且 `t => t + delta` 每 token 复制一次全文(O(n²));实测(预览沙箱 + 头less Edge CDP 9223,`tools/_qp_stress_probe.py`):35 消息/25 工具行的小场景就已 51ms 长任务、13 帧 >33ms —— 快捷词跑的正是最长流程(novel-writer 整章),主线程被占满表现「偶发崩溃」。修复:① `useStreamBatcher` 把正文/思考/冷读三条流的增量合批到每帧一次(`requestAnimationFrame`),附 `flush/drop/dispose` 时序契约(报错前必 flush、清 state 前必 drop、卸载 dispose);② 历史消息行抽成 `ChatMessageRow` 并 `memo`(流式期间旧消息对象引用不变,子树直接跳过);③ 主界面与设置屏各挂一座 `ErrorBoundary`(此前全项目没有,渲染期抛错会整树白屏)—— 降级为可读面板 + 「重新载入」。实测 A/B:修复后同一场景长任务归零、worstGap 33.3ms | 回归锁 `tests/ui/streamBatcher.test.ts`(7 例:合批/逐帧增量/空串/flush/drop/dispose/不吞异常)。探针 `tools/_qp_stress_probe.py` 与 `tools/b19_probe.py` 已登记 §9 |
+
 ---
 
 ## 附录 A：DeepSeek 官方接口事实基线（文档抓取）

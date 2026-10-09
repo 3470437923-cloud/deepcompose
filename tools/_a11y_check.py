@@ -221,30 +221,44 @@ def flat_checks(c, base_url):
     views = [
         # (视图名, 进入该视图的点击序列)
         # A-1：导航序号必须与 SettingsScreen 的 navItems 一一对应 ——
-        # 顺序是 provider/models/params/theme/data/about（6 项）。旧脚本按
-        # 7 项年代的序号点：数据点了 6（关于）、关于点了 7（不存在的项），
-        # 两轮审计全程测错视图，PASS 全是假的。
+        # 顺序是 provider/skill/params/theme/data/help/about（7 项，B19 起）。旧脚本按
+        # 6 项年代写死 nth-of-type：B19 插入「使用教程」后 about 变第 7 项，
+        # 于是所有 about 取证静默落在帮助页上（A-1 同型事故第二次）。
+        # 更早一次是同型事故：按 7 项年代的序号点 6 项的页，两轮审计全程测错视图。
+        # 现在导航一律用 __nav__:<文本>（按文本点，序号不耦合），并把帮助弹层 /
+        # 使用教程分页 / 首启弹窗纳入（B19 的署名与帮助样式此前无人量过）。
         ("主工作台", []),
         ("设置·提供商", [".wbtn"]),
-        ("设置·主题", [".wbtn", ".a-nav-item:nth-of-type(4)"]),
-        ("设置·参数", [".wbtn", ".a-nav-item:nth-of-type(3)"]),
-        ("设置·数据", [".wbtn", ".a-nav-item:nth-of-type(5)"]),
-        ("设置·关于", [".wbtn", ".a-nav-item:nth-of-type(6)"]),
+        ("设置·主题", [".wbtn", "__nav__:主题"]),
+        ("设置·参数", [".wbtn", "__nav__:参数"]),
+        ("设置·数据", [".wbtn", "__nav__:数据"]),
+        ("设置·使用教程", [".wbtn", "__nav__:使用教程"]),
+        ("设置·关于", [".wbtn", "__nav__:关于"]),
         ("备忘录", ['.tb-btn[title="备忘录"]']),
+        ("帮助弹层", ['.tb-btn[aria-label="使用教程"]']),
+        ("首启弹窗", []),
     ]
     bad = 0
     set_media(c, DEFAULT_FEATURES)
     for theme in ("dark", "light"):
         for view, clicks in views:
             u = "%s?theme=%s" % (base_url, theme)
+            if view == "首启弹窗":
+                u += "&welcome=1"
             c.cmd("Page.navigate", url=u)
             if not c.wait_ready(min_text=60):
                 print("  FAIL %s/%s 未就绪" % (theme, view))
                 bad += 1
                 continue
             for sel in clicks:
-                c.eval("(() => { const el=document.querySelector(%s);"
-                       " if (el) el.click(); return 1; })()" % json.dumps(sel))
+                if sel.startswith("__nav__:"):
+                    want = json.dumps(sel[len("__nav__:"):])
+                    c.eval("(() => { const els=[...document.querySelectorAll('.a-nav-item')];"
+                           " const el=els.find(e=>(e.textContent||'').trim()===%s);"
+                           " if (el) el.click(); return el?1:0; })()" % want)
+                else:
+                    c.eval("(() => { const el=document.querySelector(%s);"
+                           " if (el) el.click(); return 1; })()" % json.dumps(sel))
                 time.sleep(0.7)
             raw = c.eval(FLAT_JS)
             try:
