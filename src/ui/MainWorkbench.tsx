@@ -38,7 +38,8 @@ import {
 import { parseChapterName, stripMd } from "../core/store/chapter";
 import { appendOplog, diffLines, isLightEdit, pendingRefrows, readOplog, type DiffResult } from "../core/store/oplog";
 import { pairedDiff } from "../core/store/pairedDiff";
-import { abortActiveStream, createTauriTransport } from "../core/ai/transport";
+import { unifyDoubleQuotes } from "../core/store/quotes";
+import { createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
 import TitlebarUsage from "./TitlebarUsage";
 import { ZERO_USAGE, addTotals, type UsageTotals } from "../core/usage/stats";
@@ -342,6 +343,11 @@ export default function MainWorkbench({
   /** 挂起中的 question 弹窗（停止生成时强制空选择收尾，避免弹窗残留卡住 agent 循环） */
   const pendingQuestionRef = useRef<{ items: QuestionItem[]; resolve: (v: string[][]) => void } | null>(null);
   const transport = useMemo(() => createTauriTransport(), []);
+  /** 冷读专用传输实例（D-058）：中止槽按实例隔离，冷读的「停止」不会误杀聊天/回流的流，
+   *  反之亦然；两条流可以真并发（账号级并发上限远够）。 */
+  const coldTransport = useMemo(() => createTauriTransport(), []);
+  /** 冷读自己的中止信号（与聊天/回流的 abortRef 分开） */
+  const coldAbortRef = useRef<{ aborted: boolean }>({ aborted: false });
   /** busy 的 ref 镜像（回流排队判断用，避开闭包过期） */
   const busyRef = useRef(false);
   /** 回流任务队列（单生成并发：忙时排队，空闲即跑）。reflowId 与 oplog 的 pending/完成行配对 */
@@ -1451,10 +1457,10 @@ export default function MainWorkbench({
 
   const doSend = useCallback(() => sendUserMessage(composer), [sendUserMessage, composer]);
 
-  /** 停止当前生成（主聊天 / 回流 / 冷读共用同一 abortRef；冷读面板的「停止」也走这里） */
+  /** 停止主聊天/回流的生成（冷读有自己的槽与停止键，2026-10-09 D-058） */
   const stopGeneration = useCallback(() => {
     abortRef.current.aborted = true;
-    abortActiveStream();
+    transport.abortActive();
     // question 弹窗挂起时点停止：关弹窗并以空选择 resolve，
     // agent 循环的中止检查随即以「已中止」收尾本轮
     const pq = pendingQuestionRef.current;
@@ -1464,7 +1470,15 @@ export default function MainWorkbench({
       pq.resolve(pq.items.map(() => []));
     }
     setStatus("正在停止…");
-  }, []);
+  }, [transport]);
+
+  /** 只停止冷读自己（D-058）：独立的 abort 信号 + 独立传输实例的中止槽。
+   *  冷读跑着时聊天可照常收发；两边各按各的停止键，互不误杀。 */
+  const stopColdRead = useCallback(() => {
+    coldAbortRef.current.aborted = true;
+    coldTransport.abortActive();
+    setStatus("正在停止冷读…");
+  }, [coldTransport]);
 
   /** 采用门：确认后由 AI 执行采用回写五步（登记→保存正文→增量回写→逐项核对→归档推进） */
   const adoptCandidate = useCallback(
@@ -1524,14 +1538,15 @@ export default function MainWorkbench({
     [project, session, askConfirm, sendUserMessage, saveTabAs],
   );
 
-  /** 打开冷读悬浮面板（D-045）：setup 态；每次打开都重置选项，不归上一次的选择 */
+  /** 打开冷读悬浮面板（D-045）：setup 态；每次打开都重置选项，不归上一次的选择。
+   *  D-058：聊天在跑**不拦**开冷读（两条生成槽并存），只有冷读自己还在跑才拦。 */
   const openColdRead = useCallback(
     async (tab: OpenTab) => {
       const b = currentBoot();
       if (!b || !project) return;
-      // 生成中（含正在跑的冷读）不重开面板：在途回合的结果会写进被重置的状态
-      if (busyRef.current) {
-        setStatus("当前有生成任务在跑，结束后再开冷读");
+      // 冷读在途时不重开面板：在途回合的结果会写进被重置的状态
+      if (cold?.phase === "running") {
+        setStatus("上一次冷读还在跑，结束后再开新的");
         return;
       }
       const fs = getFs();
@@ -1559,22 +1574,22 @@ export default function MainWorkbench({
         styleMissing,
       });
     },
-    [project],
+    [project, cold],
   );
 
   /**
    * 冷读执行（D-045）：独立实例（零工具、零技能、零项目块），**不落盘**——
    * 不建会话、不写报告，结果只进悬浮面板；oplog 留一行最小痕迹。
    * 流式原文走面板自己的 streaming 通道，不碰主聊天的 streamText（避免"两个界面"）。
+   *
+   * D-058（独立生成槽）：冷读**不置**全局 busy、不占 abortRef、连中止信号与
+   * 传输实例都是自己的 —— 于是冷读跑着时聊天照样能发能收，「停止」各停各的。
+   * 这是"冷读零工具零上下文"的 UI 面延伸：隔离不只在数据面，也在生成面。
    */
   const runColdRead = useCallback(async () => {
     const cur = cold;
     const b = currentBoot();
     if (!cur || !b || !project) return;
-    if (busyRef.current) {
-      setStatus("当前有生成任务在跑，请稍后再冷读");
-      return;
-    }
     const tab = tabs.find((t) => t.rel === cur.tabRel);
     if (!tab) {
       setCold(null);
@@ -1612,10 +1627,8 @@ export default function MainWorkbench({
         return;
       }
     }
-    busyRef.current = true;
-    setBusy(true);
     const signal = { aborted: false };
-    abortRef.current = signal; // 主界面「停止生成」同样能停掉冷读
+    coldAbortRef.current = signal; // 冷读自己的中止信号（D-058：不借用聊天的 abortRef）
     coldBatch.drop(); // 残量会在清空后被追加回去,必须先丢
     setCold((c) => (c ? { ...c, phase: "running", streaming: "", error: null, rows: [], leftover: "", noIssues: false, note: "" } : c));
     // 冷读专用事件通道：只把正文增量推进面板，不喂主聊天的 streamText/toolLog
@@ -1630,7 +1643,7 @@ export default function MainWorkbench({
         persistSession: false,
         systemPrompt: coldReadSystem(cur.channel),
         userText: buildColdReadUserMessage(cur.channel, label, tab.content, priors, styleDossier),
-        transport,
+        transport: coldTransport, // D-058：独立传输实例，中止槽与聊天分开
         onEvent: onColdEvent,
         signal,
         thinking: thinkLevel, // D-014：冷读跟随会话级思考档位
@@ -1665,11 +1678,10 @@ export default function MainWorkbench({
     } catch (e) {
       setCold((c) => (c ? { ...c, phase: "done", error: String(e) } : c));
     } finally {
-      busyRef.current = false;
-      setBusy(false);
-      void drainReflow(); // 冷读占用的生成槽释放后，排空待跑回流
+      // D-058：冷读不碰全局 busy，也没有需要让位的生成槽 —— 只把自己的中止信号复位
+      coldAbortRef.current.aborted = false;
     }
-  }, [cold, project, tabs, transport, drainReflow, thinkLevel]);
+  }, [cold, project, tabs, coldTransport, thinkLevel]);
 
   /** 行操作：勾选/删除（永久）/定位 */
   const coldToggle = useCallback((id: string) => {
@@ -1902,6 +1914,22 @@ export default function MainWorkbench({
       editContent(activeTab.content + text);
     }
     setStatus("已粘贴（未落盘，Ctrl+S 保存）");
+  }, [activeTab, editContent]);
+
+  /** 统一引号（D-055，用户裁决 2026-10-09）：只转英文双引号，单引号不动。
+   *  纯文本变换 → 走 editContent（未落盘，Ctrl+S/「完成」才写盘，快照照常）。 */
+  const edUnifyQuotes = useCallback(() => {
+    if (!activeTab || !tabEditable(activeTab)) return;
+    const r = unifyDoubleQuotes(activeTab.content);
+    if (r.converted === 0) {
+      setStatus("没有需要转换的英文双引号");
+      return;
+    }
+    editContent(r.text);
+    const odd = r.oddLines.length
+      ? `；第 ${r.oddLines.slice(0, 5).join("、")} 行引号不配对，已按交替配对转换，请复核`
+      : "";
+    setStatus(`已统一 ${r.converted} 处英文双引号为中文引号“”（未落盘，Ctrl+S 保存）${odd}`);
   }, [activeTab, editContent]);
 
   const sessionGroups = useMemo(() => groupSessions(sessions), [sessions]);
@@ -2481,6 +2509,9 @@ export default function MainWorkbench({
                     <button type="button" className="chip" title="粘贴到光标处（编辑器未聚焦时追加到文末）" onClick={() => void edPaste()}>
                       粘贴
                     </button>
+                    <button type="button" className="chip" title="把成对的英文双引号转成中文引号“”（单引号不动）" onClick={edUnifyQuotes}>
+                      统一引号
+                    </button>
                   </>
                 ) : null}
               </div>
@@ -2847,17 +2878,18 @@ export default function MainWorkbench({
         askConfirm={askConfirm}
       />
 
-      {/* 冷读悬浮面板（D-045）：无遮罩、不抢焦点；材料只在内存，关窗即弃 */}
+      {/* 冷读悬浮面板（D-045）：无遮罩、不抢焦点；材料只在内存，关窗即弃。
+          D-058：冷读有独立的生成槽（busy/abort/传输实例全套独立），不占聊天界面。 */}
       {cold ? (
         <ColdReadPanel
           state={cold}
           onChannel={(ch) => setCold((c) => (c ? { ...c, channel: ch } : c))}
           onPrior={(n) => setCold((c) => (c ? { ...c, priorCount: n } : c))}
           onStart={() => void runColdRead()}
-          onStop={stopGeneration}
+          onStop={stopColdRead}
           onClose={() => {
-            // 审读进行中关闭 = 中止并丢弃
-            if (cold.phase === "running") stopGeneration();
+            // 审读进行中关闭 = 中止并丢弃（只停冷读自己，D-058）
+            if (cold.phase === "running") stopColdRead();
             setCold(null);
           }}
           onToggle={coldToggle}

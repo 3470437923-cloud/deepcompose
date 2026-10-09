@@ -35,25 +35,26 @@ function uuid(): string {
   return `req_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
 }
 
-/** 当前活跃流（单生成并发；「停止生成」用） */
-let activeAbort: (() => void) | null = null;
-
 /**
- * 中断当前流：Rust 侧截断上游连接，已收到的部分正文保留。
- * 幂等安全：无活跃流时是 no-op（例如 question 弹窗挂起期间点「停止」——
- * 此时没有流可断，中止由 agent 循环的 signal 检查收尾）。
+ * 生产传输层 + 本实例的中止句柄。
+ *
+ * 中止槽是**每实例一个**（D-058）：旧实现是模块级单槽 `activeAbort`，前提是
+ * 「全应用单生成并发」——冷读改走独立生成槽后这个前提被打破，聊天与冷读
+ * 两条流并存时单槽会让「停止」张冠李戴（后注册的流顶掉先注册的句柄）。
+ * 现在聊天/回流共用一个实例、冷读自己一个实例，各自的停止只停各自的流。
+ * 同一实例内部仍是单槽：主流与压缩摘要流是先后关系，不会同时占用。
  */
-export function abortActiveStream(): void {
-  activeAbort?.();
+export interface TauriTransport extends StreamTransport {
+  /** 中断本实例的当前流：Rust 侧截断上游连接，已收到的部分正文保留；无活跃流时是 no-op */
+  abortActive(): void;
 }
 
-/**
- * 生产传输层：一条 stream() = 一次 ai_stream invoke + 一个按 requestId 过滤的事件监听。
- * 并发假设：全应用单生成并发（UI busyRef 守卫），activeAbort 单槽即可；
- * 压缩摘要流与主流是先后关系，不会同时占用。
- */
-export function createTauriTransport(): StreamTransport {
+export function createTauriTransport(): TauriTransport {
+  let activeAbort: (() => void) | null = null;
   return {
+    abortActive() {
+      activeAbort?.();
+    },
     async stream(req: HttpRequest, handlers): Promise<void> {
       const requestId = uuid();
       let cancelled = false;
