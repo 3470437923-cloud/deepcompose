@@ -44,6 +44,7 @@ import { unifyDoubleQuotes } from "../core/store/quotes";
 import { createTauriTransport } from "../core/ai/transport";
 import { reloadIndex, send as sendChat, sendIsolated } from "../core/ai/controller";
 import TitlebarUsage from "./TitlebarUsage";
+import WebColumn from "./WebColumn";
 import { ZERO_USAGE, addTotals, type UsageTotals } from "../core/usage/stats";
 import {
   DEFAULT_THINKING_LEVEL,
@@ -378,6 +379,9 @@ export default function MainWorkbench({
   const [recycleItems, setRecycleItems] = useState(0);
   /** 追踪模块管理（B8：启用/停用 + 中途建仓） */
   const [modulesOpen, setModulesOpen] = useState(false);
+  /** 网页版参考栏（D-057）：DeepSeek 网页版 / 朱雀AI检测。
+      默认隐藏、只存内存、不写 prefs（封闭键集合纪律——重启回默认关）。 */
+  const [webCols, setWebCols] = useState({ ds: false, zq: false });
 
   /** 补跑回流的间接引用（函数声明在组件后段，openProject 在前段 —— 用 ref 打通顺序） */
   const resumePendingRef = useRef<(root: string) => void>(() => {});
@@ -2285,6 +2289,32 @@ export default function MainWorkbench({
         </div>
 
         <div className="win-tools">
+          {/* 网页版参考栏开关（D-057）：白名单两站，默认隐藏；栏与作品/配置完全隔离 */}
+          <button
+            className={webCols.ds ? "wbtn on" : "wbtn"}
+            title="DeepSeek 网页版（参考栏：与本软件完全隔离，仅供参考）"
+            aria-pressed={webCols.ds}
+            data-web="ds"
+            onClick={() => setWebCols((c) => ({ ...c, ds: !c.ds }))}
+          >
+            <svg viewBox="0 0 20 20" className="ic">
+              <circle cx="10" cy="10" r="7.2" />
+              <path d="M2.8 10h14.4M10 2.8c-4.6 4.8-4.6 9.6 0 14.4 4.6-4.8 4.6-9.6 0-14.4z" />
+            </svg>
+          </button>
+          <button
+            className={webCols.zq ? "wbtn on" : "wbtn"}
+            title="朱雀AI检测（参考栏：与本软件完全隔离，仅供参考）"
+            aria-pressed={webCols.zq}
+            data-web="zq"
+            onClick={() => setWebCols((c) => ({ ...c, zq: !c.zq }))}
+          >
+            <svg viewBox="0 0 20 20" className="ic">
+              <circle cx="8.6" cy="8.6" r="5.4" />
+              <path d="M12.8 12.8L17 17" />
+              <path d="M6.4 8.8l1.6 1.6 3-3.2" />
+            </svg>
+          </button>
           {/* 用量入口（D-044）：文字按键，不再是鲸鱼图形；悬停预览、点按钉住 */}
           <TitlebarUsage dirs={dirs} prefs={bootPrefs} sessionUsage={sessionUsage} />
           <button className="wbtn" title="设置" onClick={onOpenSettings}>
@@ -3030,6 +3060,16 @@ export default function MainWorkbench({
             </div>
           </div>
         </aside>
+
+        {/* ══ 第四/五栏：网页版参考栏（D-057，默认隐藏） ══
+            DOM 顺序固定 DS 在朱雀前：DS 关着时朱雀自然就是第四栏。
+            子 webview 的几何跟随由 WebColumn 自己同步。 */}
+        {webCols.ds ? (
+          <WebColumn siteKey="deepseek" title="DeepSeek 网页版" suspended={suspended} onClose={() => setWebCols((c) => ({ ...c, ds: false }))} />
+        ) : null}
+        {webCols.zq ? (
+          <WebColumn siteKey="zhuque" title="朱雀AI检测" suspended={suspended} onClose={() => setWebCols((c) => ({ ...c, zq: false }))} />
+        ) : null}
       </div>
 
       {/* ── 全局状态条 ── */}

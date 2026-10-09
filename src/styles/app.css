@@ -277,6 +277,12 @@ html[data-nav="back"] .win { --push-x: -10px; }
 }
 .wbtn:hover { background: var(--ctl-hover); color: var(--tx-1); }
 .wbtn:active { transform: scale(0.92); transition: transform 0.07s var(--ease-out); }
+/* 开关态（D-057 网页版参考栏）：与 .tb-btn.on 同一笔，强调色描边 + 浅底 */
+.wbtn.on {
+  color: var(--accent-text);
+  background: var(--seg-thumb);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
 .wbtn.close:hover { background: var(--close-hover); color: var(--on-accent); }
 
 /* ════════════════ 主界面三栏 ════════════════ */
@@ -298,8 +304,23 @@ html[data-nav="back"] .win { --push-x: -10px; }
   overflow: hidden;
 }
 .panel-files { width: var(--files-w); flex: none; }
-.panel-editor { flex: 1 1 auto; }
+/* 编辑器保底宽：五栏全开（含两个网页版参考栏）时编辑器不许被压没，
+   超出部分从右端裁切（窄窗口的取舍：裁栏比编辑器消失更可理解）。
+   280px 的出处：最小窗口宽 980 下 文件236+编辑280+对话400+间距 恰好不裁对话栏。 */
+.panel-editor { flex: 1 1 auto; min-width: 280px; }
 .panel-chat { width: var(--chat-w); flex: none; }
+/* 网页版参考栏（D-057）：默认 460px、可压缩到 300px（五栏全开时优先让路）。
+   宿主区内嵌子 webview，四周留 8px 让面板圆角边框看得见
+   （原生视图是直角矩形，DOM 的 overflow 裁不到它） */
+.panel-web { width: var(--web-w); flex: 0 1 auto; min-width: 300px; }
+.web-hint {
+  flex: none;
+  padding: 4px 12px 8px;
+  font-size: var(--fs-foot);
+  color: var(--tx-dim);
+  line-height: 1.5;
+}
+.web-host { flex: 1; min-height: 0; margin: 0 8px 8px; }
 
 /* 面板收起：宽度、透明度、外边距一起收。 */
 .panel-files,
