@@ -195,18 +195,48 @@ const DIR_ORDER: Record<string, number> = {
   [PROJECT_DIRS.pending]: 2,
 };
 
+/**
+ * 自然序比较：把名称按「数字段 / 非数字段」切开逐段比较，数字段按数值比。
+ * 纯字典序在跨数量级时会把「第102-106章细纲」排到「第7-9章细纲」前面
+ * （'1' < '7'），细纲栏目因此乱序（用户实测：第1-6章下面紧跟着第102-106章）。
+ * 章节目录仍走 compareChapterFiles（识别全角/中文数字），这里是其余目录的通用序。
+ */
+export function naturalCompareNames(a: string, b: string): number {
+  const ta = a.match(/\d+|\D+/g) ?? [a];
+  const tb = b.match(/\d+|\D+/g) ?? [b];
+  const n = Math.min(ta.length, tb.length);
+  for (let i = 0; i < n; i++) {
+    const x = ta[i];
+    const y = tb[i];
+    const xNum = /^\d+$/.test(x);
+    const yNum = /^\d+$/.test(y);
+    if (xNum && yNum) {
+      // 超长数字段先按长度比，避免 Number 精度丢失（文件名里几乎遇不到，防御性兜底）
+      if (x.length !== y.length && (x.length > 15 || y.length > 15)) return x.length - y.length;
+      const nx = Number(x);
+      const ny = Number(y);
+      if (nx !== ny) return nx - ny;
+      if (x.length !== y.length) return x.length - y.length; // 「1」在「01」前，稳定可预期
+      continue;
+    }
+    const c = x.localeCompare(y, "zh-Hans-CN");
+    if (c !== 0) return c;
+  }
+  return ta.length - tb.length || a.localeCompare(b, "zh-Hans-CN");
+}
+
 function compareNodes(a: ContentNode, b: ContentNode, parentRel: string): number {
   if (a.isDir !== b.isDir) return a.isDir ? -1 : 1; // 目录在前
   if (a.isDir) {
     const oa = DIR_ORDER[a.name] ?? 99;
     const ob = DIR_ORDER[b.name] ?? 99;
     if (oa !== ob) return oa - ob;
-    return a.name.localeCompare(b.name, "zh-Hans-CN");
+    return naturalCompareNames(a.name, b.name);
   }
   if (parentRel === PROJECT_DIRS.chapters || parentRel.startsWith(PROJECT_DIRS.pending)) {
     return compareChapterFiles(a.name, b.name);
   }
-  return a.name.localeCompare(b.name, "zh-Hans-CN");
+  return naturalCompareNames(a.name, b.name);
 }
 
 /**

@@ -17,6 +17,7 @@ import {
   listPending,
   listProcessed,
   loadProject,
+  naturalCompareNames,
   projectExists,
   scanBooksRoot,
   validateProject,
@@ -307,6 +308,29 @@ describe("候选区与通用内容树", () => {
     expect(c.children).toEqual([]);
     expect(c.truncated).toBe(true);
     await fsp.rm(path.join(r, "a"), { recursive: true, force: true });
+  });
+
+  it("buildContentTree：非章节目录按自然序（细纲 1-6 → 7-9 → 10-12 → 102-106）", async () => {
+    const r = path.join(booksRoot, "排序样本");
+    const xg = path.join(r, "小说资料", "细纲");
+    await fsp.mkdir(xg, { recursive: true });
+    for (const n of ["第102-106章细纲.md", "第10-12章细纲.md", "第1-6章细纲.md", "第7-9章细纲.md"]) {
+      await fsp.writeFile(path.join(xg, n), "# 细纲\r\n", "utf8");
+    }
+    const tree = await buildContentTree(fs, r);
+    const docs = tree.find((n) => n.name === "小说资料")!;
+    const xgNode = docs.children.find((c) => c.name === "细纲")!;
+    // 旧实现是纯字典序：'1'<'7'，第102-106章会紧跟在第1-6章后面（第7-9章之前）
+    expect(xgNode.children.map((c) => c.name)).toEqual([
+      "第1-6章细纲.md",
+      "第7-9章细纲.md",
+      "第10-12章细纲.md",
+      "第102-106章细纲.md",
+    ]);
+    expect(naturalCompareNames("第1-6章细纲.md", "第102-106章细纲.md")).toBeLessThan(0);
+    expect(naturalCompareNames("改稿对比-第3章.md", "改稿对比-第12章.md")).toBeLessThan(0);
+    expect(naturalCompareNames("a.md", "a.md")).toBe(0);
+    await fsp.rm(r, { recursive: true, force: true });
   });
 
   it("validateProject：新建作品无 error/warn；缺清单 → manifest-missing 警告（I-12）", async () => {
