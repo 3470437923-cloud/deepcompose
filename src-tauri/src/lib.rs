@@ -6,6 +6,7 @@ use tauri::Manager;
 mod ai;
 mod fs;
 mod sys;
+mod web;
 mod winstate;
 
 /// 应用身份信息(名称 + 版本 + 署名与社群),供设置屏「关于」、首启弹窗、使用教程共同读取。
@@ -71,6 +72,9 @@ pub fn run() {
             ai::ai_models,
             ai::ai_balance,
             ai::ai_abort,
+            web::web_open,
+            web::web_move,
+            web::web_close,
         ])
         .setup(|app| {
             // tauri.conf.json 里窗口是 visible:false —— 先把记忆的几何摆好再显示，

@@ -567,6 +567,12 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
     // 打开外部链接(桌面端 Rust open_url):沙箱没有浏览器,静默成功即可
     case "open_url":
       return null;
+    // 网页版参考栏（D-057 桌面端 Rust 命令）：沙箱里没有子 webview，
+    // 栏的 DOM 与几何同步照常跑，只有"网页本体"不存在 —— 栏位显示提示区与空宿主。
+    case "web_open":
+    case "web_move":
+    case "web_close":
+      return null;
     // 模型清单（桌面端走 Rust ai_models → OpenAI/Anthropic /models）；
     // 返回 DeepSeek 官方文档当前的模型名，供设置屏「检测连接」走真实渲染路径
     case "ai_models":
