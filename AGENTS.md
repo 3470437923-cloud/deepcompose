@@ -46,19 +46,21 @@ src/core/store/     作品目录协议(project，校验器结构感知) · 模�
                     章号解析(chapter) · 写前快照(snapshot) · 会话(session) · 备忘录(memo)
                     状态文档结构化读取(status，含启用模块) · 伏笔统计核对(tracking) · 资料形态体检(style，D-038)
                     细纲栏目(xigang，D-043) · 配对对照(pairedDiff) · 规则台账(ledger)
-                    写入落点校验(docschema，B6 + 旧结构名禁建) · 表格视图解析(doctable，B7；B13 起位置感知 + 通用回落全覆盖 + 行级手术)
-                    快捷提示词(quickPrompts，B17)
+                    写入落点校验(docschema，B6 + 旧结构名禁建 + isManagedDocName 受管名判定) · 表格视图解析(doctable，B7；B13 起位置感知 + 通用回落全覆盖 + 行级手术)
+                    快捷提示词(quickPrompts，B17) · 统一引号(quotes，D-055：英文双引号→中文，逐行交替配对)
+                    自然序文件名比较在 project.naturalCompareNames（B20：细纲跨数量级排序修复）
 src/core/tools/     工具 schema(spec) · 执行(exec，含落点校验接线) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
 src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids) · 作者信息(author,B19:只读 Rust app_info) · 使用教程内容(help,B19)
 src/ui/             主工作台(MainWorkbench) · 开书向导(NewBookWizard，含追踪模块步) · 标题栏用量入口(TitlebarUsage，D-044 文字按键) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
-                    冷读悬浮面板(ColdReadPanel，D-045：无遮罩/可拖动/问题成行/勾选交 AI 修复) · 资料表格视图(DocTable，B14 起可手改) · 追踪模块管理(ModulesDialog，建仓入口)
+                    冷读悬浮面板(ColdReadPanel，D-045：无遮罩/可拖动/问题成行/勾选交 AI 修复；D-058：独立生成槽——coldAbortRef + 独立传输实例，不占聊天 busy) · 资料表格视图(DocTable，B14 起可手改) · 追踪模块管理(ModulesDialog，建仓入口)
+                    网页版参考栏(WebColumn，D-057：白名单子 webview 的几何同步与生命周期)
                     快捷提示词栏(QuickPromptBar，B17：可展开/增删改，持久化 writerd_quick_prompts.json) · 使用教程弹层(HelpModal，B19/D-053) · 首启欢迎弹窗(WelcomeModal，B19：「不再显示」落 welcome_dismissed) · 渲染错误边界(ErrorBoundary，B19：KL-UI-11 白屏路的通用防线) · 流式合批(useStreamBatcher，B19/D-054：每帧一次 setState，flush/drop/dispose 时序契约)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
 src/screens/        设置屏(SettingsScreen，7 分页：提供商/Skill/参数/主题/数据/使用教程/关于；
                     提供商分页含只能点选的模型选择框 ModelSelect，全屏改动走防抖自动保存)
 src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进产物）
-src-tauri/src/      lib(app_info 署名/构建烙印 + open_url,B19/D-053:署名唯一真源) · sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何);build.rs 把同一组常量写进 PE 版本资源
+src-tauri/src/      lib(app_info 署名/构建烙印 + open_url,B19/D-053:署名唯一真源) · sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何) · web(D-057：网页版参考栏，白名单子 webview；tauri unstable 的 add_child，三命令全 async) ;build.rs 把同一组常量写进 PE 版本资源
 tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
                     审计类：_a11y_check / _contrast_audit / _style_audit / _css_coverage
@@ -105,7 +107,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（B19 批次实测）：vitest **624 例 / 45 文件**、cargo **19 例**、`tsc` 干净。
+当前基线（B20 批次实测）：vitest **634 例 / 46 文件**、cargo **21 例**、`tsc` 干净。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 
 > **B13–B18（2026-10-06 表格全覆盖与手改批）**：doctable 位置感知化 + 通用回落解析器

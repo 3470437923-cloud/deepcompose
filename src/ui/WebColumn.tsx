@@ -43,8 +43,12 @@ export default function WebColumn({ siteKey, title, onClose, suspended }: Props)
 
   useEffect(() => {
     let disposed = false;
-    const call = (cmd: string, args: Record<string, unknown>) => {
-      chainRef.current = chainRef.current.then(() => invoke(cmd, args)).catch(() => {});
+    const call = (cmd: string, args: Record<string, unknown>, onErr?: () => void) => {
+      chainRef.current = chainRef.current
+        .then(() => invoke(cmd, args))
+        .catch(() => {
+          onErr?.();
+        });
     };
     const sync = () => {
       if (disposed) return;
@@ -71,7 +75,12 @@ export default function WebColumn({ siteKey, title, onClose, suspended }: Props)
       if (!openRef.current) {
         openRef.current = true;
         lastRef.current = geo;
-        call("web_open", { key: siteKey, ...geo });
+        // open 失败（数据目录首次创建失败等）→ 复位标记，下一轮轮询重试，
+        // 不能留在"以为开着"的假态里（否则栏位永远空白）
+        call("web_open", { key: siteKey, ...geo }, () => {
+          openRef.current = false;
+          lastRef.current = null;
+        });
       } else if (moved) {
         lastRef.current = geo;
         call("web_move", { key: siteKey, ...geo });

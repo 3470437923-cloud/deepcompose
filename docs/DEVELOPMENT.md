@@ -115,6 +115,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 | 配置 | `%APPDATA%\com.writerd\writerD\shared_preferences.json` |
 | 窗口几何 | `%APPDATA%\com.writerd\writerD\window_state.json` |
 | 运行时统计（新增） | `%APPDATA%\com.writerd\writerD\usage_stats.json`（token 按日分桶与余额快照，可随时删除） |
+| 网页版参考栏登录态（D-057） | `%APPDATA%\com.writerd\writerD\webview-sessions\{deepseek,zhuque}`（子 webview 的独立 WebView2 数据目录；删掉 = 网页版退出登录，其余无影响） |
 
 以上名字是**磁盘契约**（见 README 契约表），产品更名不改它们。
 
