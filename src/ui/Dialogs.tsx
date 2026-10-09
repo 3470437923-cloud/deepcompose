@@ -19,6 +19,8 @@ import { pushEsc } from "./escStack";
 export interface InputRequest {
   title: string;
   placeholder?: string;
+  /** 预填值（重命名等场景）；缺省为空串 */
+  initial?: string;
   resolve: (value: string | null) => void;
 }
 
@@ -53,7 +55,7 @@ export function InputDialog({ req }: { req: InputRequest | null }) {
   const titleId = useId();
 
   useEffect(() => {
-    if (req) setValue("");
+    if (req) setValue(req.initial ?? "");
   }, [req]);
 
   // Esc 任意位置可退出（不依赖焦点落在哪里）。

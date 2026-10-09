@@ -314,3 +314,13 @@ export function isValidatedDocPath(rel: string): boolean {
 export function docWriteRulesFor(fileName: string): number {
   return rulesFor(fileName).length;
 }
+
+/**
+ * 受管文件名判定（D-056：左栏树内重命名/删除前的"这是受管文档"警告用）。
+ * 受管 = 有落点校验规则（00、01、02、03、04粗纲、06写作风格、人物库、追踪表五份、
+ * 细纲、规则台账）或旧结构名（04-分卷大纲、05-滚动细纲、06-写作规则、章节摘要）。
+ * 附加文档（rulesFor 为空）不算受管，自由操作无警告。
+ */
+export function isManagedDocName(fileName: string): boolean {
+  return fileName in LEGACY_FORBIDDEN_NEW || rulesFor(fileName).length > 0;
+}

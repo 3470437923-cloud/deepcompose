@@ -26,7 +26,11 @@ export type OpAction =
   | "reflow"
   | "rule_confirm"
   | "create_project"
-  | "switch_project";
+  | "switch_project"
+  // D-056：左栏「小说资料」树内文件管理（新增/重命名/删除），用户手动操作
+  | "doc_create"
+  | "doc_rename"
+  | "doc_delete";
 
 export interface OplogDetail {
   /** 编辑会话内的变更统计（edit_end 时携带） */
@@ -54,6 +58,8 @@ export interface OplogDetail {
   coldPriors?: number;
   /** 冷读解析出的问题条数（不含内容，内容不落盘） */
   coldIssues?: number;
+  /** doc_rename 的新相对路径（'/' 分隔） */
+  renameTo?: string;
 }
 
 export interface OplogEntry {

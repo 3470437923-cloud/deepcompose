@@ -643,6 +643,37 @@ html[data-nav="back"] .win { --push-x: -10px; }
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, #000);
 }
 .tnode.on .doc { color: color-mix(in srgb, var(--on-accent) 86%, transparent); }
+
+/* D-056：小说资料树内文件管理 —— 行内悬停操作钮（目录＝新增；文件＝重命名/删除）。
+   操作钮与 .tnode 平级包在 .trow 里（button 不能套 button）；
+   平时隐藏，悬停或焦点进入（键盘 Tab 到操作钮）才出现。 */
+.trow { display: flex; align-items: center; }
+.trow > .tnode { flex: 1; min-width: 0; }
+.tacts {
+  display: none;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding-right: 6px;
+}
+.trow:hover .tacts,
+.trow:focus-within .tacts { display: flex; }
+.tact {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--tx-3);
+}
+.tact:hover { background: var(--ctl-hover); color: var(--tx-1); }
+.tact.danger:hover { color: var(--bad); }
+.tact .ic { width: 13px; height: 13px; }
+/* 选中行（.tnode.on 是强调色实底）上的操作钮跟随选中态配色 */
+.tnode.on + .tacts .tact { color: color-mix(in srgb, var(--on-accent) 86%, transparent); }
+.tnode.on + .tacts .tact:hover { background: color-mix(in srgb, var(--on-accent) 14%, transparent); color: var(--on-accent); }
 .tree-empty {
   padding: 16px 12px;
   font-size: var(--fs-foot);

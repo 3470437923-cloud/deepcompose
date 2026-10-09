@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createNodeFs } from "../support/nodeFs";
-import { isValidatedDocPath, validateDocWrite } from "../../src/core/store/docschema";
+import { isManagedDocName, isValidatedDocPath, validateDocWrite } from "../../src/core/store/docschema";
 import { executeTool, type ToolContext } from "../../src/core/tools/exec";
 
 describe("validateDocWrite：结构硬拒", () => {
@@ -97,6 +97,24 @@ describe("isValidatedDocPath：范围", () => {
     expect(isValidatedDocPath("小说资料\\04-分卷大纲.md")).toBe(true);
     expect(isValidatedDocPath("小说资料\\06-写作规则.md")).toBe(true);
     expect(isValidatedDocPath("小说资料\\章节摘要.md")).toBe(true);
+  });
+});
+
+describe("isManagedDocName：受管名判定（D-056 树内操作警告用）", () => {
+  it("核心件 / 追踪表 / 细纲 / 规则台账 / 旧结构名都算受管", () => {
+    for (const n of [
+      "00-项目状态.md", "01-开书定位.md", "02-核心设定.md", "03-全书大纲.md",
+      "04-粗纲.md", "06-写作风格.md", "人物库.md",
+      "追踪-伏笔.md", "追踪-角色状态.md",
+      "第41-43章细纲.md", "第1-3章细纲（已完成）.md", "规则台账.md",
+      "04-分卷大纲.md", "05-滚动细纲.md", "06-写作规则.md", "章节摘要.md",
+    ]) {
+      expect(isManagedDocName(n)).toBe(true);
+    }
+  });
+  it("用户自建的附加文档不受管（自由操作，无警告）", () => {
+    expect(isManagedDocName("世界观.md")).toBe(false);
+    expect(isManagedDocName("灵感碎片.md")).toBe(false);
   });
 });
 
