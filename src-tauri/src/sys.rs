@@ -101,3 +101,20 @@ pub fn open_dir(path: String) -> Result<(), String> {
         .map_err(|e| format!("拉起资源管理器失败: {e}"))?;
     Ok(())
 }
+
+/// 用系统默认浏览器打开一个 https 链接（关于页/首启弹窗的作者主页入口）。
+///
+/// 不加 opener 插件（多一个依赖多一份攻击面）；cmd /C start 走系统默认浏览器。
+/// 只放行 https、不含空白与引号的 URL —— 参数以数组形式直传，不经 shell 拼接。
+#[tauri::command]
+pub fn open_url(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !u.starts_with("https://") || u.len() > 300 || u.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err("只允许打开 https 链接".to_string());
+    }
+    std::process::Command::new("cmd")
+        .args(["/C", "start", "", u])
+        .spawn()
+        .map_err(|e| format!("拉起浏览器失败: {e}"))?;
+    Ok(())
+}

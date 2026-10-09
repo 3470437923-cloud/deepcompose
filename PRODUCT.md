@@ -61,7 +61,7 @@ web
 - **强调色契约**：`core/app.ts` 只把 `--accent` 本体与 `--on-accent` 写成 `documentElement` 内联样式；`--accent-2 / -text / -soft / -fill / -line` 等派生色一律由 `color-mix(var(--accent))` 派生，用户换强调色时全站即时联动。默认强调色是「跟随主题」的黑白墨（`customAccentColor = 0`；暗色主题近白、浅色主题近黑），设置页色板为灰阶。
 - **品牌面**：logo 为灰阶「鲸 + 纸笔」圆徽（2026-10-06 更换），界面与 exe 图标同一套。
 - **字体**：Inter Variable 出拉丁与数字，MiSans VF 出汉字，均本地自托管并随包携带许可证（Inter = OFL-1.1，MiSans = Apache-2.0）。
-- **绑定视觉约束**：实色「付印单」体系——零玻璃材质、零渐变、零背景模糊；三套主题必须保留；详见 `DESIGN.md`。
+- **绑定视觉约束**：实色「付印单」体系——零玻璃材质、零渐变、零背景模糊；两套主题（曜石黑/晨雾白）必须保留；详见 `DESIGN.md`。
 
 ## Product Principles
 

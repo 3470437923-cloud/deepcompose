@@ -27,6 +27,7 @@
 **新增契约（additive，不改旧名）**：`%APPDATA%\com.writerd\writerD\usage_stats.json` —— token 按日分桶、
 余额快照与最近错误，B2 批次起使用，**可随时删除**（丢了只是没统计，不影响作品与配置）。
 `Documents\writerd_quick_prompts.json` —— 快捷提示词清单（B17），additive，可随时删除（丢了回默认清单）。
+`welcome_dismissed`（prefs 扩展键，B19/D-053）—— 首启欢迎弹窗「不再显示」，已读纪律与 D-030 同款。
 
 **D-043 新作品结构（additive，只在新建作品生效）**：核心 7 件里 `04-粗纲.md`、`06-写作风格.md`、
 `细纲\` 栏目（`第N-M章细纲.md` / 完成态加「（已完成）」）、`个人改稿\规则台账.md` 是新名；
@@ -49,15 +50,15 @@ src/core/store/     作品目录协议(project，校验器结构感知) · 模�
                     快捷提示词(quickPrompts，B17)
 src/core/tools/     工具 schema(spec) · 执行(exec，含落点校验接线) · 路径分级(pathGuard，唯一策略源)
 src/core/skills/    SKILL.md 解析与注册(registry) · 目录扫描与合并(scan) · 内置资产释放(builtin，A-8：构建期内联 + 启动只补缺失)
-src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids)
+src/core/           启动装配(app) · 目录权威(dirs) · 配置模型(prefs) · 文件桥(fsbridge) · id(ids) · 作者信息(author,B19:只读 Rust app_info) · 使用教程内容(help,B19)
 src/ui/             主工作台(MainWorkbench) · 开书向导(NewBookWizard，含追踪模块步) · 标题栏用量入口(TitlebarUsage，D-044 文字按键) · 用量面板(UsagePanel) · 回收站(RecycleBin) · 备忘录(MemoModal) · 对话框(Dialogs)
                     冷读悬浮面板(ColdReadPanel，D-045：无遮罩/可拖动/问题成行/勾选交 AI 修复) · 资料表格视图(DocTable，B14 起可手改) · 追踪模块管理(ModulesDialog，建仓入口)
-                    快捷提示词栏(QuickPromptBar，B17：可展开/增删改，持久化 writerd_quick_prompts.json)
+                    快捷提示词栏(QuickPromptBar，B17：可展开/增删改，持久化 writerd_quick_prompts.json) · 使用教程弹层(HelpModal，B19/D-053) · 首启欢迎弹窗(WelcomeModal，B19：「不再显示」落 welcome_dismissed) · 渲染错误边界(ErrorBoundary，B19：KL-UI-11 白屏路的通用防线) · 流式合批(useStreamBatcher，B19/D-054：每帧一次 setState，flush/drop/dispose 时序契约)
                     弹簧动效(motion) · 最大化跟踪(useMaximized) · 模态焦点(useDialogFocus)
-src/screens/        设置屏(SettingsScreen，6 分页：提供商/Skill/参数/主题/数据/关于；
+src/screens/        设置屏(SettingsScreen，7 分页：提供商/Skill/参数/主题/数据/使用教程/关于；
                     提供商分页含只能点选的模型选择框 ModelSelect，全屏改动走防抖自动保存)
 src/preview/        浏览器预览沙箱（内存 FS 替身，dev-only，不进产物）
-src-tauri/src/      sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何)
+src-tauri/src/      lib(app_info 署名/构建烙印 + open_url,B19/D-053:署名唯一真源) · sys(目录/配置/open_dir) · fs(文件原语) · ai(SSE 转发+中断) · winstate(窗口几何);build.rs 把同一组常量写进 PE 版本资源
 tests/              vitest；与 src 同构目录
 tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏) · preview_*.py(预览取证) · ds_probe.py(真实 Key P0 探针) · e2e_*.ps1
                     审计类：_a11y_check / _contrast_audit / _style_audit / _css_coverage
@@ -104,7 +105,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（B13–B18 批次实测）：vitest **609 例 / 43 文件**、cargo **19 例**、`tsc` 干净。
+当前基线（B19 批次实测）：vitest **624 例 / 45 文件**、cargo **19 例**、`tsc` 干净。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 
 > **B13–B18（2026-10-06 表格全覆盖与手改批）**：doctable 位置感知化 + 通用回落解析器
@@ -113,6 +114,8 @@ cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会�
 > AI 三态模式（mode.ts：只读/写作/开发，默认开发、内存态、采用门与回流在非开发模式弹窗）；
 > 工具轮次滑杆（最右端 = 无上限，落盘 0）；快捷提示词栏（writerd_quick_prompts.json）；
 > 编辑器底部四键（只读态仅复制全文）。
+>
+> **B19（2026-10-08 帮助署名与流式崩溃修复批）**:1 **D-053 帮助与署名**——使用教程一份内容两处渲染（`core/help.ts` → 标题栏「帮助」弹层 HelpModal + 设置屏第 7 分页「使用教程」）;首启欢迎弹窗（`WelcomeModal`，「不再显示」落 prefs `welcome_dismissed`，已读纪律与 D-030 同款）;作者/QQ 群/抖音唯一真源在 Rust `lib.rs` 编译期常量经 `app_info` 下发（`core/author.ts` 只读不写），`build.rs` 同一组常量写进 PE 版本资源 + 构建烙印（提交号@构建时间）;开源许可 GPL-3.0 三件套（`LICENSE` + `LICENSE.third-party.txt` + Cargo.toml/tauri.conf 一致）;2 **D-054 流式渲染崩溃修复（KL-PF-01）**——`useStreamBatcher` 每帧合批（flush/drop/dispose 时序契约）+ `ChatMessageRow` memo + 主界面/设置屏两座 `ErrorBoundary`。验收链见 `docs/DEVELOPMENT.md` §9.4，署名与许可核对见 §10。
 已知边界与缺陷账本见 `docs/KNOWN-LIMITS.md`；
 本轮改造的逐项裁决（含 DeepSeek 官方接口事实基线）见 `docs/DECISIONS.md`；
 D-043 结构改造的完整设计见 `docs/DESIGN-STRUCTURE-2026.md`；

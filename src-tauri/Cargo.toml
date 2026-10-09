@@ -2,7 +2,8 @@
 name = "deepcompose"
 version = "1.1.0"
 description = "DeepCompose — 长篇中文小说 AI 写作工作台"
-authors = ["DeepCompose"]
+authors = ["Liumorrow"]
+license = "GPL-3.0-only"
 edition = "2021"
 rust-version = "1.77"
 

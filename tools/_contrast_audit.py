@@ -71,8 +71,8 @@ TARGETS = [
 
 # 设置屏单独跑两趟：这里的文字色令牌（--accent-text 落在 --accent-soft 上、
 # 成功绿、危险红）在主视图里不出现，不测就等于没验。
-# A = 提供商分节（点保存会让 .a-flash 真的渲染出来再测它）；
-# B = 数据分节（.a-btn-danger 只在这里，只看不点 —— 那是危险操作）。
+# A = 提供商分节(点保存会让 .a-flash 真的渲染出来再测它);
+# B = 数据分节(.a-btn-danger 只在这里,只看不点 —— 那是危险操作)。
 SETTINGS_TARGETS = [
     ("a-nav-idle/rail", ".a-nav-item"),
     ("a-nav-selected/soft", ".a-nav-item.on"),
@@ -86,6 +86,38 @@ SETTINGS_TARGETS = [
 
 SETTINGS_TARGETS_B = [
     ("a-btn-danger/on-bad", ".a-btn-danger"),
+]
+
+# C = 关于分节(B19/D-053 的「作者与社群」卡:署名、构建烙印、群号、行按钮)。
+# 这些文字只在关于页出现,不测就等于没验 —— 而它们正是开源署名要显眼的地方。
+SETTINGS_TARGETS_C = [
+    ("author-name/sheet", ".author-name"),
+    ("a-build/sheet", ".a-build"),
+    ("a-qq/sheet", ".a-qq"),
+    ("a-list-row/sheet", ".a-list-row"),
+]
+
+# 模态组(B19):帮助弹层与首启欢迎弹窗。help 走标题栏按钮打开;
+# welcome 需要 URL 带 ?welcome=1(mockBackend 缺省视为已「不再显示」)。
+HELP_TARGETS = [
+    ("help-title/raised", ".help-title"),
+    ("help-item-idle/raised", ".help-item"),
+    ("help-item-on/soft", ".help-item.on"),
+    ("help-p/raised", ".help-p"),
+    ("help-foot/raised", ".help-foot"),
+    ("help-qq/raised", ".help-qq"),
+    ("help-dy-btn/raised", ".help-dy"),
+]
+
+WELCOME_TARGETS = [
+    ("welcome-h/raised", ".welcome-h"),
+    ("welcome-sub/raised", ".welcome-sub"),
+    ("welcome-k/raised", ".wr-k"),
+    ("welcome-v/raised", ".wr-v"),
+    ("welcome-vb/raised", ".wr-v b"),
+    ("welcome-never/raised", ".welcome-never"),
+    ("welcome-btn-primary/on-accent", ".welcome-actions .btn-accent"),
+    ("welcome-btn-quiet/raised", ".welcome-actions .btn-quiet"),
 ]
 
 CONTRAST_JS = r"""
@@ -163,8 +195,11 @@ CONTRAST_JS = r"""
 """
 
 
-def run_pass(c, theme, targets, label, prep):
-    c.cmd("Page.navigate", url="http://localhost:5183/preview.html?theme=%s" % theme)
+def run_pass(c, theme, targets, label, prep, query=""):
+    url = "http://localhost:5183/preview.html?theme=%s" % theme
+    if query:
+        url += "&" + query
+    c.cmd("Page.navigate", url=url)
     if not c.wait_ready(min_text=60):
         print("FAIL %s 页面未就绪" % theme)
         return None, 1, 0
@@ -203,6 +238,14 @@ def main():
     settings_targets = [(lbl, sel, None) for lbl, sel in SETTINGS_TARGETS]
     settings_targets_b = [(lbl, sel, None) for lbl, sel in SETTINGS_TARGETS_B]
 
+    def nav(cc, text):
+        # 按文本点设置屏导航 —— 序号耦合是 A-1 的老事故(B19 插入「使用教程」后
+        # 写死 nth-of-type 会把 about 取证静默落在帮助页上)。
+        cc.eval("(() => { const els=[...document.querySelectorAll('.a-nav-item')];"
+                " const el=els.find(e=>(e.textContent||'').trim()===%s);"
+                " if (el) el.click(); return el?1:0; })()" % json.dumps(text))
+        time.sleep(0.8)
+
     def prep_main(cc):
         # 先开一章、再造出会话，才能覆盖到编辑器/气泡/思考块这些元素
         run_flow(cc, FLOWS["editor"], verbose=False)
@@ -225,9 +268,24 @@ def main():
         cc.eval("(() => { const b = document.querySelector('.wbtn');"
                 " if (b) { b.click(); return 1; } return 0; })()")
         time.sleep(0.8)
-        cc.eval("(() => { const n = document.querySelector('.a-nav-item:nth-of-type(5)');"
-                " if (n) { n.click(); return 1; } return 0; })()")
+        nav(cc, "数据")
+
+    def prep_settings_c(cc):
+        # 进设置 → 关于分节(B19/D-053 的「作者与社群」卡:署名/构建烙印/群号)
+        cc.eval("(() => { const b = document.querySelector('.wbtn');"
+                " if (b) { b.click(); return 1; } return 0; })()")
         time.sleep(0.8)
+        nav(cc, "关于")
+
+    def prep_help(cc):
+        # 标题栏「帮助」→ HelpModal(分类导航 + 正文 + 页脚署名)
+        cc.eval("(() => { const b = document.querySelector('.tb-btn[aria-label=\"使用教程\"]');"
+                " if (b) { b.click(); return 1; } return 0; })()")
+        time.sleep(0.9)
+
+    def prep_welcome(cc):
+        # 首启弹窗由 ?welcome=1 直接呈现,无需点击(等入场动画落定)
+        time.sleep(0.6)
 
     report = {}
     bad = 0

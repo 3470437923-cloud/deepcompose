@@ -19,6 +19,9 @@ const PROMO = q.get("promo") === "1";
 const FAIL = q.get("fail") || "";
 // 宣传片逐帧捕获用:?streamms=220 放慢 SSE 回放节奏(缺省 40ms,行为不变)
 const STREAM_MS = Math.max(0, Number(q.get("streamms") || 40) || 40);
+// 首启欢迎弹窗:?welcome=1 才在预览里弹(缺省视为已「不再显示」——
+// 三主题截图与几何断言不该被一个模态挡住;要验收弹窗本身就带这个参数)
+const WELCOME = q.get("welcome") === "1";
 
 const HOME = "C:\\Users\\Preview";
 const DOCUMENTS = `${HOME}\\Documents`;
@@ -320,6 +323,7 @@ const seedPrefs: Record<string, unknown> = {
     },
   ]),
   "flutter.active_api_profile": "p1a2b3c4",
+  "flutter.welcome_dismissed": !WELCOME,
 };
 /* ── 宣传片模式:把当前作品换成《沉梦之海》(新结构:核心 7 件 + 细纲 + 追踪模块) ── */
 if (PROMO) {
@@ -543,12 +547,25 @@ async function mockInvoke(cmd: string, args?: Record<string, unknown>): Promise<
       return null;
     // 应用身份（桌面端为 Rust app_info）：设置屏「关于」的名称/版本取自这里
     case "app_info":
-      return { name: "DeepCompose", version: "1.1.0" };
+      // 署名与社群字段与 Rust app_info 同形(B19/D-053):预览里帮助页脚、关于页
+      // 作者卡、首启弹窗都走真实渲染路径(不是空壳)
+      return {
+        name: "DeepCompose",
+        version: "1.1.0",
+        author: "Liumorrow",
+        copyright: "Copyright © 2026 Liumorrow",
+        qqGroup: "1071188925",
+        douyinUrl: "https://v.douyin.com/cKG2h8pU1IM/",
+        build: "preview-sandbox",
+      };
     // 目录选择器（plugin-dialog）：沙箱里返回 null = 用户取消，正好验证取消分支
     case "plugin:dialog|open":
       return null;
     // 打开目录（自研 Rust 命令）：沙箱无资源管理器，静默成功即可
     case "open_dir":
+      return null;
+    // 打开外部链接(桌面端 Rust open_url):沙箱没有浏览器,静默成功即可
+    case "open_url":
       return null;
     // 模型清单（桌面端走 Rust ai_models → OpenAI/Anthropic /models）；
     // 返回 DeepSeek 官方文档当前的模型名，供设置屏「检测连接」走真实渲染路径
