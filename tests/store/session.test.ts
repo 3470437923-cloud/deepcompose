@@ -3,6 +3,7 @@
  * 目录名 writerd_sessions 是磁盘契约，测试中出现的路径保持原样。
  */
 import { describe, expect, it } from "vitest";
+import { IS_WINDOWS } from "../../src/core/platform";
 import type { FsBridge, StatInfo } from "../../src/core/fsbridge";
 import type { ChatMessage } from "../../src/core/ai/protocol";
 import {
@@ -201,7 +202,7 @@ describe("listSessions", () => {
         a: entry("甲", "C:\\Books\\作品A", "2026-05-21T10:00:00.000000"),
       },
     };
-    expect(listSessions(mixed, "c:\\books\\作品A").map((e) => e.id)).toEqual(["a"]);
+    expect(listSessions(mixed, "c:\\books\\作品A").map((e) => e.id)).toEqual(IS_WINDOWS ? ["a"] : []);
     expect(listSessions(mixed, "C:/Books/作品A/").map((e) => e.id)).toEqual(["a"]);
   });
 });

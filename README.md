@@ -7,11 +7,23 @@
 > 软件内置 DeepSeek 官方 API 的接入预设，只是因为它是一个常用的模型服务；软件本身不是 DeepSeek 的产品。
 > 「DeepSeek」为其权利人的商标，本项目仅在「说明兼容哪家接口」的意义上使用该名称。
 
-- 版本：`1.1.0`（前身 writerD 3.0.0 → KeepCompose 1.0.0，2026 年二次更名交付）　平台：Windows（WebView2）
-- 产物：`release\DeepCompose.exe`（免安装单文件），`npm run package` 一键重建并刷新桌面快捷方式
+- 版本：`1.1.0`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
+- 平台：**Windows 原生版**（WebView2）、**macOS 版**（macOS 14+，当前已有 Apple Silicon 产物）；**Linux 适配准备中，原生构建与桌面验收尚未完成**。
+- 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。目前仅建立空仓库，尚未上传源码或发布安装包。
+- 构建入口：Windows `npm run package`；macOS `npm run package:mac`；Linux 见 [Linux 构建与验收](docs/LINUX.md)。本地 `release/` 产物不作为源码提交。
 - 存储哲学：**格式优先**——用户改过的文档格式不被程序覆盖，回写只做追加与节内替换
 - 工作流：**单主线管线**——恢复状态 → 最小读取 → 完整初稿 → 逐段修改 → 全文复读 → 唯一候选 → 用户采用 → 正式回写 → 归档推进
 - 界面只展示**已实现**的能力：没有的功能不做占位按钮（同步/备份一类入口不存在）
+
+## 作者与交流
+
+作者：**Liumorrow**。Copyright © 2026 Liumorrow。
+
+QQ 交流群：**1071188925**。
+
+[作者抖音主页](https://v.douyin.com/cKG2h8pU1IM/)。
+
+应用内可在欢迎弹窗、设置 → 关于 → 作者与社群、使用教程页脚查看作者与群号。
 
 ## 能力
 
@@ -44,8 +56,14 @@
 
 ## 快速开始
 
+安装 Node.js 22.12+、Rust stable 和当前平台的 Tauri 2 系统依赖。Windows 需 MSVC Build Tools 与 WebView2；macOS 需 Xcode Command Line Tools；Linux 依赖与验收步骤见 [docs/LINUX.md](docs/LINUX.md)。
+
+在项目根目录执行 `npm ci` 安装锁定依赖，`npm run tauri:dev` 启动桌面应用。普通 `npm run dev` 只启动前端开发服务器；桌面文件与模型请求功能需要 Tauri 运行环境。
+
+macOS 打包使用 `npm run package:mac`，更多移植说明见 [README-macOS.md](README-macOS.md)。首次开源的发布说明草稿见 [docs/RELEASE-NOTES-1.1.0.md](docs/RELEASE-NOTES-1.1.0.md)，发布状态与上传范围见 [docs/OPEN-SOURCE-RELEASE.md](docs/OPEN-SOURCE-RELEASE.md)。
+
 ```powershell
-npm.cmd install                 # 本机 PowerShell 下用 npm.cmd，不用 npm.ps1
+npm.cmd ci                      # 安装锁定依赖；PowerShell 下用 npm.cmd，不用 npm.ps1
 npm.cmd run dev                 # 前端热更新（vite，端口 5183）
 npm.cmd run tauri:dev           # 完整桌面端调试
 

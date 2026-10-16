@@ -10,12 +10,18 @@
   G. 点抖音按钮走 open_url(mock 静默成功),无页面异常
 退出码:0 全过 / 1 有问题 / 2 跑不起来(与 tools/ 其它审计脚本同一口径)
 """
-import json, sys, time, urllib.request
+import json, os, sys, time, urllib.request
 import websocket
 
 BASE = "http://localhost:5183"
 PORT = 9223
-SHOTS = r"S:\deepcompose\shots"
+
+# 截图输出目录：从**本脚本位置**推导项目根（tools/ 的上一级），不再写死盘符。
+# 原先写死 r"S:\deepcompose\shots" —— 那是开发机的路径，macOS 上根本没有 S: 盘，
+# os.makedirs 会直接抛 FileNotFoundError，整个探针跑不起来。
+# 可用环境变量 DC_SHOTS 覆盖（对照 tools/_compare_sheet.py 的 ROOT 推导口径）。
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SHOTS = os.environ.get("DC_SHOTS") or os.path.join(ROOT, "shots")
 
 def page_ws():
     d = json.loads(urllib.request.urlopen("http://127.0.0.1:%d/json" % PORT, timeout=5).read())
@@ -62,7 +68,7 @@ class C:
     def shot(self, name):
         try:
             b64 = self.cmd("Page.captureScreenshot", format="png").get("data")
-            import base64, io, os
+            import base64, io
             os.makedirs(SHOTS, exist_ok=True)
             with open(os.path.join(SHOTS, name), "wb") as f:
                 f.write(base64.b64decode(b64))

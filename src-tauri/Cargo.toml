@@ -26,6 +26,8 @@ reqwest = { version = "0.12", features = ["stream", "json", "rustls-tls"], defau
 futures-util = "0.3"
 # 中文 Windows 用户的存量旧稿多为 GBK/GB18030：fs_read_text 的 UTF-8 失败回退靠它解码
 encoding_rs = "0.8"
+# 同目录安全暂存与原子替换，正文/配置/历史快照写失败时不先截断原件
+tempfile = "3"
 
 [features]
 default = ["custom-protocol"]

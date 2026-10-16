@@ -46,7 +46,7 @@ const REAL_SAMPLE = JSON.stringify({
       category: "默认",
       created_at: "2026-05-27T02:12:17.257787",
       updated_at: "2026-05-28T22:07:48.247679",
-      project_id: "C:\\Users\\Administrator\\AI写小说\\烂，也要烂在你怀里",
+      project_id: "C:\\Books\\示例作品",
     },
   ],
 });
@@ -65,7 +65,7 @@ describe("memo store", () => {
     expect(data.memos).toHaveLength(1);
     expect(data.memos[0].id).toBe("1779819137257");
     expect(data.memos[0].category).toBe("默认");
-    expect(data.memos[0].project_id).toContain("AI写小说");
+    expect(data.memos[0].project_id).toBe("C:\\Books\\示例作品");
   });
 
   it("带 BOM 的文件也能读（PowerShell 写入容错）", async () => {

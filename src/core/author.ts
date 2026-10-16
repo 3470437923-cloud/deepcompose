@@ -57,7 +57,7 @@ export const QQ_LABEL = "交流群";
 export function authorStatement(name: string): string {
   return (
     "DeepCompose 由 " + name + " 独立开发维护,是免费的本地软件;与 DeepSeek 官方没有隶属或背书关系," +
-    "你的作品与 API Key 都只留在本机。"
+    "作品与 API Key 保存在本机；使用 AI 时，所需材料及鉴权凭据会发送给你配置的模型服务。"
   );
 }
 

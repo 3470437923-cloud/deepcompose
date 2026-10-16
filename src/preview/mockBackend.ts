@@ -23,6 +23,17 @@ const STREAM_MS = Math.max(0, Number(q.get("streamms") || 40) || 40);
 // 三主题截图与几何断言不该被一个模态挡住;要验收弹窗本身就带这个参数)
 const WELCOME = q.get("welcome") === "1";
 
+/**
+ * 这里的 HOME / DOCUMENTS / APPDATA 是**纯夹具**：只给浏览器预览里的内存文件系统
+ * 当"用户主目录"，不参与任何路径拼接断言，也不代表真实机器。
+ *
+ * 为什么可以保留 Windows 形态：本模块**只被 `src/preview/main.tsx` 引用**，
+ * 而 `preview.html` 是 dev-only 入口 —— `vite.config.ts` 没有配
+ * `build.rollupOptions.input`，所以生产构建只打 `index.html`（→ `src/main.tsx`），
+ * 这个文件**不会进 Tauri 打包产物**（已实测：产物 JS 里搜不到 "Users\\Preview"）。
+ * 预览跑在浏览器里（Chromium/Edge），用 `\` 当分隔符与 mock 的 norm() 口径一致，
+ * 换成 `/` 反而会让部分 fixture 对不上。
+ */
 const HOME = "C:\\Users\\Preview";
 const DOCUMENTS = `${HOME}\\Documents`;
 const APPDATA = `${HOME}\\AppData\\Roaming`;

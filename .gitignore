@@ -13,3 +13,14 @@ shots/
 # Python 派生产物
 __pycache__/
 *.pyc
+
+# 本地发行包通过 GitHub Releases 单独分发
+release/
+
+# 本地配置、凭据与系统文件
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.DS_Store

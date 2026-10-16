@@ -47,26 +47,30 @@ DeepCompose — 第三方组件许可清单(LICENSE.third-party.txt)
 8. tokio —— MIT © Carl Lerche / Yuxuan Song 等 tokio 维护者
 9. reqwest(rustls-tls)—— MIT OR Apache-2.0 © Sean McArthur
 10. futures-util —— MIT OR Apache-2.0
-11. encoding_rs —— MIT OR Apache-2.0 © 何秀红(Henry Story)
+11. encoding_rs —— (MIT OR Apache-2.0) AND BSD-3-Clause
+    © Mozilla Foundation；WHATWG 派生编码表另受 LICENSE-WHATWG 约束。
+12. tempfile —— MIT OR Apache-2.0；用于同目录暂存与原子替换写入。
 
-以上 crate 均为 MIT 与 Apache-2.0 双许可,与 GPL-3.0-only 的本软件分发兼容
-(Apache-2.0 组件按原文条款使用,不修改、不剥离 NOTICE)。逐包许可声明可在
+以上多数 crate 采用 MIT 与 Apache-2.0 双许可；encoding_rs 还包含 BSD-3-Clause 条款。
+完整分发材料须包含逐包许可正文、版权声明和适用的 NOTICE，不能只附本清单。
+本轮收集正文见 THIRD-PARTY-NOTICES.txt，补充来源与未决边界见 docs/LICENSE-SOURCES.md。
+Apache-2.0 组件按原文条款使用，不剥离 NOTICE。逐包许可声明可在
 `cargo tree` 与各自 crates.io 页面核对。
 
 ────────────────────────────────────────────────────────────────────────
 四、运行环境(不随本仓库分发,不构成许可授予)
 ────────────────────────────────────────────────────────────────────────
 
-12. Microsoft Edge WebView2 Runtime —— 由微软单独授权,用户机器上已存在
+13. Microsoft Edge WebView2 Runtime —— 由微软单独授权,用户机器上已存在
     或由安装器引导安装;本软件仅调用其公开接口,不捆绑其二进制。
-13. DeepSeek / 硅基流动等模型服务 —— 用户自备 API Key 直连,受各自
+14. DeepSeek / 硅基流动等模型服务 —— 用户自备 API Key 直连,受各自
     服务条款约束;本软件不中转、不收集任何请求内容。
 
 ────────────────────────────────────────────────────────────────────────
 五、内置技能资产(assets/builtin-skills/,随包发布)
 ────────────────────────────────────────────────────────────────────────
 
-14. novel-writer / novel-deslop / novel-structure-quality-coordinator /
+15. novel-writer / novel-deslop / novel-structure-quality-coordinator /
     skill-creator / token-optimizer —— 本项目原创文档与脚本,随应用本体
     一并以 GPL-3.0-only 发布。首次启动释放到技能目录时**只补缺失、
     不覆盖用户改过的副本**(见 docs/DECISIONS.md D-037)。

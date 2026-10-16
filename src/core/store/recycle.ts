@@ -19,7 +19,7 @@
  */
 
 import type { FsBridge } from "../fsbridge";
-import { isSystemEntryName, join, recycleManifestFile, recycleRoot } from "../dirs";
+import { isSystemEntryName, join, normalizePathForCompare, recycleManifestFile, recycleRoot } from "../dirs";
 import { newRecycleId } from "../ids";
 import { childNameProblem } from "./names";
 
@@ -109,9 +109,9 @@ export function itemPath(booksRoot: string, id: string): string {
 // 名字规则与「新建作品」共用一份实现（单一来源，见 names.ts）
 export { childNameProblem, isReservedDeviceName } from "./names";
 
-/** 归一化路径（小写、统一分隔符、去尾部分隔符），用于比较而**不是**用于拼路径 */
+/** 统一比较口径；POSIX 保留大小写，避免误删另一目录。 */
 function normPath(p: string): string {
-  return p.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
+  return normalizePathForCompare(p);
 }
 
 /**

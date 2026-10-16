@@ -1,7 +1,7 @@
 /**
  * 作品清单 `.openwrite_manifest.json`（保持既有格式）。
  *
- * 实测样本（C:\Users\Administrator\AI写小说\测试书籍\.openwrite_manifest.json）：
+ * 实测样本（本地测试作品的 `.openwrite_manifest.json`，绝对路径不入库）：
  * {"version":1,"updatedAt":"2026-09-27T22:00:35.918741",
  *  "items":{"item_1790517635918741_g2mpat":{"id":"item_1790517635918741_g2mpat","kind":"file",
  *    "physicalPath":"章节内容/1.md","displayName":"1.md",

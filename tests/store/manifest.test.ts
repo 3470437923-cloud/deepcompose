@@ -1,6 +1,6 @@
 /**
  * 作品清单：用实测样本做回归锁。
- * 样本逐字取自 C:\Users\Administrator\AI写小说\测试书籍\.openwrite_manifest.json
+ * 样本结构来自本地测试作品，绝对路径和作品名不入库。
  */
 import { describe, expect, it } from "vitest";
 import {

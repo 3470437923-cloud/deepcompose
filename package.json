@@ -4,17 +4,27 @@
   "version": "1.1.0",
   "type": "module",
   "description": "DeepCompose — 长篇中文小说 AI 写作工作台",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/3470437923-cloud/deepcompose.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:macos-sim": "vitest run --config ./vitest.macos-sim.config.ts",
+    "test:linux-sim": "vitest run --config ./vitest.linux-sim.config.ts",
     "typecheck": "tsc --noEmit",
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File tools/package.ps1",
+    "package:mac": "bash tools/package.sh",
+    "package:linux": "bash tools/package-linux.sh",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:mac": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0",

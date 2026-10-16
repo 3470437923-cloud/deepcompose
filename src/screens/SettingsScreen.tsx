@@ -449,31 +449,35 @@ export default function SettingsScreen({ onBack }: Props) {
           <div className="brand-name">DeepCompose</div>
         </div>
         <div className="win-tools">
-          <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
-            <svg viewBox="0 0 20 20" className="ic"><path d="M5 10h10" /></svg>
-          </button>
-          <button
-            className="wbtn"
-            title={maxed ? "向下还原" : "最大化"}
-            aria-label={maxed ? "向下还原" : "最大化"}
-            onClick={() => void win.toggleMaximize()}
-          >
-            {maxed ? (
+          {/* 自绘窗控——仅 Windows；macOS 用系统原生三键（见 app.css 的
+              html[data-os="macos"] .win-ctrls 规则） */}
+          <span className="win-ctrls">
+            <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
+              <svg viewBox="0 0 20 20" className="ic"><path d="M5 10h10" /></svg>
+            </button>
+            <button
+              className="wbtn"
+              title={maxed ? "向下还原" : "最大化"}
+              aria-label={maxed ? "向下还原" : "最大化"}
+              onClick={() => void win.toggleMaximize()}
+            >
+              {maxed ? (
+                <svg viewBox="0 0 20 20" className="ic">
+                  <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                  <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 20 20" className="ic">
+                  <rect x="4" y="4.5" width="11" height="11" rx="2" />
+                </svg>
+              )}
+            </button>
+            <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
               <svg viewBox="0 0 20 20" className="ic">
-                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
-                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+                <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
               </svg>
-            ) : (
-              <svg viewBox="0 0 20 20" className="ic">
-                <rect x="4" y="4.5" width="11" height="11" rx="2" />
-              </svg>
-            )}
-          </button>
-          <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
-            <svg viewBox="0 0 20 20" className="ic">
-              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
-            </svg>
-          </button>
+            </button>
+          </span>
         </div>
       </div>
 

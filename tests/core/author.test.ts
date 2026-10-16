@@ -56,6 +56,8 @@ describe("authorFromAppInfo", () => {
     expect(s).toContain("Liumorrow");
     expect(s).toContain("DeepSeek");
     expect(s).toContain("本机");
+    expect(s).toContain("发送给你配置的模型服务");
+    expect(s).not.toContain("都只留在本机");
     // 界面准则:不许出现「以后会有 / 后续批次」式承诺
     expect(s).not.toMatch(/后续批次|敬请期待|将会支持/);
   });

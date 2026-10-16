@@ -1,16 +1,27 @@
 /**
  * 目录权威（唯一真源）。
  *
- * 目录布局保持既有格式：
- *   作品根 <booksRoot>\<书名>\小说资料\*.md  +  章节内容\第N章.md
- *   回收站 <booksRoot>\.openwrite_recycle\<id>\...  + recycle_manifest.json
- *   应用数据 <Documents>\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}
- *   配置     %APPDATA%\com.writerd\writerD\shared_preferences.json
+ * 目录布局保持既有格式（**只换基目录与分隔符，名字一个字不改**）：
+ *   Windows：
+ *     作品根 <booksRoot>\<书名>\小说资料\*.md  +  章节内容\第N章.md
+ *     回收站 <booksRoot>\.openwrite_recycle\<id>\...  + recycle_manifest.json
+ *     应用数据 <Documents>\{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}
+ *     配置     %APPDATA%\com.writerd\writerD\shared_preferences.json
+ *   macOS：
+ *     作品根 ~/AI写小说/<书名>/小说资料/*.md  +  章节内容/第N章.md
+ *     回收站 ~/AI写小说/.openwrite_recycle/<id>/...  + recycle_manifest.json
+ *     应用数据 ~/Documents/{writerd_sessions, writerd_snapshots, writerd_memos.json, skills}
+ *     配置     ~/Library/Application Support/com.writerd/writerD/shared_preferences.json
  *
  * 命名对照：应用数据目录统一用 `writerd_` 前缀；作品根下的回收站与清单
  * 沿用既有 `.openwrite_*` 名以兼容既有数据。
- * skills 目录沿用既有名 `skills`（即 Documents\skills）。
+ * skills 目录沿用既有名 `skills`（即 <Documents>/skills）。
+ * 中文目录名（小说资料/章节内容/待确认/已处理/审核/个人改稿）与 com.writerd/writerD/
+ * shared_preferences.json 都是**磁盘冻结名**，跨平台逐字相同。
  */
+
+export { IS_WINDOWS, PATH_SEP } from "./platform";
+import { IS_WINDOWS, PATH_SEP } from "./platform";
 
 /** 作品目录协议里用到的固定名（3.0 起含候选区与回流日志；旧名保留兼容） */
 export const PROJECT_DIRS = {
@@ -109,13 +120,35 @@ export interface DirsInput {
   skillsDir?: string | null;
 }
 
+/* ─────────────────────────── 平台分隔符 ───────────────────────────
+ * 磁盘契约名一个字不改，**只换基目录与分隔符**。
+ * 本模块是全仓库唯一的路径拼接权威：所有派生路径（booksRoot / sessionsDir /
+ * snapshotsDir / skillsDir / memosFile / prefsDir / usageStatsFile / 回收站）
+ * 都经 `join` 产出，所以分隔符只在这里定一次。
+ *
+ * 平台判定本身在 `platform.ts`（唯一真源），这里只取用（并转发导出）—— 两处口径必须同源。
+ */
+
 /**
- * Windows 风格拼接：统一 '\'，去掉重复分隔符与尾部分隔符。
+ * 路径拼接（平台分隔符）：去掉重复分隔符与尾部分隔符。
  * 首段保留前导分隔符（UNC 根 `\\server\share`、盘内绝对 `\a` 原样带过）；
  * 后续段剥掉首尾分隔符，剥空的段直接丢弃（否则 `join("a","\\","b")` 会拼出双分隔符）；
- * 结果以裸盘符结尾时补回盘符根形态 `C:\`。
+ * 结果以裸盘符结尾时补回盘符根形态 `C:\`（**仅 Windows** —— POSIX 上文件名可以
+ * 以 `C:` 结尾，补 `\` 会把一个正常文件名弄坏）。
+ *
+ * 另有一条防御：首段是 `/` 开头的 POSIX 绝对路径时无条件用 `/` 拼。
+ * 这样即使平台识别失败（未知 UA），Rust 侧递过来的 `/Users/...` 也不会被拼成
+ * `/Users/me\AI写小说` —— 那是**单个目录名**，`create_dir_all` 会在家目录下
+ * 建一个带反斜杠的怪目录，而全部派生路径同时失效。
  */
 export function join(...parts: string[]): string {
+  const first = parts.find((p) => p !== undefined && p !== null && p !== "");
+  const sep = first && first.startsWith("/") ? "/" : PATH_SEP;
+  return joinWith(sep, ...parts);
+}
+
+/** `join` 的显式分隔符版本（导出供测试在任意平台上验证另一种平台的拼法） */
+export function joinWith(sep: string, ...parts: string[]): string {
   const cleaned: string[] = [];
   for (const p of parts) {
     if (p === undefined || p === null || p === "") continue;
@@ -126,16 +159,27 @@ export function join(...parts: string[]): string {
     if (seg === "" && !isFirst) continue;
     cleaned.push(seg);
   }
-  const joined = cleaned.join("\\");
-  // 保留盘符根的形态 C:\
-  return joined.replace(/([A-Za-z]:)$/, "$1\\");
+  const joined = cleaned.join(sep);
+  // 保留盘符根的形态 C:\（Windows 专有：POSIX 上 "C:" 只是个合法文件名）
+  return sep === "\\" ? joined.replace(/([A-Za-z]:)$/, "$1\\") : joined;
 }
 
-/** 校验：不得选择磁盘根目录（逐字文案的判定条件）。
- *  覆盖 `C:`/`C:\` 盘符根与 `/`、`\\` 这类裸根形态。 */
-export function isDriveRoot(path: string): boolean {
+/**
+ * 校验：不得选择磁盘根/系统根目录（逐字文案的判定条件）。
+ *  - `C:` / `C:\` 盘符根与 `/`、`\\` 这类裸根形态；
+ *  - POSIX 上追加两类"范围过大"的根（卷根/系统根）：文件系统根之下的**顶层目录**
+ *    （`/Users`、`/Volumes`、`/Applications`…，其父目录就是 `/`）与**挂载卷根**
+ *    （`/Volumes/<卷名>`）。判定纯词法、不做 I/O，只可能更严不可能更松。
+ */
+export function isDriveRoot(path: string, windows: boolean = IS_WINDOWS): boolean {
   const p = path.replace(/[\\/]+$/, "");
-  return /^[A-Za-z]:$/.test(p) || /^[\\/]{1,2}$/.test(path);
+  if (/^[A-Za-z]:$/.test(p) || /^[\\/]{1,2}$/.test(path)) return true;
+  if (windows) return false;
+  if (!p.startsWith("/")) return false; // 相对路径（"Users"）不是根
+  const segs = p.split("/").filter(Boolean);
+  if (segs.length === 1) return true; // "/Users"
+  if (segs.length === 2 && segs[0] === "Volumes") return true; // "/Volumes/Backup"
+  return false;
 }
 
 /** 取路径最后一段（先剥尾部分隔符；盘符根 "C:\" 返回 "C:"，UNC 根返回末级共享名） */
@@ -145,30 +189,53 @@ export function basename(path: string): string {
   return i < 0 ? p : p.slice(i + 1);
 }
 
-/** 取父目录（盘符下第一段返回盘符根 "C:\"；无分隔符可剥时返回 ""） */
+/**
+ * 取父目录（盘符下第一段返回盘符根 "C:\"；无分隔符可剥时返回 ""）。
+ * POSIX 顶层补正：`dirname("/Users")` 必须是 `/` 而不是空串 ——
+ * 空串会污染 pathGuard 的授权目录上溯（exec.ts guardWithConfirm）与
+ * rename/delete 的父目录计算，`dirname("/")` 同理。
+ */
 export function dirname(path: string): string {
   const p = path.replace(/[\\/]+$/, "");
+  if (p === "") return path.startsWith("/") ? "/" : "";
   const i = Math.max(p.lastIndexOf("\\"), p.lastIndexOf("/"));
   if (i < 0) return "";
   if (i === 2 && /^[A-Za-z]:/.test(p)) return p.slice(0, 3);
-  return p.slice(0, i);
+  const parent = p.slice(0, i);
+  if (parent === "" && path.startsWith("/")) return "/";
+  return parent;
 }
 
 /**
- * 计算 target 相对 base 的路径（'\' 分隔，保留调用方大小写）；不在 base 内返回 null。
- * 前缀比较大小写不敏感（Windows 语义）；截取长度用**原串**而不是小写串——
+ * 计算 target 相对 base 的路径（本机分隔符，保留调用方大小写）；不在 base 内返回 null。
+ * Windows 前缀比较不区分大小写；POSIX 保守区分大小写，避免 Linux 或大小写敏感 APFS
+ * 把另一个目录误认作项目内路径。截取长度用**原串**而不是小写串——
  * toLowerCase 对个别 Unicode 字符（如 'İ'）会变长，拿小写长度切片会错位。
  */
 export function relative(base: string, target: string): string | null {
-  // 比较前先把 '/' 归一为 '\'：与本模块 basename/dirname/join 接受两种分隔符的口径一致，
-  // 混合分隔符输入（如 base 用 '\'、target 用 '/'）不该被误判成"不在 base 内"
+  return relativeWith(PATH_SEP, base, target);
+}
+
+/** `relative` 的显式分隔符版本（导出供测试在任意平台上验证另一种平台的行为） */
+export function relativeWith(sep: string, base: string, target: string): string | null {
+  // 比较前把两种分隔符都归一为本机分隔符：与本模块 basename/dirname/join 接受
+  // 两种分隔符的口径一致，混合分隔符输入（如 base 用 '\'、target 用 '/'）
+  // 不该被误判成"不在 base 内"
+  const canon = (s: string) => (sep === "\\" ? s.replace(/\//g, "\\") : s.replace(/\\/g, "/"));
   const bRaw = base.replace(/[\\/]+$/, "");
-  const b = bRaw.replace(/\//g, "\\").toLowerCase();
+  const compare = (s: string) => sep === "\\" ? canon(s).toLowerCase() : canon(s);
+  const b = compare(bRaw);
   const t = target.replace(/[\\/]+$/, "");
-  const tl = t.replace(/\//g, "\\").toLowerCase();
+  const tl = compare(t);
   if (tl === b) return "";
-  if (!tl.startsWith(b + "\\")) return null;
+  if (!tl.startsWith(b + sep)) return null;
   return t.slice(bRaw.length + 1);
+}
+
+/** 路径身份比较：兼容旧分隔符，只有 Windows 折叠大小写；不用于 I/O。 */
+export function normalizePathForCompare(path: string): string {
+  const normalized = path.replace(/[\\/]+/g, "/").replace(/\/+$/, "");
+  return IS_WINDOWS ? normalized.toLowerCase() : normalized;
 }
 
 /** 由系统目录 + prefs 覆盖项推导全部应用目录（覆盖项为空/缺失时走默认路径） */

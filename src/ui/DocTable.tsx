@@ -16,7 +16,14 @@
  * 用户手改是最高权威：不跑 docschema 落点校验（那道门只拦 AI 的 file_write）。
  */
 import { useEffect, useRef, useState } from "react";
-import type { CellAddr, DocTable, DocTablePart, GridRow } from "../core/store/doctable";
+import {
+  columnWeightsFor,
+  statusSymbol,
+  type CellAddr,
+  type DocTable,
+  type DocTablePart,
+  type GridRow,
+} from "../core/store/doctable";
 
 /** 编辑提交回调：addr 指向的内容替换为 newText */
 export type TableEditHandler = (addr: CellAddr, newText: string) => void;
@@ -25,17 +32,35 @@ export type TableDeleteHandler = (block: CellAddr, label: string) => void;
 /** 追加条目回调：part = 目标 grid（含列结构与既有条目，供生成新条目） */
 export type TableAppendHandler = (part: Extract<DocTablePart, { kind: "grid" }>) => void;
 
-/** 封闭取值字段的点选清单（key = 字段名/列名；按文件分） */
-const STATUS_BY_FILE: Record<string, string[]> = {
+/** 封闭取值字段的点选清单（key = 字段名/列名；按文件分）。符号化看法在 doctable.STATUS_SYMBOL */
+export const STATUS_BY_FILE: Record<string, string[]> = {
   "追踪-伏笔.md": ["开放", "已回收", "废弃"],
   "追踪-时间线.md": ["开放", "完成", "废弃"],
   "追踪-资源与权限.md": ["有效", "耗尽", "失去", "废弃"],
   "追踪-废弃设定.md": ["是", "否"],
-  "规则台账.md": ["候选", "已晋升", "已否决"],
+  // 2026-10-11 对齐盘上真实词表：原文只有「候选/已晋升/已否决」，与台账实际在用的
+  // 「待观察」「已晋升（附条件）」不符，导致这两个值点不出来（只能原样保留）
+  "规则台账.md": ["候选", "待观察", "已晋升", "已晋升（附条件）", "已否决"],
 };
 
+/** 该文件该状态值的符号；没有符号约定就返回原值 */
+function symbolize(fileName: string, value: string): string {
+  return statusSymbol(fileName, value) ?? value;
+}
+
+/** 点选项：value 是写回文件的中文原值，label 是带符号的显示文案 */
+interface EnumOption {
+  value: string;
+  label: string;
+}
+
 /** 该文件该字段是否为封闭取值；返回可选值清单（null = 自由文本） */
-function enumOptionsFor(fileName: string, key: string): string[] | null {
+function enumOptionsFor(fileName: string, key: string): EnumOption[] | null {
+  const raw = rawEnumValues(fileName, key);
+  return raw ? raw.map((v) => ({ value: v, label: symbolize(fileName, v) })) : null;
+}
+
+function rawEnumValues(fileName: string, key: string): string[] | null {
   if (fileName === "00-项目状态.md") {
     if (key === "当前阶段") return ["开书准备", "开书自检", "连续写作", "收尾"];
     if (key === "正文处理进度") return ["未开始", "起草中", "待逐段修改", "修改复读中", "待用户确认"];
@@ -69,7 +94,7 @@ function Cell({
 }: {
   text: string;
   addr: CellAddr | null;
-  enumOptions: string[] | null;
+  enumOptions: EnumOption[] | null;
   cellKey: string;
   editing: EditingState | null;
   onEdit: TableEditHandler | undefined;
@@ -95,11 +120,12 @@ function Cell({
   // ── 编辑态 ──
   if (editing && editing.key === cellKey) {
     if (enumOptions) {
+      // value 直接用草稿原值：不在清单里的旧值/自定义值也照常选中（下面用隐藏 option 兜底）
       return (
         <select
           className="dt-editor"
           autoFocus
-          value={enumOptions.includes(editing.draft) ? editing.draft : editing.draft}
+          value={editing.draft}
           onChange={(e) => {
             onEdit?.(editing.addr, e.target.value);
             onCancelEdit();
@@ -110,10 +136,12 @@ function Cell({
           }}
         >
           {/* 当前值不在清单里（旧值/自定义值）也要能显示与保留 */}
-          {!enumOptions.includes(editing.draft) ? <option value={editing.draft}>{editing.draft}</option> : null}
+          {!enumOptions.some((o) => o.value === editing.draft) ? (
+            <option value={editing.draft}>{editing.draft}</option>
+          ) : null}
           {enumOptions.map((o) => (
-            <option key={o} value={o}>
-              {o}
+            <option key={o.value} value={o.value}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -202,9 +230,20 @@ function Cell({
   );
 }
 
-/** 状态类值的徽章（只读展示；中性灰底，不消耗强调色） */
-function StatusCell({ text }: { text: string }) {
+/**
+ * 状态类值的徽章（只读展示；中性灰底，不消耗强调色）。
+ * 有符号约定时只显示符号（列很窄，容不下四个字），中文原值留在 title 里。
+ */
+function StatusCell({ text, fileName }: { text: string; fileName: string }) {
   if (text === "") return <span className="dt-empty">—</span>;
+  const sym = statusSymbol(fileName, text);
+  if (sym) {
+    return (
+      <span className="dt-status dt-sym" title={text}>
+        {sym}
+      </span>
+    );
+  }
   return <span className="dt-status">{text}</span>;
 }
 
@@ -245,13 +284,26 @@ function GridRowView({
   };
 }) {
   const label = row.cells[0] || `第 ${rowIdx + 1} 条`;
+  const lastIdx = row.cells.length - 1;
+  /** 行末删钮：不再单占一列（用户 2026-10-11「空列删掉」），改为悬停时浮在行右端 */
+  const del =
+    row.block && handlers.onDeleteRow ? (
+      <button
+        type="button"
+        className="dt-rowdel"
+        title={`删除「${label}」整条`}
+        onClick={() => handlers.onDeleteRow!(row.block!, label)}
+      >
+        删
+      </button>
+    ) : null;
   return (
     <tr>
       {row.cells.map((cell, j) => (
         <td key={j}>
           {/^(状态|命中章节数)$/.test(part.columns[j]) && !(editing && editing.key === `${partIdx}:${rowIdx}:${j}`) ? (
             <span className="dt-cellwrap">
-              <StatusCell text={cell} />
+              <StatusCell text={cell} fileName={fileName} />
               {editable(row.addrs[j], handlers.onEdit) ? (
                 <button
                   type="button"
@@ -276,20 +328,9 @@ function GridRowView({
               onCancelEdit={handlers.onCancelEdit}
             />
           )}
+          {j === lastIdx ? del : null}
         </td>
       ))}
-      {row.block && handlers.onDeleteRow ? (
-        <td className="dt-rowact">
-          <button
-            type="button"
-            className="dt-act danger"
-            title={`删除「${label}」整条`}
-            onClick={() => handlers.onDeleteRow!(row.block!, label)}
-          >
-            删
-          </button>
-        </td>
-      ) : null}
     </tr>
   );
 }
@@ -364,17 +405,25 @@ function PartView({
       </div>
     );
   }
+  const weights = columnWeightsFor(fileName, part.columns);
   return (
     <div className="dt-part">
       {part.title ? <div className="dt-part-title">{part.title}</div> : null}
       <div className="dt-scroll">
-        <table className="dt-table dt-grid">
+        <table className={weights ? "dt-table dt-grid dt-fixed" : "dt-table dt-grid"}>
+          {/* 用户逐表指定的列宽（100 分制）；未声明的表不给 colgroup，保持内容自适应 */}
+          {weights ? (
+            <colgroup>
+              {weights.map((w, i) => (
+                <col key={i} style={{ width: `${w}%` }} />
+              ))}
+            </colgroup>
+          ) : null}
           <thead>
             <tr>
               {part.columns.map((c) => (
                 <th key={c}>{c}</th>
               ))}
-              {part.rows.some((r) => r.block) && handlers.onDeleteRow ? <th className="dt-rowact" /> : null}
             </tr>
           </thead>
           <tbody>
@@ -404,8 +453,13 @@ function PartView({
   );
 }
 
-/** 支持加行的 grid：列结构 = 「条目 + 若干 - 键：值 字段」（追踪表与规则台账） */
+/**
+ * 支持加行的 grid：列结构 = 「条目 + 若干 `- 键：值` 字段」（追踪表、规则台账、06 规则表）。
+ * 06 有两张 grid，**按列结构区分**：只有「规则编号 + 三字段」的规则表能加行，
+ * 禁用列表（禁止项 + 来源）是行条目，加行会生成出错的块 → 不给钮。
+ */
 export function gridSupportsAppend(part: Extract<DocTablePart, { kind: "grid" }>, fileName: string): boolean {
+  if (fileName === "06-写作风格.md") return part.columns[0] === "规则编号";
   return fileName.startsWith("追踪-") || fileName === "规则台账.md";
 }
 
