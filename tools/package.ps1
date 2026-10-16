@@ -82,6 +82,11 @@ Write-Output "[4/5] copy -> $dst"
 New-Item -ItemType Directory -Force -Path $rel | Out-Null
 Copy-Item $exe $dst -Force
 
+# Portable releases must ship these full license texts with the executable.
+foreach ($notice in @("LICENSE", "LICENSE.third-party.txt", "THIRD-PARTY-NOTICES.txt")) {
+    Copy-Item -LiteralPath (Join-Path $root $notice) -Destination (Join-Path $rel $notice) -Force
+}
+
 # Remove the pre-rename shortcuts so the desktop does not keep several icons.
 foreach ($old in $oldLnks) {
     if (Test-Path $old) {

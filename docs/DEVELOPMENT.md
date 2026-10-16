@@ -137,9 +137,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 
 | 脚本 | 作用 |
 |---|---|
-| `package.ps1` | 打包：tsc 类型闸门 → vite build → cargo build --release → 复制 exe → 刷新快捷方式 |
+| `package.ps1` | Windows 打包：tsc 类型闸门 → vite build → cargo build --release → 复制 exe → 刷新快捷方式 |
+| `package.sh` | macOS 打包与本地产物收集：`npm run package:mac`；`--check` 检查前端，`--no-alias` 不建桌面替身 |
+| `package-linux.sh` | Linux 原生构建与依赖预检：`npm run package:linux`；系统依赖、参数和验证边界见 [LINUX.md](LINUX.md) |
+| `collect-notices.py` | Python 3.11+；按 npm/Cargo 锁文件收集第三方许可正文，缺来源或文本时失败；生成 THIRD-PARTY-NOTICES.txt，来源说明见 LICENSE-SOURCES.md |
 | `capture.ps1` | 真机截屏取证到 `shots/`（`SetForegroundWindow` 后等 0.5–1s，否则 WebView2 白图） |
 | `preview_shot.py` / `preview_diag.py` | 预览沙箱两主题截图 + 几何断言 / 页面异常原文 |
+| `table_probe.py` / `table_shot.py` | 资料表格视图的**列宽 / 空列 / 状态符号 / 切换钮门控**取证（D-061~D-065）；见 §9.5 |
 | `mock_provider.py` + `e2e_chat.ps1` / `e2e_live.ps1` | 本地 mock 提供商端到端 / 真实配置直连端到端 |
 | `ds_probe.py` | 真实 Key 的 DeepSeek 接口探针（用法见 `AGENTS.md` §3；只读本机 Key，绝不打印） |
 
@@ -186,6 +190,21 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\tools\e2e_chat.ps1
 > `npm.cmd run package` → `capture.ps1` 真机截屏。
 > 关于页作者卡与帮助页脚的署名**只在真机产物里**取自 Rust `app_info`;预览沙箱走
 > `mockBackend.ts` 的同形替身 —— 沙箱全绿不等于发布件署名正确,打包后按 §10 第 3 条核 exe。
+
+### 9.5 资料表格视图取证（2026-10-11 登记，D-061~D-065）
+
+| 脚本 | 作用 | 用法与前提 |
+|---|---|---|
+| `table_probe.py` | 在**渲染后的 DOM** 上验表格视图那批裁决：① 声明的表真有 `<colgroup>` + `table-layout:fixed`，且**实测像素百分比**跟声明的 100 分制一致；② 未声明的表（细纲/粗纲/00/01/02/06禁用列表）**没有** colgroup、保持 `auto`；③ grid 表里没有空列（旧 `.dt-rowact` 删钮列），且 `.dt-rowdel` 还在；④ 状态渲染成 √/`?`/×，中文原值留在 `title`；⑤ 纯散文文档（人物库/03-全书大纲）**没有**切换钮 | `python tools/table_probe.py [--theme light]`；vite 5183 + 无头 Edge CDP 9223。退出 0 / 1（逐条列出不符）。**注意**：只有 grid 行表才该有 colgroup 与行末删钮，kv 字段卡两样都没有——探针按 `cls` 区分。沙箱夹具里的 `人物库.md` 是**按模板写的**（带六方面字段行）→ 有 kv → 有钮；**用户真书上那份是纯自然段 → 没有钮**，这一条由单测 `hasRealTable` 覆盖，探针测不到 |
+| `table_shot.py` | 表格视图两主题截图（规则台账 / 追踪-伏笔 / 03-全书大纲 / 人物库），落 `shots/preview/table-<name>-<theme>.png` | `python tools/table_shot.py --theme dark --out shots\preview`；同上前提。**本模型无法看图**，截图是给人和后续图像模型复核用的；列宽这类几何判据以 `table_probe.py` 的实测数字为准 |
+| `migrate_style_sr.py` | 把 06-写作风格.md 的「风格规则」从自然段迁成 `### SR-编号` 块 + 三行字段（B22 批 3） | `python tools/migrate_style_sr.py --file <06 路径> --check`（只看不写）→ `--write`（先落 `.bak-b22`）。**核心不变量**：规则文字从原文件里**切**出来（按 `。` 断句后按规格分组），拼回来必须与原文**逐字节相同**才允许写盘 —— 逐字保留由构造保证，不靠人手重打。段数/句数对不上就整体拒绝（`exit 1`），不会写出半迁移的文件 |
+
+> 这两支脚本的列宽期望值**抄自 `src/core/store/doctable.ts` 的 `COLUMN_WEIGHTS`**——
+> 改权重必须同步改 `table_probe.py` 的 `CASES`，否则探针会拿旧期望判新代码。
+> `CASES` 的期望**可以按表给**（06 就有两张不同性质的 grid：规则表固定四列、禁用列表自适应），
+> 一张文档一个期望说不清。`columnWeightsFor` 要求**列集完全一致**（个数与列名都对得上），
+> 只对上一部分就整体放弃：部分匹配会产出比表格短的 colgroup，把整张表挤坏
+> （首版实现漏了这条，被回归锁当场抓住）。
 
 ## 10. 署名与许可的验收(开源发布前必做)
 

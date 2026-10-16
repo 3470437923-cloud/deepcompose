@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { setFs, type FsBridge } from "../../src/core/fsbridge";
 import { DEFAULT_PREFS } from "../../src/core/prefs";
 import type { AppDirs } from "../../src/core/dirs";
+// 落盘路径按本机分隔符拼接（sessionsDir 与文件名之间），断言用 PATH_SEP 而不是硬编码 '\'
+import { PATH_SEP } from "../../src/core/dirs";
 import { send } from "../../src/core/ai/controller";
 import { AI_ERRORS } from "../../src/core/ai/errors";
 import type { StreamTransport } from "../../src/core/ai/agent";
@@ -100,7 +102,7 @@ describe("send：配置缺失时用户消息不丢（B12-8）", () => {
     expect(res.session.messages[0].text).toBe("这段字不能丢");
     // 落盘：会话文件与索引都写了
     const written = Object.keys(files);
-    expect(written.some((p) => p.startsWith(DIRS.sessionsDir + "\\") && p.endsWith(".json"))).toBe(true);
+    expect(written.some((p) => p.startsWith(DIRS.sessionsDir + PATH_SEP) && p.endsWith(".json"))).toBe(true);
     expect(written.some((p) => p.endsWith("index.json"))).toBe(true);
   });
 

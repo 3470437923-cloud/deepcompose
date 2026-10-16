@@ -10,7 +10,7 @@
  */
 
 import type { FsBridge } from "../fsbridge";
-import { join } from "../dirs";
+import { join, normalizePathForCompare } from "../dirs";
 import { isoMicros } from "../ids";
 import type { ChatMessage } from "../ai/protocol";
 
@@ -265,11 +265,10 @@ export interface SessionListEntry extends SessionIndexEntry {
 }
 
 /**
- * 路径比较口径（Windows：大小写不敏感、分隔符统一）——只用于**比较**，不用于拼路径。
+ * 路径比较口径与目录权威同源：仅 Windows 不区分大小写；只用于比较，不用于拼路径。
  */
 function samePath(a: string, b: string): boolean {
-  const n = (p: string) => p.replace(/[\\/]+/g, "/").replace(/\/+$/, "").toLowerCase();
-  return n(a) === n(b);
+  return normalizePathForCompare(a) === normalizePathForCompare(b);
 }
 
 /**
@@ -312,7 +311,7 @@ export async function deleteSessionsForProject(
  */
 export function listSessions(index: SessionIndex, projectPath?: string | null): SessionListEntry[] {
   const out: SessionListEntry[] = Object.entries(index.sessions).map(([id, e]) => ({ id, ...e }));
-  // 过滤口径与 deleteSessionsForProject 一致（samePath：大小写不敏感、分隔符统一）——
+  // 过滤口径与 deleteSessionsForProject 一致（samePath：按平台比较大小写、分隔符统一）——
   // 严格相等会在路径风格不一致时过滤不出会话，而删除又能匹配上，留下孤儿会话（B-3）
   const filtered = projectPath ? out.filter((e) => samePath(e.projectPath, projectPath)) : out;
   return filtered.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));

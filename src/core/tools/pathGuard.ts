@@ -10,7 +10,7 @@
  *   `路径在项目/skill 目录外，需用户确认，但确认机制未启用: `
  */
 
-import { join, isDriveRoot, relative } from "../dirs";
+import { IS_WINDOWS, PATH_SEP, join, isDriveRoot, relative } from "../dirs";
 
 /** 授权判定用的根集合：三个固定授权根 + 本次会话中用户明确授权的额外目录 */
 export interface GuardRoots {
@@ -24,7 +24,7 @@ export interface GuardRoots {
 export interface ResolvedPath {
   /** 用于 I/O 的绝对路径（保留调用方大小写与 '..' 原样，不做词法折叠） */
   abs: string;
-  /** 相对项目根的路径（'\\' 分隔）；不在项目内为 null */
+  /** 相对项目根的路径（本机分隔符）；不在项目内为 null */
   rel: string | null;
   /** 相对路径输入的解析基准（projectRoot，缺省 booksRoot）；绝对路径输入为 null */
   base: string | null;
@@ -34,15 +34,33 @@ export interface ResolvedPath {
 export const NEEDS_CONFIRMATION_PREFIX = "路径在项目/skill 目录外，需用户确认，但确认机制未启用: ";
 
 /**
- * Windows 路径归一化：统一分隔符、折叠 '.' 与 '..'、去空段、转小写。
+ * 把两种分隔符都归一为**本机分隔符**。
+ *
+ * 为什么输入侧必须做这件事：`file_read(list)` 的条目 `path` 是**工具协议格式**
+ * （`章节内容\第1章.md`，见 exec.ts 与 docs 的实证样本），模型会把该字符串原样
+ * 回传成 `path` 参数。在 macOS 上若不做归一，`\` 是**合法文件名字符**，
+ * `join(base, "章节内容\第1章.md")` 会拼出「一个名叫 `章节内容\第1章.md` 的文件」，
+ * 必然读不到 —— 老样本/老会话里的相对路径会整批失联。
+ * Windows 上把 `/` 归一为 `\` 是既有行为，逐字不变。
+ */
+function unifySep(p: string): string {
+  return PATH_SEP === "\\" ? p.replace(/\//g, "\\") : p.replace(/\\/g, "/");
+}
+
+/**
+ * 路径归一化：统一分隔符、折叠 '.' 与 '..'、去空段；仅 Windows 转小写。
  * **仅用于授权判定**；任何 I/O 与结果回报都必须用原路径（保留调用方大小写）。
  * '..' 采用词法回退：连续 '..' 可以把盘符也抵消掉（C:\..\x → "x"），
  * 归一化结果不再与任何授权根同形，穿越路径会落入"根外需确认"而不会放行。
+ *
+ * 输出用**本机分隔符**：Windows 保持 `\`（既有行为逐字不变）；
+ * POSIX 用 `/` —— 否则 `isInside` 的边界前缀匹配在 macOS 上永远不成立
+ * （根是 `/Users/...`，拼出来的边界却是 `/Users/...\`），根内路径会被整批误拒。
  */
 export function normalizeForCompare(p: string): string {
-  const unified = p.replace(/\//g, "\\");
+  const unified = unifySep(p);
   const parts: string[] = [];
-  for (const seg of unified.split("\\")) {
+  for (const seg of unified.split(PATH_SEP)) {
     if (seg === "" || seg === ".") continue; // 连续/尾部分隔符与 '.' 无语义
     if (seg === "..") {
       parts.pop();
@@ -50,25 +68,29 @@ export function normalizeForCompare(p: string): string {
     }
     parts.push(seg);
   }
-  return parts.join("\\").toLowerCase();
+  const normalized = parts.join(PATH_SEP);
+  if (IS_WINDOWS) return normalized.toLowerCase();
+  // POSIX 的前导斜杠决定绝对/相对语义；大小写可区分目录，均不可丢失。
+  return (unified.startsWith("/") ? "/" : "") + normalized;
 }
 
 /**
  * 判定 target 是否为 root 本身或其子路径。
- * 大小写不敏感；边界以 '\' 对齐（root + "\" 前缀匹配），避免 C:\ab 被误判进 C:\a。
+ * Windows 不区分大小写，POSIX 区分；边界以本机分隔符对齐，避免 C:\ab 被误判进 C:\a。
  * 空 root 不授权任何路径。
  */
 export function isInside(root: string, target: string): boolean {
   if (!root) return false;
   const r = normalizeForCompare(root);
   const t = normalizeForCompare(target);
-  return t === r || t.startsWith(r + "\\");
+  return t === r || t.startsWith(r + PATH_SEP);
 }
 
 /**
  * 解析工具传入的路径：
  *  - 相对路径 → 相对 projectRoot（未绑定项目时退到 booksRoot）拼接；
- *  - 绝对路径（盘符 `C:\`、UNC `\\server\share`、`/` 或 `\` 开头）→ 原样保留，仅统一分隔符；
+ *  - 绝对路径（盘符 `C:\`、UNC `\\server\share`、POSIX `/` 开头）→ 原样保留，
+ *    仅按**本机**口径统一分隔符（POSIX 上绝不把 `/` 换成 `\`）；
  *  - 传入目录（"" / "." / "./" / ".\"）→ 解析为项目根。
  * 返回的 abs 不做 '..' 折叠（I/O 用调用方原样）；授权判定由 guardPath 归一化后做。
  */
@@ -81,11 +103,13 @@ export function resolveToolPath(input: string, roots: GuardRoots): ResolvedPath 
     return { abs: base, rel: roots.projectRoot ? "" : null, base };
   }
   if (isAbs) {
-    const abs = raw.replace(/\//g, "\\");
+    // 绝对路径：POSIX 上保持 `/`（`/Users/x/书/小说资料/a.md` 换成 `\` 之后
+    // 交给 Rust 就是「相对路径 + 字面反斜杠」，必然读不到）；Windows 上保持既有 `\`。
+    const abs = unifySep(raw);
     return { abs, rel: roots.projectRoot ? relative(roots.projectRoot, abs) : null, base: null };
   }
   const base = roots.projectRoot ?? roots.booksRoot;
-  const abs = join(base, raw.replace(/\//g, "\\"));
+  const abs = join(base, unifySep(raw));
   return { abs, rel: roots.projectRoot ? relative(roots.projectRoot, abs) : null, base };
 }
 
@@ -109,9 +133,15 @@ export function guardPath(input: string, roots: GuardRoots): GuardDecision {
   // 授权根判定看的是主路径，这种"根内路径 + 冒号尾巴"能绕过一切目录检查，
   // 而写入必然失败（或更糟：静默写进 ADS）。盘符后的那个冒号（`C:\`）是合法的，
   // 所以只在去掉盘符前缀之后再找冒号。
-  const afterDrive = /^[A-Za-z]:/.test(abs) ? abs.slice(2) : abs;
-  if (afterDrive.includes(":")) {
-    return { ok: false, message: `路径里的冒号不合法（NTFS 备用数据流）：${input}`, resolved };
+  //
+  // **仅 Windows**：POSIX 上冒号是合法文件名字符（Finder 把它显示成 `/`），
+  // 且路径以 `/` 开头、根本没有盘符可剥，冒号检查会落在**整条路径**上 ——
+  // 一个名叫 `第1章:初稿.md` 的正常文件会被整批误拒。
+  if (IS_WINDOWS) {
+    const afterDrive = /^[A-Za-z]:/.test(abs) ? abs.slice(2) : abs;
+    if (afterDrive.includes(":")) {
+      return { ok: false, message: `路径里的冒号不合法（NTFS 备用数据流）：${input}`, resolved };
+    }
   }
 
   // 盘符根（C:\ 等）范围过大，即使恰好是某授权根的祖先也一律要求确认

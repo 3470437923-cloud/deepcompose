@@ -5,6 +5,9 @@
 import { describe, expect, it } from "vitest";
 import type { FsBridge } from "../../src/core/fsbridge";
 import { __setSubMsSource } from "../../src/core/ids";
+// 快照文件名的期望值用被测代码自己的 join 构造（Windows '\'、macOS '/'），
+// 验证的仍是同一条语义：<snapshotsDir>/<sessionId>.json
+import { join } from "../../src/core/dirs";
 import {
   contentHash,
   emptySnapshots,
@@ -58,8 +61,8 @@ function input(over: Partial<RecordInput> = {}): RecordInput {
 }
 
 describe("路径与哈希", () => {
-  it("snapshotFile：<snapshotsDir>\\<sessionId>.json（一会话一文件，uuid 保证唯一）", () => {
-    expect(snapshotFile(DIR, "abc-123")).toBe("X:\\writerd_snapshots\\abc-123.json");
+  it("snapshotFile：<snapshotsDir>/<sessionId>.json（一会话一文件，uuid 保证唯一）", () => {
+    expect(snapshotFile(DIR, "abc-123")).toBe(join(DIR, "abc-123.json"));
   });
 
   it("contentHash：sha256 小写 hex（标准向量 'abc'）", async () => {

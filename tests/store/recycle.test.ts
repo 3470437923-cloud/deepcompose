@@ -29,7 +29,7 @@ import {
   serializeManifest,
 } from "../../src/core/store/recycle";
 import { deleteSessionsForProject, emptyIndex, saveIndex, type SessionIndex } from "../../src/core/store/session";
-import { recycleRoot } from "../../src/core/dirs";
+import { IS_WINDOWS, recycleRoot } from "../../src/core/dirs";
 
 const fs = createNodeFs();
 let root: string;
@@ -143,9 +143,9 @@ describe("活动门", () => {
       checkActivity({ busy: false, sessionProjectPath: "D:\\书\\星海拾梦", openFilePath: null }, target),
     ).toContain("对话");
     // 大小写与分隔符不该成为绕过口子（Windows 同一目录的两种写法）
-    expect(
-      checkActivity({ busy: false, sessionProjectPath: "d:/书/星海拾梦/", openFilePath: null }, target),
-    ).toContain("对话");
+    const caseVariant = checkActivity({ busy: false, sessionProjectPath: "d:/书/星海拾梦/", openFilePath: null }, target);
+    if (IS_WINDOWS) expect(caseVariant).toContain("对话");
+    else expect(caseVariant).toBeNull();
     expect(
       checkActivity({ busy: false, sessionProjectPath: null, openFilePath: "D:\\书\\星海拾梦\\章节内容\\第1章.md" }, target),
     ).toContain("编辑器");
@@ -325,11 +325,12 @@ describe("作品删除时的会话清理", () => {
     await saveIndex(fs, sessionsDir(), idx());
     for (const id of ["s1", "s2", "s3"]) await fs.writeText(path.join(sessionsDir(), `${id}.json`), "{}");
     const n = await deleteSessionsForProject(fs, sessionsDir(), "D:\\书\\星海拾梦");
-    expect(n.count).toBe(2);
+    expect(n.count).toBe(IS_WINDOWS ? 2 : 1);
     // id 列表要一并交回：调用方拿它去清 AI 侧会话级内存缓存（KL-AI-11）
-    expect(n.ids.sort()).toEqual(["s1", "s2"]);
+    expect(n.ids.sort()).toEqual(IS_WINDOWS ? ["s1", "s2"] : ["s1"]);
     const after = JSON.parse(await fs.readText(path.join(sessionsDir(), "index.json"))) as SessionIndex;
-    expect(Object.keys(after.sessions)).toEqual(["s3"]);
+    expect(Object.keys(after.sessions)).toEqual(IS_WINDOWS ? ["s3"] : ["s2", "s3"]);
+    expect(await fs.exists(path.join(sessionsDir(), "s2.json"))).toBe(!IS_WINDOWS);
     expect(await fs.exists(path.join(sessionsDir(), "s1.json"))).toBe(false);
     expect(await fs.exists(path.join(sessionsDir(), "s3.json"))).toBe(true);
   });

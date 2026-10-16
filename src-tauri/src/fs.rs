@@ -67,23 +67,58 @@ fn is_reserved_device_name(name: &str) -> bool {
     false
 }
 
-/// 单个路径段校验：删除类命令只接受"父目录 + 一个名字"，从结构上排除路径穿越。
-/// 拒绝：空 / `.` / `..` / 含分隔符或 `:`（ADS）/ 通配符 / 控制字符 / 保留设备名。
+/// 单个路径段校验（按**本机**平台口径）。
+///
+/// 实现见 [`valid_child_name_on`]。之所以拆成两个函数：`cfg!(windows)` 是
+/// 编译期内建宏，Windows 开发机上**无法翻转**，于是 macOS 分支永远不会被执行、
+/// 也就永远无法被测试。把平台做成显式参数后，单元测试就能在 Windows 上
+/// 把两种口径**都真跑一遍**（见本文件 `mod tests`），而不是只写一句没证据的断言。
 pub fn valid_child_name(name: &str) -> Result<(), String> {
+    valid_child_name_on(name, cfg!(windows))
+}
+
+/// 单个路径段校验：删除类命令只接受"父目录 + 一个名字"，从结构上排除路径穿越。
+///
+/// **两平台的非法字符集不同**，必须分开判，否则会出现
+/// 「TS 层建得出来、Rust 层删不掉」的不对称：
+///
+/// | 字符 | Windows | macOS / POSIX |
+/// |---|---|---|
+/// | `/` | 非法 | **非法**（唯一的分隔符） |
+/// | NUL 与控制字符 | 非法 | **非法** |
+/// | `\` | 非法（分隔符） | 合法（普通字符） |
+/// | `: * ? " < > \|` | 非法 | **合法** |
+/// | `CON` / `NUL` / `COM1` 等 | 非法（保留设备名） | **合法**（就是普通文件名） |
+///
+/// `src/core/tools/pathGuard.ts` 的冒号（ADS）检查已经用 `IS_WINDOWS` 正确包住了，
+/// 所以 macOS 上 `file_write` 允许写 `第1章:初稿.md` —— 若这里仍无条件拒绝，
+/// 用户就会**建得出来、删不掉**。故本函数同步按平台门控。
+///
+/// 注意：POSIX 上"以点结尾"（`book.`）是**合法**的，但这里仍拒绝 ——
+/// 那不是平台限制，而是本产品的命名约定（避免跨平台同步时出现同名不同实体的两份文件）。
+pub fn valid_child_name_on(name: &str, windows: bool) -> Result<(), String> {
     if name.is_empty() || name == "." || name == ".." {
         return Err(format!("非法名称：{name:?}"));
     }
-    if name.contains(['\\', '/', ':', '*', '?', '"', '<', '>', '|']) {
+    // `/` 与 NUL 在所有平台都非法
+    if name.contains('/') {
         return Err(format!("名称含非法字符：{name}"));
     }
     if name.chars().any(|c| (c as u32) < 0x20) {
         return Err(format!("名称含控制字符：{name:?}"));
     }
+    // 以下都是 Windows 专有约束
+    if windows {
+        if name.contains(['\\', ':', '*', '?', '"', '<', '>', '|']) {
+            return Err(format!("名称含非法字符：{name}"));
+        }
+        if is_reserved_device_name(name) {
+            return Err(format!("名称是 Windows 保留设备名：{name}"));
+        }
+    }
+    // 跨平台命名约定（非平台限制）：不以空格或点结尾
     if name.ends_with(' ') || name.ends_with('.') {
         return Err(format!("名称不能以空格或点结尾：{name:?}"));
-    }
-    if is_reserved_device_name(name) {
-        return Err(format!("名称是 Windows 保留设备名：{name}"));
     }
     Ok(())
 }
@@ -202,13 +237,36 @@ pub fn fs_read_text(path: String) -> Result<String, String> {
     Ok(decode_text(&bytes))
 }
 
+// 快照历史也经此原语重写；不得先截断原件，再冒险写入半份 JSON 或正文。
+fn atomic_write_with(path: &Path, write: impl FnOnce(&mut fs::File) -> std::io::Result<()>) -> std::io::Result<()> {
+    let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or_else(|| Path::new("."));
+    fs::create_dir_all(parent)?;
+    let previous = match fs::symlink_metadata(path) {
+        Ok(md) => {
+            if is_reparse(&md) || md.permissions().readonly() {
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "拒绝覆盖链接或只读文件"));
+            }
+            Some(md.permissions())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e),
+    };
+    let mut staged = tempfile::NamedTempFile::new_in(parent)?;
+    if let Some(permissions) = previous { staged.as_file().set_permissions(permissions)?; }
+    write(staged.as_file_mut())?;
+    staged.as_file().sync_all()?;
+    // persist 使用平台原子替换；失败时 NamedTempFile 负责清理临时文件，原件不受损。
+    staged.persist(path).map_err(|e| e.error)?;
+    #[cfg(unix)]
+    fs::File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
 #[tauri::command]
 pub fn fs_write_text(path: String, content: String) -> Result<(), String> {
-    let p = PathBuf::from(&path);
-    if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("建目录失败 {}: {}", parent.display(), io_err(e)))?;
-    }
-    fs::write(&p, content).map_err(|e| format!("写入失败 {path}: {}", io_err(e)))
+    use std::io::Write;
+    atomic_write_with(Path::new(&path), |file| file.write_all(content.as_bytes()))
+        .map_err(|e| format!("写入失败 {path}: {}", io_err(e)))
 }
 
 #[tauri::command]
@@ -394,42 +452,114 @@ mod tests {
     use super::*;
 
     #[test]
+    fn atomic_write_failure_preserves_existing_content_and_cleans_staging() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("稿件.md");
+        fs::write(&path, "原始稿件").unwrap();
+        let result = atomic_write_with(&path, |file| {
+            file.write_all(b"partial")?;
+            Err(std::io::Error::new(std::io::ErrorKind::Other, "模拟磁盘写入失败"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "原始稿件");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn atomic_write_replaces_content_and_refuses_readonly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("稿件.md");
+        fs_write_text(path.to_string_lossy().into(), "初稿".into()).unwrap();
+        fs_write_text(path.to_string_lossy().into(), "修订稿".into()).unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "修订稿");
+        let mut permissions = fs::metadata(&path).unwrap().permissions();
+        permissions.set_readonly(true);
+        fs::set_permissions(&path, permissions).unwrap();
+        assert!(fs_write_text(path.to_string_lossy().into(), "不应写入".into()).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), "修订稿");
+        clear_readonly(&path);
+    }
+
+    #[test]
     fn accepts_normal_names_and_recycle_ids() {
         for ok in ["星海拾梦", "book", "第1章.md", "a b", "20260704170528_1783155928889255"] {
-            assert!(valid_child_name(ok).is_ok(), "应接受：{ok}");
+            for win in [true, false] {
+                assert!(valid_child_name_on(ok, win).is_ok(), "应接受（win={win}）：{ok}");
+            }
         }
     }
 
     #[test]
     fn rejects_traversal_and_separators() {
-        for bad in ["", ".", "..", "a\\b", "a/b", "..\\..", "./x"] {
-            assert!(valid_child_name(bad).is_err(), "应拒绝：{bad:?}");
+        // `/`、空、`.`、`..` 在**所有平台**都非法
+        for bad in ["", ".", "..", "a/b", "./x"] {
+            for win in [true, false] {
+                assert!(valid_child_name_on(bad, win).is_err(), "应拒绝（win={win}）：{bad:?}");
+            }
+        }
+        // `\` 只在 Windows 上非法（POSIX 上是普通字符）
+        for bad in ["a\\b", "第1章\\初稿"] {
+            assert!(valid_child_name_on(bad, true).is_err(), "Windows 应拒绝：{bad:?}");
+            assert!(valid_child_name_on(bad, false).is_ok(), "POSIX 应接受：{bad:?}");
+        }
+        // `..\..` 两平台都拒，但**理由不同**：Windows 因为含 `\`，
+        // POSIX 因为"以点结尾"这条命名约定。写这条是为了钉住这个差别 ——
+        // 它看起来像"POSIX 上该放行"，实际不放行。
+        for win in [true, false] {
+            assert!(valid_child_name_on("..\\..", win).is_err(), "应拒绝（win={win}）");
         }
     }
 
     #[test]
-    fn rejects_ads_and_wildcards() {
-        // 冒号 = NTFS 备用数据流；通配符会在旧 API 下被展开
+    fn rejects_ads_and_wildcards_on_windows_only() {
+        // 冒号 = NTFS 备用数据流；通配符会在旧 API 下被展开 —— 都是 Windows 专有约束。
+        // POSIX 上这些字符全都是合法的文件名字符，拒绝它们会造成
+        // 「file_write 建得出来、fs_remove_child 删不掉」的不对称。
         for bad in ["book:secret", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b"] {
-            assert!(valid_child_name(bad).is_err(), "应拒绝：{bad:?}");
+            assert!(valid_child_name_on(bad, true).is_err(), "Windows 应拒绝：{bad:?}");
+            assert!(valid_child_name_on(bad, false).is_ok(), "POSIX 应接受：{bad:?}");
         }
+        // 中文名 + 冒号（最可能真实出现的形态）
+        assert!(valid_child_name_on("第1章:初稿.md", false).is_ok());
+        assert!(valid_child_name_on("第1章:初稿.md", true).is_err());
     }
 
     #[test]
-    fn rejects_reserved_device_names_with_extension() {
+    fn rejects_reserved_device_names_on_windows_only() {
+        // 保留设备名是 Windows 概念；POSIX 上 `NUL` / `aux` 就是普通文件名
         for bad in ["CON", "con", "NUL", "NUL.txt", "com1", "LPT9.md", "aux"] {
-            assert!(valid_child_name(bad).is_err(), "应拒绝：{bad:?}");
+            assert!(valid_child_name_on(bad, true).is_err(), "Windows 应拒绝：{bad:?}");
+            assert!(valid_child_name_on(bad, false).is_ok(), "POSIX 应接受：{bad:?}");
         }
-        // 不是保留名的不许误伤
+        // 不是保留名的不许误伤（两平台都成立）
         for ok in ["COM0", "LPT0", "COM10", "console", "auxiliary", "nulll"] {
-            assert!(valid_child_name(ok).is_ok(), "应接受：{ok}");
+            for win in [true, false] {
+                assert!(valid_child_name_on(ok, win).is_ok(), "应接受（win={win}）：{ok}");
+            }
         }
     }
 
     #[test]
     fn rejects_control_chars_and_trailing_dots() {
         for bad in ["a\u{1}b", "book.", "book ", "a\nb"] {
-            assert!(valid_child_name(bad).is_err(), "应拒绝：{bad:?}");
+            for win in [true, false] {
+                assert!(valid_child_name_on(bad, win).is_err(), "应拒绝（win={win}）：{bad:?}");
+            }
+        }
+        // 中文名以点结尾同样拒（命名约定，非平台限制）
+        assert!(valid_child_name_on("第1章.", false).is_err());
+    }
+
+    /// 平台门控的**回归锁**：确认 `valid_child_name` 真的按本机平台分派。
+    /// 没有这条，`cfg!(windows)` 万一写反（比如写成 `!cfg!(windows)`）也没人发现。
+    #[test]
+    fn valid_child_name_follows_the_host_platform() {
+        // 这两个名字在 Windows 上非法、在 POSIX 上合法 —— 正好能区分平台
+        for probe in ["book:secret", "NUL"] {
+            let got = valid_child_name(probe).is_ok();
+            let want = !cfg!(windows);
+            assert_eq!(got, want, "{probe:?} 的平台判定不对（cfg!(windows)={}）", cfg!(windows));
         }
     }
 

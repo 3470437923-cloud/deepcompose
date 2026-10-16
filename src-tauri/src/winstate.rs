@@ -7,8 +7,9 @@
 //!
 //! 落盘位置刻意**不写进** `shared_preferences.json`：本产品配置是封闭键集合，
 //! 窗口几何属于 UI 运行时状态而非用户配置，另存
-//! `%APPDATA%\com.writerd\writerD\window_state.json`（既有配置目录，契约不改名），
-//! 从而完全不触碰配置键空间。
+//! `%APPDATA%\com.writerd\writerD\window_state.json`
+//! （macOS：`~/Library/Application Support/com.writerd/writerD/window_state.json`；
+//! 既有配置目录，契约不改名），从而完全不触碰配置键空间。
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -16,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tauri::{PhysicalPosition, PhysicalSize, WebviewWindow};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 /// 与 tauri.conf.json 的默认窗口一致（1440×900 居中）。
 pub const DEFAULT_W: u32 = 1440;
@@ -67,21 +68,21 @@ impl Tracker {
     }
 }
 
-fn state_path() -> PathBuf {
-    crate::sys::prefs_path().with_file_name("window_state.json")
+fn state_path(app: &AppHandle) -> PathBuf {
+    crate::sys::prefs_path(app).with_file_name("window_state.json")
 }
 
-pub fn load() -> Option<WinState> {
-    let raw = fs::read_to_string(state_path()).ok()?;
+pub fn load(app: &AppHandle) -> Option<WinState> {
+    let raw = fs::read_to_string(state_path(app)).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
 /// 落盘失败**故意忽略**：窗口几何是尽力而为的状态，绝不能因此挡住关窗。
-pub fn save(st: &WinState) {
+pub fn save(app: &AppHandle, st: &WinState) {
     let Ok(raw) = serde_json::to_string_pretty(st) else {
         return;
     };
-    let p = state_path();
+    let p = state_path(app);
     if let Some(dir) = p.parent() {
         let _ = fs::create_dir_all(dir);
     }
@@ -179,10 +180,14 @@ fn current(win: &WebviewWindow) -> Option<WinState> {
 
 /// 把客户区尺寸调到 `w×h`。
 ///
-/// 实测到的机制：窗口创建后**第一次** `set_size` 的落地值会多出一个标题栏高度
-/// （本机 30px @100% DPI —— 那一刻窗口样式里还算着 `WS_CAPTION`），
+/// 实测到的机制（**Windows 专有**）：窗口创建后**第一次** `set_size` 的落地值会多出
+/// 一个标题栏高度（本机 30px @100% DPI —— 那一刻窗口样式里还算着 `WS_CAPTION`），
 /// 而**之后**再设就精确了。所以这里是"用同一个值重试直到读回一致"，
 /// 不是按差额补偿 —— 补偿会反向多减 30px（实测踩过：想要 751，落成 721）。
+///
+/// macOS 上不存在 `WS_CAPTION` 这回事，`set_size` 一次就准；照旧跑这段只会
+/// 白等 3×60ms 再 `show()`，把启动显示推迟约 180ms。故整段只在 Windows 编译。
+#[cfg(windows)]
 async fn correct_size(win: &WebviewWindow, w: u32, h: u32) {
     for _ in 0..3 {
         let Ok(now) = win.inner_size() else {
@@ -196,13 +201,18 @@ async fn correct_size(win: &WebviewWindow, w: u32, h: u32) {
     }
 }
 
+/// 非 Windows：`set_size` 直接生效，不需要补偿循环（保留同名空实现，
+/// 让 `restore` 的调用点两平台一致、不出现 cfg 分叉的可读性代价）。
+#[cfg(not(windows))]
+async fn correct_size(_win: &WebviewWindow, _w: u32, _h: u32) {}
+
 /// 启动时套用记忆的几何。没有记忆 / 记忆不可用 → 什么都不做，
 /// 保持 tauri.conf.json 的 1440×900 居中（并立刻显示）。
 ///
 /// 有记忆时窗口**先不显示**：尺寸补偿与最大化都在异步任务里做，
 /// 全部落定后才 `show()`,否则用户会看到窗口先以错尺寸出现、再跳一下。
 pub fn restore(win: &WebviewWindow, tracker: &Tracker) {
-    let saved = load().and_then(|st| sanitize(st, &screens(win)));
+    let saved = load(win.app_handle()).and_then(|st| sanitize(st, &screens(win)));
     if let Some(st) = saved {
         let _ = win.set_size(PhysicalSize::new(st.w, st.h));
         let _ = win.set_position(PhysicalPosition::new(st.x, st.y));
@@ -286,7 +296,7 @@ pub fn persist(win: &WebviewWindow, tracker: &Tracker) {
         maximized: false,
     });
     st.maximized = maximized;
-    save(&st);
+    save(win.app_handle(), &st);
 }
 
 #[cfg(test)]

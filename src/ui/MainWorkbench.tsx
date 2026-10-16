@@ -17,9 +17,10 @@ import { useDialogFocus } from "./useDialogFocus";
 import { pushEsc } from "./escStack";
 import { FOLLOW_SPRING, isNearBottom, springScrollCancel, springScrollToBottom } from "./motion";
 import logo from "../assets/logo.png";
+import { persistEditorVersion, completeReflow, isEditorVersionSaved, hasUnsavedEditors } from "./editorPersistence";
 import { boot, applyAccentFromPrefs, applyThemeFromPrefs, currentBoot, onBootReplaced, savePrefs } from "../core/app";
 import { getFs } from "../core/fsbridge";
-import { PROJECT_DIRS, dirname, join, projectManifestFile } from "../core/dirs";
+import { PROJECT_DIRS, dirname, join, projectManifestFile, PATH_SEP } from "../core/dirs";
 import { isoMicros } from "../core/ids";
 import {
   chapterLabelOf,
@@ -86,7 +87,7 @@ import { releaseBuiltinSkills } from "../core/skills/builtin";
 import MemoModal from "./MemoModal";
 import DocTableView from "./DocTable";
 import ModulesDialog from "./ModulesDialog";
-import { defaultTableView, docTableFor, applyCellEdit, applyInsertBlock, applyRangeDelete, buildEntryBlock, type CellAddr, type DocTablePart } from "../core/store/doctable";
+import { defaultTableView, docTableFor, hasRealTable, applyCellEdit, applyInsertBlock, applyRangeDelete, buildEntryBlock, type CellAddr, type DocTablePart } from "../core/store/doctable";
 import { ConfirmDialog, InputDialog, TypedConfirmDialog, type ConfirmRequest, type InputRequest, type TypedConfirmRequest } from "./Dialogs";
 import RecycleBin from "./RecycleBin";
 import { checkActivity, loadManifest, moveToRecycle } from "../core/store/recycle";
@@ -105,7 +106,7 @@ interface OpenTab {
   path: string;
   name: string;
   kind: FileKind;
-  /** 打开时的磁盘内容（写前快照的 previousContent 来源） */
+  /** 最近读取或成功保存的磁盘版本，用于保存前冲突检查。 */
   baseContent: string;
   content: string;
   dirty: boolean;
@@ -290,7 +291,14 @@ export default function MainWorkbench({
 
   const [projects, setProjects] = useState<ProjectRef[]>([]);
   const [project, setProject] = useState<ProjectData | null>(null);
-  const [tabs, setTabs] = useState<OpenTab[]>([]);
+  const [tabs, setTabsState] = useState<OpenTab[]>([]);
+  // 所有编辑同步更新镜像，异步保存后的守卫不依赖 React 下一次渲染。
+  const tabsRef = useRef<OpenTab[]>([]);
+  const setTabs = useCallback((next: OpenTab[] | ((prev: OpenTab[]) => OpenTab[])) => {
+    tabsRef.current = typeof next === "function" ? next(tabsRef.current) : next;
+    setTabsState(tabsRef.current);
+  }, []);
+  const savingPaths = useRef(new Set<string>());
   const [activeRel, setActiveRel] = useState<string | null>(null);
   const [status, setStatus] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -496,10 +504,12 @@ export default function MainWorkbench({
     () => (activeTab && activeTab.kind === "doc" ? docTableFor(activeTab.name, activeTab.content) : null),
     [activeTab],
   );
+  /** 当前资料标签是否有**真表格**（grid/kv）——纯散文文档不给切换钮（D-061） */
+  const activeTableAvailable = Boolean(activeDocTable && hasRealTable(activeDocTable));
   /** 当前标签是否按表格显示：会话内按标签的覆盖 > 按书记住的默认 > 按文件类型的默认 */
   const activeTableView = Boolean(
     activeTab &&
-      activeDocTable &&
+      activeTableAvailable &&
       (tableOverride[activeTab.rel] ??
         (bookViewMode ? bookViewMode === "table" : defaultTableView(activeTab.name))),
   );
@@ -543,33 +553,50 @@ export default function MainWorkbench({
   /** 保存单个标签（写前快照 + 落盘 + oplog；不弹确认——3.0 起自动保存） */
   const saveTabAs = useCallback(
     async (tab: OpenTab, note?: string): Promise<boolean> => {
-      if (tab.content === tab.baseContent && !tab.dirty) return true;
+      const latest = tabsRef.current.find((t) => t.path === tab.path);
+      if (!latest) return false;
+      tab = latest;
+      if (savingPaths.current.has(tab.path)) {
+        setStatus("该文件正在保存，请稍后重试");
+        return false;
+      }
+      savingPaths.current.add(tab.path);
       try {
         const fs = getFs();
         const b = currentBoot();
-        // 写前快照（硬约束：手动保存与工具回写同纪律）
-        if (b) {
-          await recordSnapshot(fs, b.dirs.snapshotsDir, {
-            sessionId: session?.id ?? "manual-edits",
-            callId: `manual_${Date.now()}`,
-            operation: "write",
-            relativePath: tab.rel.replace(/\\/g, "/"),
-            previousContent: tab.baseContent,
-            previousExists: true,
-            previousType: "file",
-          });
+        const ok = await persistEditorVersion(tab, {
+          read: () => fs.readText(tab.path),
+          snapshot: async (previous) => {
+            if (!b) throw new Error("快照目录尚未就绪，已保留编辑内容");
+            await recordSnapshot(fs, b.dirs.snapshotsDir, {
+              sessionId: session?.id ?? "manual-edits",
+              callId: `manual_${Date.now()}`,
+              operation: "write",
+              relativePath: tab.rel.replace(/\\/g, "/"),
+              previousContent: previous,
+              previousExists: true,
+              previousType: "file",
+            });
+          },
+          write: (content) => fs.writeText(tab.path, content),
+          update: setTabs,
+          current: () => tabsRef.current,
+        });
+        if (!ok) {
+          setStatus("保存期间又有新编辑，已保留未保存内容；请再次保存后重试");
+          return false;
         }
-        await fs.writeText(tab.path, tab.content);
-        setTabs((prev) =>
-          prev.map((t) => (t.rel === tab.rel ? { ...t, baseContent: t.content, dirty: false } : t)),
-        );
         if (project) {
           await appendOplog(fs, project.ref.root, "save", tab.rel, session?.id ?? "", note ? { note } : {});
         }
-        return true;
+        const unchanged = isEditorVersionSaved(tabsRef.current, tab);
+        if (!unchanged) setStatus("保存期间又有新编辑，已保留未保存内容；请再次保存后重试");
+        return unchanged;
       } catch (e) {
         setStatus(`保存失败：${String(e)}`);
         return false;
+      } finally {
+        savingPaths.current.delete(tab.path);
       }
     },
     [project, session],
@@ -584,10 +611,13 @@ export default function MainWorkbench({
   const autoSaveAllTabs = useCallback(async (): Promise<boolean> => {
     const fs = getFs();
     let allOk = true;
-    for (const t of tabs) {
+    for (const t of tabsRef.current) {
       if (t.dirty) {
         const ok = await saveTabAs(t, "自动保存");
-        if (!ok) allOk = false;
+        if (!ok) {
+          allOk = false;
+          continue;
+        }
       }
       if (t.editing && t.editBase !== null && project) {
         try {
@@ -605,15 +635,19 @@ export default function MainWorkbench({
         }
       }
     }
-    return allOk;
+    return allOk && !hasUnsavedEditors(tabsRef.current);
   }, [tabs, project, session, saveTabAs]);
 
   /** 装配数据：载入作品（不改 prefs；启动恢复与 openProject 共用） */
   const openProjectRef = useCallback(
     async (ref: ProjectRef) => {
-      await autoSaveAllTabs();
+      if (!(await autoSaveAllTabs())) return;
       const fs = getFs();
       const data = await loadProject(fs, ref.root, ref.name);
+      if (hasUnsavedEditors(tabsRef.current)) {
+        setStatus("打开作品期间又有新编辑，已保留当前作品；请保存后重试切换");
+        return;
+      }
       setProject(data);
       setTabs([]);
       setActiveRel(null);
@@ -725,9 +759,13 @@ export default function MainWorkbench({
   const openProject = useCallback(
     async (ref: ProjectRef) => {
       setBookMenu(false);
-      await autoSaveAllTabs();
+      if (!(await autoSaveAllTabs())) return;
       const fs = getFs();
       const data = await loadProject(fs, ref.root, ref.name);
+      if (hasUnsavedEditors(tabsRef.current)) {
+        setStatus("打开作品期间又有新编辑，已保留当前作品；请保存后重试切换");
+        return;
+      }
       setProject(data);
       setTabs([]);
       setActiveRel(null);
@@ -789,7 +827,8 @@ export default function MainWorkbench({
           const ok = await saveTabAs(docTab, "资料单槽切换自动保存");
           if (!ok) return;
         }
-        setTabs((prev) => prev.filter((t) => t.kind !== "doc"));
+        if (!isEditorVersionSaved(tabsRef.current, docTab)) return;
+        setTabs((prev) => prev.filter((t) => t.path !== docTab.path));
       }
       let content = "";
       try {
@@ -848,7 +887,7 @@ export default function MainWorkbench({
       event.preventDefault();
       const ok = await autoSaveAllTabs();
       if (disposed) return;
-      if (ok) {
+      if (ok && !hasUnsavedEditors(tabsRef.current)) {
         await getCurrentWindow().destroy();
       } else {
         setStatus("有内容写入失败，窗口未关闭；请检查磁盘可写后重试（或先手动 Ctrl+S 保存）");
@@ -1115,7 +1154,7 @@ export default function MainWorkbench({
         abortRef.current = signal;
         const reflowSession: SessionFile = { ...newSession(project.ref.root), title: task.title };
         try {
-          await sendChat({
+          await completeReflow(() => sendChat({
             dirs: b.dirs,
             prefs: b.prefs,
             session: reflowSession,
@@ -1127,9 +1166,10 @@ export default function MainWorkbench({
             // 回流是后台任务：资料回流（审稿/事实回写）强制关闭思考；
             // 风格回流是对照判断任务，开 low 档（D-014 的例外：判断题需要最低限度推理）
             thinking: task.track === "style" ? "low" : "off",
-          });
-          // 完成标记：与入队时的 pending 行按 reflowId 配对（补跑扫描据此跳过它）
-          await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title, reflowId: task.reflowId });
+          }), async () => {
+            // 完成标记必须与入队时的 pending 行按 reflowId 配对。
+            await appendOplog(getFs(), project.ref.root, "reflow", "", reflowSession.id, { note: task.title, reflowId: task.reflowId });
+          }, () => signal.aborted);
           setStatus(`回流任务结束：${task.title}（结果见对应回流会话）`);
         } catch (e) {
           // 失败不写完成标记 —— pending 行保留，下次打开作品会补跑
@@ -1288,7 +1328,8 @@ export default function MainWorkbench({
         return true;
       }
       // 结束编辑：自动保存 → 轻改仅记日志，实质改动触发回流
-      const latest = tabs.find((t) => t.rel === tab.rel) ?? tab;
+      const latest = tabsRef.current.find((t) => t.path === tab.path);
+      if (!latest) return false;
       if (latest.dirty) {
         const ok = await saveTabAs(latest, "结束编辑自动保存");
         if (!ok) return false;
@@ -1351,7 +1392,7 @@ export default function MainWorkbench({
   /** 关闭标签：自动保存；编辑态先走「完成」（保存 + 回流），不再询问 */
   const closeTab = useCallback(
     async (rel: string) => {
-      const tab = tabs.find((t) => t.rel === rel);
+      const tab = tabsRef.current.find((t) => t.rel === rel);
       if (!tab) return;
       // N-06：保存结果要接住 —— 写盘失败就不关标签（内容只存在于这个 tab 里，
       // 无条件移除等于静默丢稿）。toggleEditing 结束编辑同样走 saveTabAs，
@@ -1365,7 +1406,8 @@ export default function MainWorkbench({
       }
       // N-41：副作用移出 setState 的 updater —— updater 在 StrictMode/重放下
       // 可能被再次调用，setActiveRel 不属于它
-      const next = tabs.filter((t) => t.rel !== rel);
+      if (!isEditorVersionSaved(tabsRef.current, tab)) return;
+      const next = tabsRef.current.filter((t) => t.path !== tab.path);
       setTabs(next);
       if (activeRel === rel) setActiveRel(next.length ? next[next.length - 1].rel : null);
     },
@@ -1503,6 +1545,9 @@ export default function MainWorkbench({
         { confirmLabel: "采用并回写" },
       );
       if (!ok) return;
+      const latest = tabsRef.current.find((t) => t.path === tab.path);
+      if (!latest) return;
+      tab = latest;
       // 采用当前编辑内容：保存失败时保持编辑态，不把磁盘上的旧稿交给 AI。
       // 不调用 toggleEditing，它会启动独立候选回流并抢占生成槽。
       await adoptAfterSave(() => saveTabAs(tab, "采用前保存"), async () => {
@@ -1536,9 +1581,13 @@ export default function MainWorkbench({
               track: "style",
             });
           }
-          setTabs((prev) => prev.map((t) => t.rel === tab.rel ? { ...t, editing: false, editBase: null } : t));
         }
         await appendOplog(getFs(), project.ref.root, "adopt", tab.rel, session?.id ?? "");
+        if (!isEditorVersionSaved(tabsRef.current, tab)) {
+          setStatus("采用准备期间又有新编辑，已保留内容；请保存后重试采用");
+          return;
+        }
+        setTabs((prev) => prev.map((t) => t.path === tab.path ? { ...t, editing: false, editBase: null } : t));
         await sendUserMessage(adoptMessage(tab.rel));
       });
     },
@@ -1986,7 +2035,7 @@ export default function MainWorkbench({
 
   /** 该树节点是否落在 小说资料\ 子树（含其自身） */
   const isDocsTreeRel = (rel: string) =>
-    rel === PROJECT_DIRS.docs || rel.startsWith(PROJECT_DIRS.docs + "\\");
+    rel === PROJECT_DIRS.docs || rel.startsWith(PROJECT_DIRS.docs + PATH_SEP);
 
   /** 新增资料文档：在指定目录下建 .md（名字规则与新建作品共用同一份 childNameProblem） */
   const docCreate = useCallback(
@@ -2323,35 +2372,42 @@ export default function MainWorkbench({
               <path d="M16.1 11.9a1.25 1.25 0 0 0 .25 1.38l.04.05a1.5 1.5 0 1 1-2.12 2.12l-.05-.04a1.25 1.25 0 0 0-1.38-.25 1.25 1.25 0 0 0-.75 1.14v.15a1.5 1.5 0 1 1-3 0v-.08a1.25 1.25 0 0 0-.82-1.14 1.25 1.25 0 0 0-1.38.25l-.05.04A1.5 1.5 0 1 1 3.9 13.4l.04-.05a1.25 1.25 0 0 0 .25-1.38 1.25 1.25 0 0 0-1.14-.75h-.15a1.5 1.5 0 1 1 0-3h.08a1.25 1.25 0 0 0 1.14-.82 1.25 1.25 0 0 0-.25-1.38L3.9 5.97A1.5 1.5 0 1 1 6.02 3.85l.05.04a1.25 1.25 0 0 0 1.38.25h.06a1.25 1.25 0 0 0 .75-1.14v-.15a1.5 1.5 0 1 1 3 0v.08a1.25 1.25 0 0 0 .75 1.14 1.25 1.25 0 0 0 1.38-.25l.05-.04a1.5 1.5 0 1 1 2.12 2.12l-.04.05a1.25 1.25 0 0 0-.25 1.38v.06a1.25 1.25 0 0 0 1.14.75h.15a1.5 1.5 0 1 1 0 3h-.08a1.25 1.25 0 0 0-1.14.75z" />
             </svg>
           </button>
-          <span className="tb-div" />
-          <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
-            <svg viewBox="0 0 20 20" className="ic">
-              <path d="M5 10h10" />
-            </svg>
-          </button>
-          <button
-            className="wbtn"
-            title={maxed ? "向下还原" : "最大化"}
-            aria-label={maxed ? "向下还原" : "最大化"}
-            onClick={() => void win.toggleMaximize()}
-          >
-            {maxed ? (
-              // 还原：前块 + 后块的左上缺角（Windows 标准字形）
+          {/* 自绘窗控（最小化/最大化/关闭）——**仅 Windows**。
+              macOS 上窗口是 decorations:true，系统原生红黄绿三键由 AppKit 绘制，
+              再画一套就会出现「两套窗控」，而且原生三键叠在网页左上角会压住品牌。
+              见 styles/app.css 的 html[data-os="macos"] .win-ctrls 规则。
+              注意：只藏这三个 + 分隔线，设置与网页栏开关必须留着。 */}
+          <span className="win-ctrls">
+            <span className="tb-div" />
+            <button className="wbtn" title="最小化" onClick={() => void win.minimize()}>
               <svg viewBox="0 0 20 20" className="ic">
-                <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
-                <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+                <path d="M5 10h10" />
               </svg>
-            ) : (
+            </button>
+            <button
+              className="wbtn"
+              title={maxed ? "向下还原" : "最大化"}
+              aria-label={maxed ? "向下还原" : "最大化"}
+              onClick={() => void win.toggleMaximize()}
+            >
+              {maxed ? (
+                // 还原：前块 + 后块的左上缺角（Windows 标准字形）
+                <svg viewBox="0 0 20 20" className="ic">
+                  <rect x="3.4" y="6.6" width="10" height="10" rx="2" />
+                  <path d="M6.6 6.6V5.4a2 2 0 0 1 2-2h5.8a2 2 0 0 1 2 2v5.8a2 2 0 0 1-2 2h-1.2" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 20 20" className="ic">
+                  <rect x="4" y="4.5" width="11" height="11" rx="2" />
+                </svg>
+              )}
+            </button>
+            <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
               <svg viewBox="0 0 20 20" className="ic">
-                <rect x="4" y="4.5" width="11" height="11" rx="2" />
+                <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
               </svg>
-            )}
-          </button>
-          <button className="wbtn close" title="关闭" onClick={() => void win.close()}>
-            <svg viewBox="0 0 20 20" className="ic">
-              <path d="M5.5 5.5l9 9M14.5 5.5l-9 9" />
-            </svg>
-          </button>
+            </button>
+          </span>
         </div>
       </div>
 
@@ -2617,7 +2673,7 @@ export default function MainWorkbench({
                     <span className="mode-badge" title="资料文档：直接编辑，切换或关闭时自动保存">
                       资料
                     </span>
-                    {activeDocTable ? (
+                    {activeTableAvailable ? (
                       <button
                         className="chip"
                         title={activeTableView ? "切回原文编辑" : "以表格查看（只读，文件本体仍是 md）"}

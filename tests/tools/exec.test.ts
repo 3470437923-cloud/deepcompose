@@ -11,6 +11,10 @@ import { createNodeFs } from "../support/nodeFs";
 import { executeTool, normalizeQuestions, type ToolContext } from "../../src/core/tools/exec";
 import { NEEDS_CONFIRMATION_PREFIX } from "../../src/core/tools/pathGuard";
 import { parseSnapshots } from "../../src/core/store/snapshot";
+// 工具结果里"项目根相对路径"字段（list 的条目 path / search 的 file）用**本机分隔符**：
+// Windows '\'（既有实测样本逐字不变）、macOS '/'。期望值用被测代码自己的 join 构造，
+// 两平台验证同一条语义。注意与 `path.join`（node:path，真实磁盘 I/O）区分开。
+import { join as joinRel, PATH_SEP } from "../../src/core/dirs";
 
 let root: string;
 let booksRoot: string;
@@ -70,13 +74,13 @@ describe("file_read", () => {
     expect(r.content).toBe("第二行");
   });
 
-  it("list → {path, files:[{name,path,type,size}]}，条目 path 用 '\\\\' 且相对项目根", async () => {
+  it("list → {path, files:[{name,path,type,size}]}，条目 path 用本机分隔符且相对项目根", async () => {
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "list", path: "章节内容" }));
     expect(r.path).toBe("章节内容");
     expect(r.files).toHaveLength(2);
     const f = r.files.find((x: { name: string }) => x.name === "第1章.md");
     expect(f.type).toBe("file");
-    expect(f.path).toBe("章节内容\\第1章.md");
+    expect(f.path).toBe(joinRel("章节内容", "第1章.md"));
     expect(typeof f.size).toBe("number");
   });
 
@@ -321,12 +325,12 @@ describe("file_manage", () => {
     );
   });
 
-  it("search：file 字段相对项目根（根目录搜索不带 '.\\' 前缀，'\\' 分隔与实测样本一致）", async () => {
+  it("search：file 字段相对项目根（根目录搜索不带 './' 前缀，本机分隔符与实测样本一致）", async () => {
     const r = JSON.parse(
       await executeTool(ctx(), "file_manage", { operation: "search", path: ".", search_text: "世界观" }),
     );
     const hit = r.results.find((x: { file: string }) => x.file.endsWith("世界观.md"));
-    expect(hit.file).toBe("小说资料\\世界观.md");
+    expect(hit.file).toBe(joinRel("小说资料", "世界观.md"));
   });
 
   it("search：directory 同样过分级授权（根外 → 逐字需确认错误，回归锁：曾绕过 guardPath）", async () => {
@@ -355,12 +359,11 @@ describe("file_manage", () => {
       }),
     );
     expect(r.success).toBe(true);
-    expect(r.results[0].file).toBe("小说资料\\世界观.md");
+    expect(r.results[0].file).toBe(joinRel("小说资料", "世界观.md"));
   });
 
-  it("delete 目录 → type=directory，快照 previousType=directory（目录内容恒 null）", async () => {
+  it("delete 空目录 → type=directory，快照 previousType=directory（非空目录另测拒绝）", async () => {
     await fsp.mkdir(path.join(root, "临时目录"), { recursive: true });
-    await fsp.writeFile(path.join(root, "临时目录", "x.md"), "x\n", "utf8");
     const r = JSON.parse(await executeTool(ctx(), "file_manage", { operation: "delete", path: "临时目录" }));
     expect(r).toEqual({ success: true, operation: "delete", path: "临时目录", type: "directory" });
     expect(await fs.exists(path.join(root, "临时目录"))).toBe(false);
@@ -510,7 +513,9 @@ describe("路径分级授权", () => {
     await fsp.writeFile(outside, "secret", "utf8");
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "read", path: outside }));
     expect(r.error.startsWith(NEEDS_CONFIRMATION_PREFIX)).toBe(true);
-    expect(r.error).toContain(outside);
+    // 文案里的路径按**本机分隔符**回报（pathGuard.unifySep 契约）；断言仍然是"整条路径逐字出现"。
+    // 这里同样按 PATH_SEP 归一后再比：Windows 上 outside 本就是 '\'，macOS 上 os.tmpdir() 给的是 '/'。
+    expect(r.error).toContain(outside.replace(/[\\/]/g, PATH_SEP));
   });
 
   it("会话内授权的额外目录可读", async () => {

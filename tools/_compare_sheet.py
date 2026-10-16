@@ -45,8 +45,29 @@ ACCENT = (109, 140, 255)
 
 
 def font(size, bold=False):
+    """取一个能渲染中文的字体（找不到就回退 PIL 默认字体，中文会变方块）。
+
+    候选顺序：
+      ① Windows：微软雅黑（msyhbd/msyh）→ 黑体 simhei → arial，目录 C:\\Windows\\Fonts
+      ② Linux：/usr/share/fonts/truetype/dejavu
+         —— 注意这是 **Linux** 路径，macOS 上**不存在**（原代码只有这两个平台）。
+      ③ macOS（本次新增）：苹方 / 冬青黑体 / 华文黑体 / 宋体 / Arial Unicode，
+         都在 /System/Library/Fonts（或 Supplemental、/Library/Fonts）下，系统自带、
+         无需安装 —— 与 Windows 的目录和文件名**完全不同**。
+    粗体没有独立的 CJK 字面时退回常规字重：标题仍能渲染中文，不会变豆腐块。
+    """
     for name in (("msyhbd.ttc" if bold else "msyh.ttc"), "simhei.ttf", "arial.ttf"):
         for base in (r"C:\Windows\Fonts", "/usr/share/fonts/truetype/dejavu"):
+            p = os.path.join(base, name)
+            if os.path.exists(p):
+                try:
+                    return ImageFont.truetype(p, size)
+                except OSError:
+                    pass
+    # macOS 候选（目录与文件名都与上面不同，故单列一组）
+    for base in ("/System/Library/Fonts", "/System/Library/Fonts/Supplemental", "/Library/Fonts"):
+        for name in ("PingFang.ttc", "Hiragino Sans GB.ttc", "STHeiti Medium.ttc",
+                     "Songti.ttc", "Arial Unicode.ttf"):
             p = os.path.join(base, name)
             if os.path.exists(p):
                 try:

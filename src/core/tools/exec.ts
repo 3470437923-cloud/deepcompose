@@ -12,10 +12,18 @@
  *   question          {"output":"User has answered your questions: \"…\"=\"…\". You can now continue with the user's answers in mind.","answers":["…"]}
  *   skill_lookup      {"skill_name":"novel-writer","content":"---\nname: …"}
  *   error             {"error":"operation is required"}
+ *
+ * 分隔符口径（跨平台）：字段名与形态不变，但**分隔符随平台**——
+ *   - `file_read(read)` / `file_write` / `file_manage(delete|rename|copy)` 的 path
+ *     一律 '/'（slashPath 归一，两平台一致，这是既有格式）；
+ *   - `file_read(list)` 的条目 path 与 `file_manage(search)` 的 file 是**项目根相对路径**，
+ *     用本机分隔符（Windows `\` = 既有样本逐字不变；macOS `/`）。
+ *     模型会把该字符串原样回传成 path 参数，pathGuard 的 unifySep 负责把两种
+ *     分隔符都吃下来，所以老样本在 macOS 上照样能读。
  */
 
 import type { FsBridge } from "../fsbridge";
-import { dirname, join } from "../dirs";
+import { dirname, join, IS_WINDOWS } from "../dirs";
 import { createProject } from "../store/project";
 import { dominantEol, joinLines, splitLines } from "../store/markdown";
 import { contentHash, recordSnapshot, type PreviousType, type SnapshotOperation } from "../store/snapshot";
@@ -162,12 +170,35 @@ function utf8Bytes(s: string): number {
  *  - 拒绝 → 回报「用户未授权」文案（与 NEEDS_CONFIRMATION_PREFIX 区分：
  *    前缀文案保留给「确认通道未装配」的场景，回归锁不动）。
  */
+/** 授权根本身可由用户指定为链接；根以下逐级拒绝链接，避免祖先目录穿透。
+ * 不折叠 ..：必须检查实际经过的每个目录。该检查不抵御本机进程并发替换链接。 */
+async function rejectLinkedDescendants(ctx: ToolContext, resolved: ResolvedPath): Promise<string | null> {
+  const compare = (p: string) => {
+    const s = p.replace(/\\/g, "/").replace(/\/+$/, "");
+    return IS_WINDOWS ? s.toLowerCase() : s;
+  };
+  const roots = [ctx.roots.projectRoot, ctx.roots.booksRoot, ctx.roots.skillsDir, ...(ctx.roots.allowedDirs ?? [])]
+    .filter((p): p is string => !!p).map(compare);
+  // POSIX lstat("link/") 会跟随目录链接；先剥尾分隔符才能检查链接本身。
+  let p = resolved.abs.replace(/[\\/]+$/, "") || resolved.abs;
+  while (p && !roots.includes(compare(p))) {
+    if ((await ctx.fs.stat(p))?.isLink) return `拒绝通过链接或 junction 访问: ${p}`;
+    const parent = dirname(p);
+    if (parent === p) break;
+    p = parent;
+  }
+  return null;
+}
+
 async function guardWithConfirm(
   ctx: ToolContext,
   pathArg: string,
 ): Promise<{ ok: true; resolved: ResolvedPath } | { ok: false; message: string }> {
   const g = guardPath(pathArg, ctx.roots);
-  if (g.ok) return { ok: true, resolved: g.resolved };
+  if (g.ok) {
+    const linked = await rejectLinkedDescendants(ctx, g.resolved);
+    return linked ? { ok: false, message: linked } : { ok: true, resolved: g.resolved };
+  }
   const message = g.message ?? "";
   if (!message.startsWith(NEEDS_CONFIRMATION_PREFIX) || !ctx.confirmExternal) {
     return { ok: false, message };
@@ -184,7 +215,8 @@ async function guardWithConfirm(
   (ctx.roots.allowedDirs ??= []).push(dir);
   const g2 = guardPath(pathArg, ctx.roots);
   if (!g2.ok) return { ok: false, message: g2.message ?? "" };
-  return { ok: true, resolved: g2.resolved };
+  const linked = await rejectLinkedDescendants(ctx, g2.resolved);
+  return linked ? { ok: false, message: linked } : { ok: true, resolved: g2.resolved };
 }
 
 /**
@@ -429,7 +461,7 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   // isValidatedDocPath 把关范围：只查 小说资料/ 下的受管文件，审核/ 与正文/候选不查。
   let writeWarnings: string[] = [];
   if (g.resolved.rel !== null && isValidatedDocPath(g.resolved.rel)) {
-    const baseName = g.resolved.rel.split("\\").pop() ?? "";
+    const baseName = g.resolved.rel.split(/[\\/]/).pop() ?? "";
     const verdict = validateDocWrite(baseName, next, previous);
     if (!verdict.ok) return err(verdict.message ?? "格式不合规");
     writeWarnings = verdict.warnings;
@@ -525,11 +557,13 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       if (modeHit) return err(modeHit);
       const st = await ctx.fs.stat(abs);
       if (st === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
+      // 目录空壳快照无法恢复子文件；只允许删除空目录，并由非递归删除兜底防新增子项。
+      if (st.isDir && (await ctx.fs.list(abs)).length > 0) return err("不能删除非空目录：请逐文件操作以保留写前快照");
       const previous = st.isDir ? null : await ctx.fs.readText(abs);
       // 先落快照再删；目录要记 previousType:"directory"（目录的 previousContent 恒为 null，
       // 回滚时靠类型区分"重建目录"与"回写文件"两种语义）
       await recordWrite(ctx, "delete", reportPath(g.resolved), previous, true, null, null, st.isDir ? "directory" : "file");
-      await ctx.fs.remove(abs, st.isDir);
+      await ctx.fs.remove(abs, false);
       return ok({
         success: true,
         operation: "delete",
@@ -550,6 +584,8 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       if (srcSt === null) return err(`Directory not found: ${slashPath(reportPath(g.resolved))}`);
       const srcText = srcSt.isDir ? null : await ctx.fs.readText(abs);
       const dstSt = await ctx.fs.stat(g2.resolved.abs);
+      // 不合并覆盖目录：单条目录快照不含被覆盖的子文件。
+      if (dstSt && (srcSt.isDir || dstSt.isDir)) return err("目标目录已存在或类型不兼容：请使用新目录或逐文件操作");
 
       // 目标已存在 → 它的旧内容会被覆盖掉，先给目标记一条写前快照（KL-TL-02）。
       // 不存在也记一条（previousExists:false）—— 这是"回滚时该把目标删掉"的唯一依据。

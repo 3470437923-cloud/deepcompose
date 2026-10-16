@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "DeepCompose",
         "width": 1440,
         "height": 900,
@@ -37,11 +38,17 @@
     "publisher": "Liumorrow",
     "copyright": "Copyright © 2026 Liumorrow",
     "license": "GPL-3.0-only",
+    "resources": {
+      "../LICENSE": "licenses/LICENSE",
+      "../LICENSE.third-party.txt": "licenses/LICENSE.third-party.txt",
+      "../THIRD-PARTY-NOTICES.txt": "licenses/THIRD-PARTY-NOTICES.txt"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.ico"
+      "icons/icon.ico",
+      "icons/icon.icns"
     ],
     "windows": {
       "nsis": {
@@ -50,6 +57,25 @@
           "SimpChinese"
         ],
         "displayLanguageSelector": false
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.0",
+      "hardenedRuntime": false,
+      "entitlements": null,
+      "dmg": {
+        "windowSize": {
+          "width": 660,
+          "height": 400
+        },
+        "appPosition": {
+          "x": 180,
+          "y": 170
+        },
+        "applicationFolderPosition": {
+          "x": 480,
+          "y": 170
+        }
       }
     }
   }

@@ -57,6 +57,32 @@ function h2Titles(text: string): string[] {
   return text.split("\n").map((l) => /^##\s+(.+)$/.exec(l.replace(/\r$/, ""))?.[1].trim()).filter((s): s is string => Boolean(s));
 }
 
+/** 全部 `### 标题` 块（`##` 起新块并结束当前 h3 块；`####` 不算 h3） */
+function h3Blocks(text: string): { title: string; body: string }[] {
+  const blocks: { title: string; body: string }[] = [];
+  let cur: { title: string; body: string[] } | null = null;
+  const flush = () => {
+    if (cur) blocks.push({ title: cur.title, body: cur.body.join("\n") });
+    cur = null;
+  };
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\r$/, "");
+    if (/^##\s+/.test(line)) {
+      flush();
+      continue;
+    }
+    const m = /^###\s+(.+)$/.exec(line);
+    if (m) {
+      flush();
+      cur = { title: m[1].trim(), body: [] };
+    } else if (cur) {
+      cur.body.push(line);
+    }
+  }
+  flush();
+  return blocks;
+}
+
 /** 头部 `- 键：值` 的键集合（首个二级标题之前） */
 function headerKeys(text: string): Set<string> {
   const keys = new Set<string>();
@@ -178,6 +204,25 @@ const STYLE_RULE: Rule = {
   hint: "06-写作风格.md 只有「风格规则」与「禁用列表」两节；流程纪律在 novel-writer 技能里，不写这里",
 };
 
+/**
+ * 06「风格规则」的 SR 条目（2026-10-11 批 3 新格式）：`### SR-编号` + 三字段齐全。
+ * **旧的自然段格式不受此约束**——老书没迁移也照旧合法（条目一个都没有 → 规则直接通过）。
+ */
+const STYLE_SR_FIELDS = ["规则分类", "规则来源", "具体内容"];
+const STYLE_SR_RULE: Rule = {
+  id: "style-sr-fields",
+  level: "hard",
+  test: (c) => {
+    for (const b of h3Blocks(c)) {
+      if (!/^SR-\d+$/.test(b.title)) continue;
+      const missing = STYLE_SR_FIELDS.filter((f) => !new RegExp(`^-\\s*${f}\\s*[：:]`, "m").test(b.body));
+      if (missing.length > 0) return `条目 ${b.title} 缺字段：${missing.join("、")}`;
+    }
+    return null;
+  },
+  hint: "06 的规则条目 = ### SR-编号 + 三个字段（规则分类/规则来源/具体内容）；旧的自然段格式不受此约束",
+};
+
 /** 人物库：语义错位软警告（条目标题不像人名） */
 const NON_PERSON_RE = /世界|大陆|体系|法则|设定|组织|势力|地点|国家|门派|宗门|制度/;
 const CAST_SEMANTIC_RULE: Rule = {
@@ -243,7 +288,7 @@ function rulesFor(fileName: string): Rule[] {
   if (fileName === "02-核心设定.md") return [DECOR_RULE, NO_TABLE_RULE, CORE_RULE];
   if (fileName === "03-全书大纲.md") return [DECOR_RULE, NO_TABLE_RULE];
   if (fileName === "04-粗纲.md") return [DECOR_RULE, NO_TABLE_RULE, ROUGH_RULE];
-  if (fileName === "06-写作风格.md") return [DECOR_RULE, NO_TABLE_RULE, STYLE_RULE];
+  if (fileName === "06-写作风格.md") return [DECOR_RULE, NO_TABLE_RULE, STYLE_RULE, STYLE_SR_RULE];
   if (fileName === "人物库.md") return [DECOR_RULE, NO_TABLE_RULE, CAST_SEMANTIC_RULE];
   if (fileName.startsWith("追踪-")) return [DECOR_RULE, TRACKER_RULE];
   if (/^第.+[-–—~～].+章细纲(（已完成）)?\.md$/.test(fileName)) return [DECOR_RULE, NO_TABLE_RULE, XIGANG_RULE];

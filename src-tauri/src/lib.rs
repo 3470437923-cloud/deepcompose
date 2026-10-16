@@ -14,6 +14,7 @@ mod winstate;
 /// 同一组常量由 build.rs 写进 PE 版本资源(LegalCopyright / Comments),于是任何未改源码的
 /// 再分发都会在用户自己的机器上替作者留名。改署名要重编 Rust,改不动前端就行不通。
 #[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AppInfo {
     pub name: String,
     pub version: String,
@@ -26,7 +27,19 @@ pub struct AppInfo {
     pub build: String,
 }
 
-/// 署名与社群的唯一真源(与前端 src/core/author.ts 内容一致;改动须两边同批改并记 ADR)。
+/// 署名与社群值在这里统一维护；前端经 app_info 只读，字段按 camelCase 序列化。
+#[cfg(test)]
+mod identity_tests {
+    #[test]
+    fn app_info_matches_frontend_field_names() {
+        let value = serde_json::to_value(super::app_info()).unwrap();
+        assert_eq!(value["author"], super::AUTHOR);
+        assert_eq!(value["qqGroup"], super::QQ_GROUP);
+        assert_eq!(value["douyinUrl"], super::DOUYIN_URL);
+        assert!(value.get("qq_group").is_none());
+    }
+}
+
 pub const AUTHOR: &str = "Liumorrow";
 pub const AUTHOR_SINCE: &str = "2026";
 pub const QQ_GROUP: &str = "1071188925";

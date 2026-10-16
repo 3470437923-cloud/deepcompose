@@ -52,7 +52,7 @@ export const MATERIAL_BUDGETS: Record<string, MaterialBudget> = {
   "04-粗纲.md": { maxChars: 8000, maxTableRatio: NARRATIVE_RATIO, role: "弧段级预测：每弧段一个标题加一段缩略内容，不写逐场细节" },
   "05-滚动细纲.md": { maxChars: 10000, maxTableRatio: 0.5, role: "近期场景细纲：只放未来3至5章，每章约四段自然段" },
   "06-写作规则.md": { maxChars: 4000, maxTableRatio: NARRATIVE_RATIO, role: "本书写作要求与个人文风沉淀" },
-  "06-写作风格.md": { maxChars: 6000, maxTableRatio: NARRATIVE_RATIO, role: "本书特定风格要求（风格规则）加禁用列表；通用纪律在技能里" },
+  "06-写作风格.md": { maxChars: 8000, maxTableRatio: NARRATIVE_RATIO, role: "本书特定风格要求（风格规则：### SR-编号 + 规则分类/规则来源/具体内容）加禁用列表；通用纪律在技能里" },
   "人物库.md": { maxChars: 18000, maxTableRatio: NARRATIVE_RATIO, role: "只存稳定特征；动态状态在追踪表" },
   "章节摘要.md": { maxChars: 15000, maxTableRatio: NARRATIVE_RATIO, role: "历史归档索引：每章一条简短摘要" },
   "追踪-伏笔.md": { maxChars: 20000, maxTableRatio: MATRIX_RATIO, role: "伏笔记录：F 编号、埋设与回收章节、状态" },
@@ -251,7 +251,7 @@ function checkCastEntries(name: string, text: string): MaterialIssue[] {
 /**
  * 体检一批资料（**按文件聚合**，供界面展示）。
  *
- * 为什么聚合：真实样本（《李淑珍疑案》）逐条判定会产出 90 条提示 —— 状态条会被淹没，
+ * 为什么聚合：真实长篇资料逐条判定会产出几十到上百条提示，状态条会被淹没，
  * 作者也读不出"该先改哪份文件"。聚合后每份资料**最多一条**：等级取该文件最重的一条，
  * 消息里列全部违规短标签（"世界观.md：框线字符 495、装饰符号 7、超预算 1.0 倍"）。
  * 需要逐条明细的调用方用 `checkMaterial`。

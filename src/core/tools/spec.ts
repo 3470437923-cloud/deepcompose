@@ -93,7 +93,7 @@ export const FILE_WRITE: ToolSchema = {
 export const FILE_MANAGE: ToolSchema = {
   name: "file_manage",
   description:
-    "File modification operations: search content in files, delete file/directory, rename file/directory, copy file. This tool CANNOT list directories or read files - use file_read for that.",
+    "File modification operations: search content in files, delete files or empty directories, rename file/directory, copy file/directory. Nonempty directory deletion is refused; delete files individually to retain snapshots. Copying a directory requires a new destination and never merges into an existing directory. This tool CANNOT list directories or read files - use file_read for that.",
   parameters: {
     type: "object",
     properties: {

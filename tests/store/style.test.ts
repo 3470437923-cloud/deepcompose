@@ -119,7 +119,9 @@ describe("checkMaterial：逐条判据", () => {
     for (const { name, content } of DOC_TEMPLATES) {
       expect(content, name).toMatch(/^# /);
       expect(content, name).not.toMatch(/^>|^\||\*\*|[→←／]|^---$/m);
-      const machineFields = /^(00-|01-|02-|追踪-)/.test(name);
+      // 机器字段文档（00/01/02/追踪）+ 06 的 SR 规则块（### SR-编号 + 三行字段）是例外：
+      // 它们的 `- 键：值` 是被解析的结构，不是「非必需列表」
+      const machineFields = /^(00-|01-|02-|追踪-)/.test(name) || name === "06-写作风格.md";
       if (!machineFields) expect(content, name).not.toMatch(/^[-*+] /m);
     }
     expect(DOC_TEMPLATES.find((t) => t.name === "01-开书定位.md")!.content.match(/^- /gm)).toHaveLength(7);

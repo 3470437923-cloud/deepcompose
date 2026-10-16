@@ -145,6 +145,19 @@ html[data-nav="back"] .win { --push-x: -10px; }
 
 .brand { display: flex; align-items: center; gap: 9px; flex: none; }
 .brand-mark { width: 28px; height: 28px; }
+
+/* ── macOS 平台分支（靠 <html data-os="macos">，由 src/main.tsx 首帧前写入）──
+   macOS 上窗口是 decorations:true，红黄绿三键由 AppKit 原生绘制、叠在网页左上角。
+   所以两件事必须做：
+     1. 藏掉自绘窗控（否则一个窗口两套窗控）；
+     2. 给品牌让出交通灯占的横向空间（否则原生三键压住 logo）。
+   交通灯起点与 tauri.macos.conf.json 的 trafficLightPosition.x 一致（13px），
+   三键总宽约 52px，故 13 + 52 + 13 留白 = 78px。
+   **改 trafficLightPosition 时这里要跟着改。**
+   display:contents 让这层包裹不改变原有 flex 布局。 */
+.win-ctrls { display: contents; }
+html[data-os="macos"] .win-ctrls { display: none; }
+html[data-os="macos"] .titlebar { padding-left: 78px; }
 .brand-name {
   font-size: var(--fs-headline);
   font-weight: 700;
@@ -2744,6 +2757,11 @@ html[data-nav="back"] .win { --push-x: -10px; }
   font-weight: 600;
   white-space: nowrap;
 }
+/* 固定列宽表（用户 2026-10-11 逐表指定）：列宽说了算，表头让位换行。
+   min-width 保住「窄栏退化」——面板太窄时横向滚动（dt-scroll），而不是把窄列挤到不可读 */
+.dt-table.dt-fixed { table-layout: fixed; min-width: 720px; }
+.dt-table.dt-fixed th, .dt-table.dt-fixed td { padding: 4px 6px; }
+.dt-table.dt-fixed thead th { white-space: normal; }
 .dt-kv th { width: 11em; color: var(--tx-3); font-weight: 500; background: var(--rail); white-space: nowrap; }
 .dt-cell.clamp {
   display: -webkit-box;
@@ -2763,6 +2781,14 @@ html[data-nav="back"] .win { --push-x: -10px; }
   color: var(--tx-2);
   white-space: nowrap;
 }
+/* 符号化状态（√ / ? / ×）：居中的等宽徽章，窄列里也读得出来；中文原值在 title 里 */
+.dt-status.dt-sym {
+  min-width: 1.5em;
+  padding: 0 4px;
+  text-align: center;
+  font-weight: 600;
+  font-size: 1.05em;
+}
 .dt-prose { white-space: pre-wrap; line-height: 1.7; color: var(--tx-1); font-size: var(--fs-body); }
 .dt-empty-doc { padding: 16px; color: var(--tx-dim); font-size: var(--fs-foot); }
 /* 窄栏退化：编辑器太窄时网格表横向滚动（dt-scroll），kv 两栏自然收窄 */
@@ -2780,10 +2806,26 @@ html[data-nav="back"] .win { --push-x: -10px; }
   transition: opacity 0.12s;
   vertical-align: top;
 }
-.dt-cellwrap:hover .dt-act, .dt-rowact .dt-act:focus-visible { opacity: 1; }
+.dt-cellwrap:hover .dt-act, .dt-act:focus-visible { opacity: 1; }
 .dt-act:hover { color: var(--tx-1); background: var(--ctl-hover); }
 .dt-act.danger:hover { color: var(--warn); }
-.dt-rowact { width: 34px; text-align: center; }
+/* 行末删钮（2026-10-11）：不再单占一列，改为悬停时浮在整行右端。
+   tr 是定位祖先 → absolute 直接贴行右边，不占任何列宽 */
+.dt-grid tbody tr { position: relative; }
+.dt-rowdel {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  font-size: var(--fs-caption);
+  color: var(--tx-dim);
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  line-height: 1.6;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dt-grid tbody tr:hover .dt-rowdel, .dt-rowdel:focus-visible { opacity: 1; }
+.dt-rowdel:hover { color: var(--warn); background: var(--ctl-hover); }
 .dt-editor {
   font: inherit;
   color: var(--tx-1);

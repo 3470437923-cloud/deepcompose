@@ -24,6 +24,9 @@ import {
 } from "../../src/core/store/project";
 import { CORE_DOC_TEMPLATES, DOC_TEMPLATES, LEGACY_DOC_TEMPLATES, renderTemplate } from "../../src/core/store/templates";
 import { compareChapterFiles, parseChapterName, parseCnNumber } from "../../src/core/store/chapter";
+// 相对路径（rel）的期望值用被测代码自己的 join 构造：Windows 得 '\'、macOS 得 '/'。
+// 注意本文件的 `path.join`（node:path）只用于真实磁盘 I/O，两者不可混用。
+import { join as joinRel } from "../../src/core/dirs";
 
 let booksRoot: string;
 const fs = createNodeFs();
@@ -217,7 +220,7 @@ describe("读取作品", () => {
 
     const chapters = await listChapters(fs, root);
     expect(chapters.map((c) => c.name)).toEqual(["第1章.md", "第2章.md", "第10章.md", "1.md"]);
-    expect(chapters[0].rel).toBe("章节内容\\第1章.md");
+    expect(chapters[0].rel).toBe(joinRel("章节内容", "第1章.md"));
 
     const docs = await listDocs(fs, root);
     expect(docs.map((d) => d.name)).toContain("写作禁忌.md");
@@ -248,11 +251,11 @@ describe("候选区与通用内容树", () => {
 
     const pending = await listPending(fs, r);
     expect(pending.map((p) => p.name)).toEqual(["第2章-v1-初稿.md", "第2章-v2-候选.md", "第10章-v2-候选.md"]);
-    expect(pending[0].rel).toBe("待确认\\第2章-v1-初稿.md");
+    expect(pending[0].rel).toBe(joinRel("待确认", "第2章-v1-初稿.md"));
 
     const processed = await listProcessed(fs, r);
     expect(processed.map((p) => p.name)).toEqual(["第1章-v2-候选.md"]);
-    expect(processed[0].rel).toBe("待确认\\已处理\\第1章-v2-候选.md");
+    expect(processed[0].rel).toBe(joinRel("待确认", "已处理", "第1章-v2-候选.md"));
   });
 
   it("buildContentTree：系统条目排除、目录在前、已知目录固定次序", async () => {
@@ -286,7 +289,7 @@ describe("候选区与通用内容树", () => {
     expect(pendFiles).toEqual(["第2章-v1-初稿.md", "第2章-v2-候选.md", "第10章-v2-候选.md"]);
     const processedNode = pend.children.find((c) => c.isDir)!;
     expect(processedNode.name).toBe("已处理");
-    expect(processedNode.rel).toBe("待确认\\已处理");
+    expect(processedNode.rel).toBe(joinRel("待确认", "已处理"));
 
     // loadProject 同时给出 tree 与 pending
     const data = await loadProject(fs, r);
@@ -454,31 +457,17 @@ describe("候选区与通用内容树", () => {
   });
 });
 
-// —— 既有目录只读集成校验（目录不存在时自动跳过；只读不写，绝不改动真实作品）——
-const REAL_BOOKS = "C:\\Users\\Administrator\\AI写小说";
-describe.skipIf(!existsSync(REAL_BOOKS))("既有作品目录（只读）", () => {
+// —— 可选的本地只读集成校验（目录不存在时自动跳过；只读不写）——
+const REAL_BOOKS = process.env.DEEPCOMPOSE_READONLY_BOOKS_ROOT ?? "";
+describe.skipIf(!REAL_BOOKS || !existsSync(REAL_BOOKS))("本地作品目录（只读，需显式指定）", () => {
   it("能列出真实作品，且迁移后的新结构完整（B9 试点）", async () => {
     const projects = await scanBooksRoot(fs, REAL_BOOKS);
-    const names = projects.map((p) => p.name);
-    // 只断言长期存在的真实作品：这条用例读的是真盘，作品会被用户增删
-    // （"测试书籍"曾被断言在此，用户移入回收站后用例即红 —— 那不是回归）
-    expect(names).toContain("和小熊同居后的日子");
-
-    const xiong = projects.find((p) => p.name === "和小熊同居后的日子")!;
-    const data = await loadProject(fs, xiong.root);
-    const docNames = data.docs.map((d) => d.name);
-    // 该书已完成新结构迁移（B9 试点）：核心 7 件 + 启用的两个追踪模块在
-    for (const t of DOC_TEMPLATES.filter((x) =>
-      ["00-项目状态.md", "01-开书定位.md", "02-核心设定.md", "03-全书大纲.md", "04-粗纲.md",
-        "06-写作风格.md", "人物库.md", "追踪-伏笔.md", "追踪-角色状态.md"].includes(x.name),
-    )) expect(docNames).toContain(t.name);
-    // 旧结构名已归档（不在顶层）；停用的模块不在顶层
-    for (const gone of ["04-分卷大纲.md", "05-滚动细纲.md", "06-写作规则.md", "追踪-时间线.md"]) {
-      expect(docNames).not.toContain(gone);
-    }
-    // 章节按章号排序，第10章 必须排在 第2章 之后
-    const chNames = data.chapters.map((c) => c.name);
-    expect(chNames.indexOf("第10章.md")).toBeGreaterThan(chNames.indexOf("第2章.md"));
+    expect(projects.length).toBeGreaterThan(0);
+    const sample = projects[0]!;
+    const data = await loadProject(fs, sample.root);
+    // 只验证扫描和读取不会抛错；具体作品结构属于用户私有数据，不写入公开测试。
+    expect(Array.isArray(data.docs)).toBe(true);
+    expect(Array.isArray(data.chapters)).toBe(true);
     expect(chNames[0]).toBe("第1章.md");
   });
 });
