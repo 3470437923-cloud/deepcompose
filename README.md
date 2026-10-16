@@ -9,11 +9,21 @@
 
 - 版本：`1.1.0`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
 - 平台：**Windows 原生版**（WebView2）、**macOS 版**（macOS 14+，当前已有 Apple Silicon 产物）；**Linux 适配准备中，原生构建与桌面验收尚未完成**。
-- 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。目前仅建立空仓库，尚未上传源码或发布安装包。
+- 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。源码与 v1.1.0 安装包已发布；Linux 安装包尚未提供。
 - 构建入口：Windows `npm run package`；macOS `npm run package:mac`；Linux 见 [Linux 构建与验收](docs/LINUX.md)。本地 `release/` 产物不作为源码提交。
 - 存储哲学：**格式优先**——用户改过的文档格式不被程序覆盖，回写只做追加与节内替换
 - 工作流：**单主线管线**——恢复状态 → 最小读取 → 完整初稿 → 逐段修改 → 全文复读 → 唯一候选 → 用户采用 → 正式回写 → 归档推进
 - 界面只展示**已实现**的能力：没有的功能不做占位按钮（同步/备份一类入口不存在）
+
+
+
+![DeepCompose 封面](docs/images/cover.png)
+
+[40 秒介绍视频](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose-promo-40s-1080p.mp4) ｜ [macOS Apple Silicon 下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose_1.1.0_aarch64.dmg) ｜ [Windows 便携版下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose.exe)
+
+| 欢迎 | 工作台 | 资料表格 | 关于 |
+|---|---|---|---|
+| ![欢迎](docs/images/01-welcome.png) | ![工作台](docs/images/02-workbench-dark.png) | ![资料表格](docs/images/05-materials-table.png) | ![关于](docs/images/06-about.png) |
 
 ## 作者与交流
 
