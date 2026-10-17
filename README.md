@@ -7,9 +7,9 @@
 > 软件内置 DeepSeek 官方 API 的接入预设，只是因为它是一个常用的模型服务；软件本身不是 DeepSeek 的产品。
 > 「DeepSeek」为其权利人的商标，本项目仅在「说明兼容哪家接口」的意义上使用该名称。
 
-- 版本：`1.1.0`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
+- 版本：`1.1.1`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
 - 平台：**Windows 原生版**（WebView2）、**macOS 版**（macOS 14+，当前已有 Apple Silicon 产物）；**Linux 适配准备中，原生构建与桌面验收尚未完成**。
-- 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。源码与 v1.1.0 安装包已发布；Linux 安装包尚未提供。
+- 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。v1.1.1 修复技能加载、单文件搜索和继续写作候选选择，提供 macOS Apple Silicon 安装包；Windows 下载仍为历史 v1.1.0，Linux 安装包尚未提供。
 - 构建入口：Windows `npm run package`；macOS `npm run package:mac`；Linux 见 [Linux 构建与验收](docs/LINUX.md)。本地 `release/` 产物不作为源码提交。
 - 存储哲学：**格式优先**——用户改过的文档格式不被程序覆盖，回写只做追加与节内替换
 - 工作流：**单主线管线**——恢复状态 → 最小读取 → 完整初稿 → 逐段修改 → 全文复读 → 唯一候选 → 用户采用 → 正式回写 → 归档推进
@@ -19,7 +19,7 @@
 
 ![DeepCompose 封面](docs/images/cover.png)
 
-[40 秒介绍视频](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose-promo-40s-1080p.mp4) ｜ [macOS Apple Silicon 下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose_1.1.0_aarch64.dmg) ｜ [Windows 便携版下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose.exe)
+[40 秒介绍视频](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose-promo-40s-1080p.mp4) ｜ [macOS Apple Silicon 下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.1/DeepCompose_1.1.1_aarch64.dmg) ｜ [Windows 便携版下载](https://github.com/3470437923-cloud/deepcompose/releases/download/v1.1.0/DeepCompose.exe)
 
 | 欢迎 | 工作台 | 资料表格 | 关于 |
 |---|---|---|---|

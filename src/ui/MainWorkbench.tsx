@@ -28,6 +28,7 @@ import {
   kindForRel,
   loadProject,
   readProjectStatus,
+  pickLatestPending,
   scanBooksRoot,
   validateProject,
   type ContentNode,
@@ -1005,22 +1006,14 @@ export default function MainWorkbench({
     [dirs, session, activeTab, project, askConfirm, refreshProjects, refreshRecycleCount],
   );
 
-  /** 继续写作：优先打开**章号最大**的候选稿，其次第一章、第一份资料（无作品则提示） */
+  /** 继续写作：优先明确的最新候选，再按章号回退；没有候选时打开最后正文或资料。 */
   const continueWriting = useCallback(async () => {
     if (!project) {
       setStatus("请先在左侧文件面板选择作品");
       return;
     }
-    // D-2：候选按章号最大挑，不再取数组末位 —— listPending 的排序是
-    // 文件名比较序（"第10章"排在"第2章"前面），与"写作推进到哪了"不是一回事
-    const latestPending = project.pending.reduce<FileRef | null>((best, p) => {
-      if (!best) return p;
-      const n = parseChapterName(p.name);
-      const b = parseChapterName(best.name);
-      if (n === null) return best;
-      if (b === null) return p;
-      return n > b ? p : best;
-    }, null);
+    const state = await readProjectStatus(getFs(), project.ref.root);
+    const latestPending = pickLatestPending(project.pending, state);
     const target = latestPending ?? project.chapters[project.chapters.length - 1] ?? project.docs[0];
     if (!target) {
       setStatus(`${project.ref.name} 还没有章节或资料`);

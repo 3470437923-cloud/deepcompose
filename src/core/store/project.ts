@@ -138,6 +138,23 @@ export async function listPending(fs: FsBridge, projectRoot: string): Promise<Fi
     .sort((a, b) => compareChapterFiles(a.name, b.name));
 }
 
+/** 继续写作优先遵从 00 的明确候选指针；无有效指针时按章号回退，不猜修改时间。 */
+export function pickLatestPending(pending: FileRef[], status?: ProjectStatus | null): FileRef | null {
+  const pointer = (status?.fields["当前唯一最新候选"] ?? "").replace(/\\/g, "/").replace(/^`/, "");
+  const explicit = pending.find((p) => {
+    const rel = p.rel.replace(/\\/g, "/");
+    return pointer.startsWith(rel) && /^(?:$|[\s（(`])/.test(pointer.slice(rel.length));
+  });
+  if (explicit) return explicit;
+  return pending.reduce<FileRef | null>((best, p) => {
+    const n = parseChapterName(p.name)?.no;
+    const b = best ? parseChapterName(best.name)?.no : undefined;
+    if (n == null) return best;
+    if (b == null || n > b || (n === b && compareChapterFiles(p.name, best!.name) > 0)) return p;
+    return best;
+  }, null);
+}
+
 /** 已处理旧稿（待确认\已处理\*.md），按名称排序 */
 export async function listProcessed(fs: FsBridge, projectRoot: string): Promise<FileRef[]> {
   const dir = projectProcessedDir(projectRoot);

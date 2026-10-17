@@ -468,6 +468,7 @@ describe.skipIf(!REAL_BOOKS || !existsSync(REAL_BOOKS))("本地作品目录（�
     // 只验证扫描和读取不会抛错；具体作品结构属于用户私有数据，不写入公开测试。
     expect(Array.isArray(data.docs)).toBe(true);
     expect(Array.isArray(data.chapters)).toBe(true);
+    const chNames = data.chapters.map((chapter) => chapter.name);
     expect(chNames[0]).toBe("第1章.md");
   });
 });

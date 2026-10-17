@@ -112,7 +112,7 @@ export const FILE_MANAGE: ToolSchema = {
       new_path: { type: "string" },
       directory: {
         type: "string",
-        description: 'Directory to search in (for "search" operation, default is entire project)',
+        description: 'Optional directory override for search. Without it, search path: a single md/txt file or a directory recursively. Use path="." for the entire project.',
       },
     },
     required: ["operation", "path"],

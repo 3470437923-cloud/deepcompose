@@ -25,6 +25,9 @@
     ]
   },
   "bundle": {
+    "macOS": {
+      "signingIdentity": "-"
+    },
     "targets": [
       "app",
       "dmg"

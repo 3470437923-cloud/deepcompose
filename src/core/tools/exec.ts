@@ -514,6 +514,25 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       // 深度上限防 junction/符号链接成环（对照 buildContentTree 的 maxDepth 防护）。
       const MAX_SEARCH_DEPTH = 16;
       let filesSkipped = 0;
+      // 文件与目录共用匹配逻辑，避免对文件调用 list 后静默返回空。
+      const searchFile = async (file: string, reported: string): Promise<void> => {
+        let text: string;
+        try {
+          text = await ctx.fs.readText(file);
+        } catch {
+          filesSkipped++; // 单文件读不出（如 GBK 旧稿）不影响其余文件的搜索结果
+          return;
+        }
+        const lines = text.split(/\r\n|\r|\n/);
+        const matches: { line: number; content: string }[] = [];
+        lines.forEach((l, i) => {
+          if (l.includes(needle)) matches.push({ line: i + 1, content: l });
+        });
+        if (matches.length > 0) {
+          filesFound++;
+          results.push({ file: reported, matches: matches.slice(0, 50) });
+        }
+      };
       const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
         if (depth > MAX_SEARCH_DEPTH) return;
         let entries;
@@ -531,25 +550,14 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
             continue;
           }
           if (!/\.(md|txt)$/i.test(e.name)) continue;
-          let text: string;
-          try {
-            text = await ctx.fs.readText(e.path);
-          } catch {
-            filesSkipped++; // 单文件读不出（如 GBK 旧稿）不影响其余文件的搜索结果
-            continue;
-          }
-          const lines = text.split(/\r\n|\r|\n/);
-          const matches: { line: number; content: string }[] = [];
-          lines.forEach((l, i) => {
-            if (l.includes(needle)) matches.push({ line: i + 1, content: l });
-          });
-          if (matches.length > 0) {
-            filesFound++;
-            results.push({ file: childRel, matches: matches.slice(0, 50) });
-          }
+          await searchFile(e.path, childRel);
         }
       };
-      await walk(start.abs, startRel, 0);
+      const startStat = await ctx.fs.stat(start.abs);
+      if (!startStat) return err(`Directory not found: ${slashPath(reportPath(start))}`);
+      // guardWithConfirm 已拒绝根以下的链接；授权根本身允许是目录链接。
+      if (startStat.isDir || startStat.isLink) await walk(start.abs, startRel, 0);
+      else if (/\.(md|txt)$/i.test(start.abs)) await searchFile(start.abs, startRel);
       return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped });
     }
     case "delete": {
