@@ -77,7 +77,7 @@
 |---|---|---|---|
 | KL-TL-01 | `registry.availableSkillsBlock` 注入块是无换行拼接，与注释宣称的「逐字 4 片段」不一致 | 代码判定 | **已复核（B8），字节保持不动**：B8 去证据库里找过样本 —— `cjk_exe.tsv` 里能查到块头那句中文（`0x0039F8BA`），但**纯 ASCII 的 `<skill>`/`</skill>` 片段天生不在"含中文字符串"抽样里**（计数 0 不等于不存在），运行期请求体也没有留档 → **手里的证据不足以判定原产品发的是哪种排版**。处置：不改注入字节（无据不改契约，标签间空白对模型无语义），把注释改成与代码一致并写明"无据不改"。要真销项得先拿到原产品的请求体抓包 |
 | KL-TL-02 | copy / rename 目标已存在时**直接覆盖**，且不为被覆盖目标落快照（`SnapshotOperation` 枚举里有 `copy`，暗示原产品会落） | 代码判定 | **已修**（B8）：copy / rename **先给目标记一条写前快照**（目标不存在也记一条 `previousExists:false` —— 这是"回滚时该把目标删掉"的唯一依据；存在则记 `previousContent` 与 `previousType`），再动盘。另补：copy 的源不存在时改报 `Directory not found`（原先直接落到 fs 层）。回归锁：`tests/tools/exec.test.ts`（覆盖已有目标 / 全新路径 / rename 双侧 / 源不存在） |
-| KL-TL-03 | `skill_lookup` 的 schema 描述串宣称返回「base directory path + sampled file list」，实际只有 `{skill_name, content}` | 代码判定 | 保留（描述串属逐字契约，改它要同步模型行为） |
+| KL-TL-03 | `skill_lookup` 的 schema 描述串宣称返回「base directory path + sampled file list」，实际 content 缺实际目录 | 已实测 | **已修**（2026-10-18 工程故障维护）：content 在完整正文后追加实际 `directoryPath` 与已有采样文件清单，保持 `{skill_name, content}` 字段不变；真实文件系统回归验证带时间戳目录按名称/id 加载及参考路径。详见 `docs/BUGFIX-2026-10-18.md`。 |
 | KL-TL-04 | `resolveToolPath` 对 `C:file`（盘符相对）会拼出含冒号的路径（NTFS ADS 语义），写入必失败 | 代码判定 | **已修**（B7）：`guardPath` 在**去掉盘符前缀之后**检查冒号，命中即拒（`第1章.md:payload` 这类"根内路径 + ADS 尾巴"原本能绕过全部目录检查）。解析层 `resolveToolPath` 保持原样回报路径，判定只在 `guardPath`。回归锁：`tests/tools/pathGuard.test.ts`（含"`C:\` 的冒号不算 ADS，不许误伤"） |
 | KL-TL-05 | `"Directory not found"` 文案对「文件不存在」也使用 | 代码判定 | **保留（判定为非缺陷）**（被测试锁为既有文案） |
 | KL-TL-06 | `mergeSkillList` 不清除已删技能的 `activeSkillIds` 残留 | 代码判定 | 保留（刻意保留：目录暂时不可见时不丢勾选） |

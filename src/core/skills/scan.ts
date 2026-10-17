@@ -12,6 +12,7 @@
 
 import type { FsBridge } from "../fsbridge";
 import type { SkillMeta } from "../prefs";
+import { join } from "../dirs";
 
 /** 内置技能名单（A-8）：必须与 `assets/builtin-skills/` 实际随包的 5 个目录一致 ——
  *  少一个就会有随包技能落进「自定义」分组（与 README 的「内置技能（5 个）」自相矛盾）。
@@ -92,7 +93,7 @@ export async function scanSkills(fs: FsBridge, skillsDir: string): Promise<Skill
   }
   for (const e of entries) {
     if (!e.isDir) continue; // 只有目录才是技能
-    const skillFile = `${e.path}\\SKILL.md`;
+    const skillFile = join(e.path, "SKILL.md");
     if (!(await fs.exists(skillFile))) continue;
     let text = "";
     try {

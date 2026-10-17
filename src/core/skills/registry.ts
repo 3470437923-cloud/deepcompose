@@ -20,6 +20,7 @@
 
 import type { FsBridge } from "../fsbridge";
 import type { SkillMeta } from "../prefs";
+import { join } from "../dirs";
 
 /** 块头（逐字；末尾带 \n） */
 export const AVAILABLE_SKILLS_HEADER =
@@ -73,12 +74,13 @@ export async function lookupSkill(
   const meta = findSkill(skills, nameOrId);
   if (!meta) return null;
 
-  const skillFile = `${meta.directoryPath}\\SKILL.md`;
+  const skillFile = join(meta.directoryPath, "SKILL.md");
   if (!(await fs.exists(skillFile))) return null;
   const body = await fs.readText(skillFile);
 
   // 目录说明 + 最多 10 个可用文件（排除 SKILL.md；'/' 分隔的相对路径）
-  let note = SKILL_DIR_NOTE;
+  // 显式给出注册目录，名称与带时间戳目录不必一致，模型不能靠名称猜路径。
+  let note = `\n技能目录：${meta.directoryPath}\n` + SKILL_DIR_NOTE;
   const files: string[] = [];
   const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
     if (depth > 2 || files.length >= 10) return;

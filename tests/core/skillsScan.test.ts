@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { mergeSkillList, parseFrontmatter, scanSkills, BUILTIN_SKILL_NAMES } from "../../src/core/skills/scan";
 import type { FsBridge } from "../../src/core/fsbridge";
 import type { SkillMeta } from "../../src/core/prefs";
+import { join } from "../../src/core/dirs";
 
 const NOVEL_WRITER_SKILL = `---
 name: novel-writer
@@ -25,11 +26,11 @@ function memFs(dirs: Record<string, string>): FsBridge {
   return {
     async exists(p: string) {
       // 任意目录的 SKILL.md 由 dirs 提供；其余不存在
-      return Object.keys(dirs).some((d) => p === `${d}\\SKILL.md`);
+      return Object.keys(dirs).some((d) => p === join(d, "SKILL.md"));
     },
     async readText(p: string) {
       for (const [d, content] of Object.entries(dirs)) {
-        if (p === `${d}\\SKILL.md`) return content;
+        if (p === join(d, "SKILL.md")) return content;
       }
       throw new Error("not found: " + p);
     },
