@@ -23,7 +23,7 @@ export const FILE_READ: ToolSchema = {
       operation: {
         type: "string",
         enum: ["read", "list"],
-        description: '"read" to read file content, "list" to list directory contents',
+        description: 'Required: "read" to read text file content, "list" to list directory contents with mtime_ms (Unix milliseconds). Binary archives must be opened with an archive tool.',
       },
       path: {
         type: "string",
@@ -35,10 +35,11 @@ export const FILE_READ: ToolSchema = {
         description:
           "Pagination start. read: 1-based line number (default 1). list: entry index (default 0).",
       },
+      char_offset: { type: "integer", description: "UTF-16 character offset within the first requested line; default 0. When truncated use next_offset and next_char_offset together to resume without losing text." },
       limit: {
         type: "integer",
         description:
-          "Max items to return. read: lines (default 2000, max 2000). list: entries (default 200, max 500).",
+          "Max items to return. read: lines (default 2000, max 2000), also capped at 24000 characters with continuation fields. list: entries (default 200, max 500).",
       },
     },
     required: ["operation", "path"],
@@ -49,7 +50,7 @@ export const FILE_READ: ToolSchema = {
 export const FILE_WRITE: ToolSchema = {
   name: "file_write",
   description:
-    'Write, append, or edit files. Operations: "write" (overwrite/create), "append" (add to end), "replace" (find and replace text, set replace_all=true to replace ALL occurrences, default replaces first only), "insert" (insert at position), "delete_lines" (remove lines).',
+    'Write, append, or edit files. Operations: "write" (overwrite/create), "append" (add to end), "replace" (find and replace text, set replace_all=true to replace ALL occurrences, default replaces first only), "insert" (insert at position), "delete_lines" (remove lines; returns deleted_content preview, truncation, remaining_lines and post_content_hash). Successful writes return snapshot location for the saved previous content. Replace reports match/replacement counts; misses suggest actual source lines without applying fuzzy edits.',
   parameters: {
     type: "object",
     properties: {
@@ -112,7 +113,7 @@ export const FILE_MANAGE: ToolSchema = {
       new_path: { type: "string" },
       directory: {
         type: "string",
-        description: 'Optional directory override for search. Without it, search path: a single md/txt file or a directory recursively. Use path="." for the entire project.',
+        description: 'Optional directory override for search. Without it, search path: any single text file (including .jsonl) or a directory recursively (common text/log formats). Binary files are rejected; excluded/unreadable files are reported. Matches use bounded excerpts with column/truncated, at most 50 lines per file, 100 returned files and 24000 excerpt characters total. Use an explicit file search and file_read for omitted content. Use path="." for the project; hidden descendant directories are skipped.',
       },
     },
     required: ["operation", "path"],
