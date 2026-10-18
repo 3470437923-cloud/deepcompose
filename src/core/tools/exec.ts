@@ -270,9 +270,26 @@ async function recordWrite(
  * file_read：read（按 1-based 行号分页取内容）/ list（按条目下标分页列直接子项）。
  * 结果形态保持既有格式：read → {path, content}；list → {path, files:[{name,path,type,size}]}。
  */
+/** 失败只给原文候选，不做模糊替换；引号差异尤其不能悄悄改写作者文字。 */
+function replaceMiss(src: string, requested: string): string {
+  const normalize = (s: string) => s.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  const wanted = normalize(requested).split(String.fromCharCode(10))[0].slice(0, 200);
+  const lines = src.split(/\r\n|\r|\n/);
+  let best = -1, score = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = normalize(lines[i]);
+    let shared = 0;
+    for (const c of new Set(wanted)) if (line.includes(c)) shared++;
+    const value = wanted && line.includes(wanted) ? 2 : shared / Math.max(1, new Set(wanted).size);
+    if (value > score) { score = value; best = i; }
+  }
+  return "Text not found: " + requested.slice(0, 500) + (best < 0 ? "; no similar line found; read the target first" :
+    "; possible match at line " + (best + 1) + ": " + lines[best].slice(0, 500) + "; compare quotes/spacing and read this location before retrying");
+}
+
 async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
   const operation = str(a, "operation");
-  if (!operation) return err("operation is required");
+  if (!operation) return err('operation is required; use "read" for file content or "list" for directory entries');
   const pathArg = str(a, "path");
   if (pathArg === undefined) return err("path is required");
   if (operation !== "read" && operation !== "list") return err("Unknown operation: " + operation);
@@ -282,9 +299,9 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
   const { abs } = g.resolved;
   const reported = reportPath(g.resolved);
 
-  // 路径不存在时统一报 "Directory not found"（既有逐字文案，read 文件缺失也用它，回归锁）
+  // 按请求的操作区分文件和目录缺失，避免把丢失文件误报成路径语法错误。
   const st = await ctx.fs.stat(abs);
-  if (st === null) return err(`Directory not found: ${reported}`);
+  if (st === null) return err(`${operation === "read" ? "File" : "Directory"} not found: ${reported}`);
   if (st.isLink) return err(linkError(reported));
 
   if (operation === "list") {
@@ -303,6 +320,7 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
         path: relBase === null ? e.path : join(relBase, e.name),
         type: e.isDir ? "directory" : "file",
         size: e.isDir ? null : e.size,
+        mtime_ms: e.mtimeMs,
       })),
     });
   }
@@ -315,8 +333,16 @@ async function fileRead(ctx: ToolContext, a: Args): Promise<string> {
 
   // 兼容 CRLF/CR/LF 三种换行；分页结果统一以 '\n' 连接（既有行为）
   const allLines = content.split(/\r\n|\r|\n/);
-  const slice = allLines.slice(offset - 1, offset - 1 + limit).join("\n");
-  return ok({ path: reported, content: slice });
+  const charOffset = Math.max(0, int(a, "char_offset") ?? 0);
+  const page = allLines.slice(offset - 1, offset - 1 + limit).join("\n").slice(charOffset);
+  const slice = page.slice(0, 24000);
+  const parts = slice.split("\n");
+  const nextOffset = offset + parts.length - 1;
+  const nextCharOffset = parts.length === 1 ? charOffset + slice.length : parts[parts.length - 1].length;
+  return ok({ path: reported, content: slice, total_lines: allLines.length,
+    truncated: slice.length < page.length || offset - 1 + limit < allLines.length,
+    ...(slice.length < page.length ? { next_offset: nextOffset, next_char_offset: nextCharOffset } :
+      offset - 1 + limit < allLines.length ? { next_offset: offset + limit, next_char_offset: 0, continuation_separator: "\n" } : {}) });
 }
 
 // ────────────────────────────── file_write ──────────────────────────────
@@ -389,13 +415,15 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
       const eol = src.includes("\r\n") ? "\r\n" : "\n";
       // EOL 容错：模型按 file_read 的 '\n' 归一化内容构造多行 old_text 时也能命中 CRLF 原文
       const needle = findNeedleWithEolTolerance(src, oldText, eol);
-      if (needle === null) return err(`Text not found: ${oldText}`);
+      if (needle === null) return err(replaceMiss(src, oldText));
       // 替换文本统一为文件主导 EOL，避免在 CRLF 文件里掺入 LF 行（单行文本不含 EOL，不受影响）
       const newText = newTextRaw.replace(/\r\n|\r|\n/g, eol);
       // new_text 一律按字面量处理：String.replace 的字符串替换会展开 $&/$'/$` 等模式，
       // 用 split/join 与函数式替换规避（正文里出现 "$&" 不该被替换成匹配文本）
       next = replaceAll ? src.split(needle).join(newText) : src.replace(needle, () => newText);
-      extra = { replace_all: replaceAll };
+      const matchesFound = src.split(needle).length - 1;
+      extra = { replace_all: replaceAll, matches_found: matchesFound,
+        replacements: replaceAll ? matchesFound : 1, matches_remaining: next.split(needle).length - 1 };
       break;
     }
     case "insert": {
@@ -446,10 +474,13 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
       // 闭区间 [start, end]，end 越界时截到文件尾
       const upto = Math.min(end, total);
       const removed = doc.lines.slice(start - 1, upto);
+      const deletedContent = joinLines({ lines: removed, eols: doc.eols.slice(start - 1, upto) });
       doc.lines.splice(start - 1, upto - (start - 1));
       doc.eols.splice(start - 1, upto - (start - 1));
       next = joinLines(doc);
-      extra = { deleted_lines: removed.length };
+      extra = { deleted_lines: removed.length, deleted_content: deletedContent.slice(0, 4000),
+        deleted_content_truncated: deletedContent.length > 4000, remaining_lines: doc.lines.length,
+        post_content_hash: await contentHash(next) };
       break;
     }
     default:
@@ -471,6 +502,8 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   // 新内容已在内存里，写后哈希不依赖磁盘，所以快照不必等落盘 ——
   // 反过来（先写盘后落快照）在两步之间崩掉就会"改了却没有回滚依据"。
   await recordWrite(ctx, operation as SnapshotOperation, reportPath(g.resolved), previous, exists, next);
+  extra.snapshot = { saved: ctx.snapshot !== false, session_id: ctx.sessionId, call_id: ctx.currentCallId ?? "",
+    ...(ctx.snapshot !== false ? { file: join(ctx.snapshotsDir, `${ctx.sessionId}.json`) } : {}) };
   await ctx.fs.writeText(abs, next);
   return ok({ success: true, operation, path: reported, ...extra, ...(writeWarnings.length > 0 ? { warnings: writeWarnings } : {}) });
 }
@@ -506,7 +539,10 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       // 结果 file 字段的相对基准：项目内 → 相对项目根（'\' 分隔，与实测样本一致）；
       // 项目外 → 绝对路径。不能用 reportPath：它把项目根回报成 "."，会拼出 ".\xxx" 前缀。
       const startRel = start.rel ?? start.abs;
-      const results: { file: string; matches: { line: number; content: string }[] }[] = [];
+      const results: { file: string; matches: { line: number; content: string; truncated?: boolean; column?: number }[]; matches_total?: number }[] = [];
+      let outputChars = 0;
+      let searchTruncated = false;
+      const skipped: { file: string; reason: string }[] = [];
       let filesFound = 0;
 
       // 递归扫 md/txt：跳过 '.' 开头的系统目录；每文件最多报 50 条命中（防止大文件刷爆结果）。
@@ -519,18 +555,32 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
         let text: string;
         try {
           text = await ctx.fs.readText(file);
-        } catch {
-          filesSkipped++; // 单文件读不出（如 GBK 旧稿）不影响其余文件的搜索结果
+        } catch (error) {
+          filesSkipped++;
+          if (skipped.length < 20) skipped.push({ file: reported, reason: String(error).slice(0, 200) });
           return;
         }
         const lines = text.split(/\r\n|\r|\n/);
-        const matches: { line: number; content: string }[] = [];
+        const matches: { line: number; content: string; truncated?: boolean; column?: number }[] = [];
+        let total = 0;
         lines.forEach((l, i) => {
-          if (l.includes(needle)) matches.push({ line: i + 1, content: l });
+          const at = l.indexOf(needle);
+          if (at < 0) return;
+          total++;
+          if (matches.length >= 50 || results.length >= 100) { searchTruncated = true; return; }
+          const remainingBudget = 24000 - outputChars;
+          if (remainingBudget < needle.length) { searchTruncated = true; return; }
+          const contextBudget = Math.min(400 - needle.length, remainingBudget - needle.length);
+          const before = Math.min(100, Math.floor(contextBudget / 2));
+          const after = contextBudget - before;
+          const begin = Math.max(0, at - before);
+          const excerpt = l.slice(begin, Math.min(l.length, at + needle.length + after));
+          outputChars += excerpt.length;
+          matches.push({ line: i + 1, content: excerpt, ...(excerpt.length < l.length ? { truncated: true, column: begin + 1 } : {}) });
         });
-        if (matches.length > 0) {
+        if (total > 0) {
           filesFound++;
-          results.push({ file: reported, matches: matches.slice(0, 50) });
+          if (matches.length) results.push({ file: reported, matches, ...(total > matches.length ? { matches_total: total } : {}) });
         }
       };
       const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
@@ -549,7 +599,12 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
             await walk(e.path, childRel, depth + 1);
             continue;
           }
-          if (!/\.(md|txt)$/i.test(e.name)) continue;
+          // 常用文本与日志参与递归；其他类型计入跳过，避免把不检索说成无命中。
+          if (!/\.(md|txt|json|jsonl|log|csv|tsv|yaml|yml|toml|xml|html|css|js|ts|tsx|jsx|py|rs|sh)$/i.test(e.name)) {
+            filesSkipped++;
+            if (skipped.length < 20) skipped.push({ file: childRel, reason: "file type excluded from recursive text search; search the file directly to inspect text" });
+            continue;
+          }
           await searchFile(e.path, childRel);
         }
       };
@@ -557,8 +612,12 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       if (!startStat) return err(`Directory not found: ${slashPath(reportPath(start))}`);
       // guardWithConfirm 已拒绝根以下的链接；授权根本身允许是目录链接。
       if (startStat.isDir || startStat.isLink) await walk(start.abs, startRel, 0);
-      else if (/\.(md|txt)$/i.test(start.abs)) await searchFile(start.abs, startRel);
-      return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped });
+      else {
+        await searchFile(start.abs, startRel);
+        if (filesSkipped) return err(`Cannot search file: ${skipped[0]?.reason ?? startRel}`);
+      }
+      return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped,
+        truncated: searchTruncated, ...(skipped.length ? { skipped_files: skipped } : {}) });
     }
     case "delete": {
       const modeHit = modeGate(ctx.mode ?? "dev", "write", g.resolved.rel);

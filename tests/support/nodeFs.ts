@@ -7,6 +7,22 @@ import { promises as fsp } from "node:fs";
 import * as nodePath from "node:path";
 import type { DirEntry, FsBridge, StatInfo } from "../../src/core/fsbridge";
 
+const BINARY_SIGNATURES = [
+  [0x50, 0x4b, 0x03, 0x04], [0x50, 0x4b, 0x05, 0x06], [0x50, 0x4b, 0x07, 0x08],
+  [0x1f, 0x8b], [0x42, 0x5a, 0x68], [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00],
+  [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c], [0x52, 0x61, 0x72, 0x21, 0x1a, 0x07],
+  [0x25, 0x50, 0x44, 0x46, 0x2d], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  [0xff, 0xd8, 0xff], [0x47, 0x49, 0x46, 0x38, 0x37, 0x61], [0x47, 0x49, 0x46, 0x38, 0x39, 0x61],
+  [0x7f, 0x45, 0x4c, 0x46], [0x00, 0x61, 0x73, 0x6d],
+  [0xfe, 0xed, 0xfa, 0xce], [0xce, 0xfa, 0xed, 0xfe], [0xfe, 0xed, 0xfa, 0xcf], [0xcf, 0xfa, 0xed, 0xfe],
+];
+function isBinaryPayload(buf: Uint8Array): boolean {
+  const signature = BINARY_SIGNATURES.some((magic) => magic.every((byte, i) => buf[i] === byte));
+  const tar = buf.length > 262 && buf.subarray(257, 262).every((byte, i) => byte === [0x75, 0x73, 0x74, 0x61, 0x72][i]);
+  const controls = buf.some((byte) => byte === 0 || (byte < 0x20 && ![0x09, 0x0a, 0x0d].includes(byte)));
+  return signature || tar || controls;
+}
+
 /** 构造一个走真实磁盘（测试临时目录）的 FsBridge 替身 */
 export function createNodeFs(): FsBridge {
   return {
@@ -14,19 +30,19 @@ export function createNodeFs(): FsBridge {
       // 对齐 Rust fs_read_text 的 decode_text：UTF-8 BOM 剥离；UTF-16LE/BE BOM 解码；
       // 严格 UTF-8；失败回退 GBK（Node 自带 full-icu，TextDecoder("gbk") 可用）。
       const buf = await fsp.readFile(path);
-      if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
-        return new TextDecoder("utf-8").decode(buf.subarray(3));
-      }
+      const utf8Bom = buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf;
       if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) {
         return new TextDecoder("utf-16le").decode(buf.subarray(2));
       }
       if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) {
         return new TextDecoder("utf-16be").decode(buf.subarray(2));
       }
+      const payload = utf8Bom ? buf.subarray(3) : buf;
+      if (isBinaryPayload(payload)) throw new Error(`二进制文件不可按文本读取：${path}`);
       try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(buf);
+        return new TextDecoder("utf-8", { fatal: true }).decode(payload);
       } catch {
-        return new TextDecoder("gbk").decode(buf);
+        return new TextDecoder("gbk").decode(payload);
       }
     },
     async writeText(path, content) {

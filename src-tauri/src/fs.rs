@@ -204,6 +204,26 @@ fn mtime_ms(md: &fs::Metadata) -> u64 {
 ///   4. 失败回退 GBK（encoding_rs 的 GBK 实现覆盖 GB18030 常用区）——
 ///      中文 Windows 用户的存量旧稿大量是 GBK，"打不开旧稿"是阻断级体验问题。
 /// IO 错误（占用/权限/不存在）仍然报错；编码层面不再产生硬错误。
+fn has_binary_signature(bytes: &[u8]) -> bool {
+    const SIGNATURES: &[&[u8]] = &[
+        b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08", // ZIP
+        b"\x1f\x8b", b"BZh", b"\xfd7zXZ\x00", b"7z\xbc\xaf\x27\x1c", b"Rar!\x1a\x07",
+        b"%PDF-", b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a",
+        b"\x7fELF", b"\x00asm",
+        b"\xfe\xed\xfa\xce", b"\xce\xfa\xed\xfe", b"\xfe\xed\xfa\xcf", b"\xcf\xfa\xed\xfe",
+    ];
+    SIGNATURES.iter().any(|signature| bytes.starts_with(signature))
+        || (bytes.len() > 262 && &bytes[257..262] == b"ustar")
+}
+
+fn has_binary_control_bytes(bytes: &[u8]) -> bool {
+    bytes.iter().any(|&b| b == 0 || (b < 0x20 && !matches!(b, b'\t' | b'\n' | b'\r')))
+}
+
+fn is_binary_payload(bytes: &[u8]) -> bool {
+    has_binary_signature(bytes) || has_binary_control_bytes(bytes)
+}
+
 fn decode_text(bytes: &[u8]) -> String {
     if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
         return String::from_utf8_lossy(rest).into_owned();
@@ -234,6 +254,12 @@ fn decode_text(bytes: &[u8]) -> String {
 #[tauri::command]
 pub fn fs_read_text(path: String) -> Result<String, String> {
     let bytes = fs::read(&path).map_err(|e| format!("读取失败 {path}: {}", io_err(e)))?;
+    // BOM 先判编码：UTF-16 的零字节是合法文本，不应被控制字节闸门误杀。
+    let is_utf16 = bytes.starts_with(&[0xff, 0xfe]) || bytes.starts_with(&[0xfe, 0xff]);
+    let payload = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
+    if !is_utf16 && is_binary_payload(payload) {
+        return Err(format!("二进制文件不可按文本读取：{path}"));
+    }
     Ok(decode_text(&bytes))
 }
 
@@ -561,6 +587,41 @@ mod tests {
             let want = !cfg!(windows);
             assert_eq!(got, want, "{probe:?} 的平台判定不对（cfg!(windows)={}）", cfg!(windows));
         }
+    }
+
+    #[test]
+    fn fs_read_text_rejects_binary_archives_and_common_binary_signatures() {
+        let dir = tempfile::tempdir().unwrap();
+        let cases: &[(&str, &[u8])] = &[
+            ("zip", b"PK\x03\x04archive"),
+            ("gzip", b"\x1f\x8b\x08payload"),
+            ("pdf", b"%PDF-1.7\n"),
+            ("png", b"\x89PNG\r\n\x1a\n"),
+            ("jpeg", b"\xff\xd8\xff\xe0"),
+            ("pe", b"MZ\x90\x00"),
+            ("elf", b"\x7fELF\x02"),
+            ("nul", b"plain\x00text"),
+            ("control", b"plain\x01text"),
+        ];
+        for (name, bytes) in cases {
+            let path = dir.path().join(name);
+            fs::write(&path, bytes).unwrap();
+            let err = fs_read_text(path.to_string_lossy().into()).unwrap_err();
+            assert!(err.contains("二进制"), "{name} 错误应明确说明二进制：{err}");
+            assert!(err.contains("不可按文本读取"), "{name} 错误应说明不可按文本读取：{err}");
+        }
+    }
+
+    #[test]
+    fn fs_read_text_preserves_utf16_and_gbk_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let utf16 = dir.path().join("utf16.txt");
+        fs::write(&utf16, [0xff, 0xfe, 0xf8, 0x66, 0x87, 0x65]).unwrap(); // "書文"
+        assert_eq!(fs_read_text(utf16.to_string_lossy().into()).unwrap(), "書文");
+
+        let gbk = dir.path().join("gbk.txt");
+        fs::write(&gbk, [0xd6, 0xd0, 0xce, 0xc4]).unwrap(); // "中文"
+        assert_eq!(fs_read_text(gbk.to_string_lossy().into()).unwrap(), "中文");
     }
 
     #[test]

@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createNodeFs } from "../support/nodeFs";
 import { isManagedDocName, isValidatedDocPath, validateDocWrite } from "../../src/core/store/docschema";
 import { executeTool, type ToolContext } from "../../src/core/tools/exec";
+import { TRACKER_MODULES } from "../../src/core/store/templates";
 
 describe("validateDocWrite：结构硬拒", () => {
   it("人物库写表格 → 拒收（『不能把世界观写进人物表』那类错位的执行层）", () => {
@@ -80,6 +81,39 @@ describe("validateDocWrite：变坏才拦（存量不背锅）", () => {
     const v = validateDocWrite("00-项目状态.md", content, null);
     expect(v.ok).toBe(true);
     expect(v.warnings.some((w) => w.includes("过程性记录"))).toBe(true);
+  });
+});
+
+describe("追踪表：模板字段与存量条目", () => {
+  it.each(TRACKER_MODULES)("内置 $key 模板可直接写入，不补造状态字段", ({ template }) => {
+    expect(validateDocWrite(template.name, template.content, null)).toEqual({ ok: true, warnings: [] });
+  });
+
+  it("统计标题带说明时仍不是伏笔条目；新增伏笔仍须有状态", () => {
+    const header = "# 追踪-伏笔\n## 伏笔统计（自述口径）\n- 开放：1\n";
+    expect(validateDocWrite("追踪-伏笔.md", header + "## F001\n- 状态：开放\n", null).ok).toBe(true);
+    expect(validateDocWrite("追踪-伏笔.md", header + "## F001\n- 内容与涉及对象：线索\n", null).ok).toBe(false);
+  });
+
+  it.each(["追踪-伏笔.md", "追踪-时间线.md", "追踪-资源与权限.md"])("%s 存量缺状态可继续编辑，新条目与删状态仍拦", (name) => {
+    const previous = "# 追踪\n## A001\n- 内容：旧条目\n## A002\n- 状态：开放\n";
+    const edited = previous.replace("旧条目", "更新后的旧条目");
+    const verdict = validateDocWrite(name, edited, previous);
+    expect(verdict.ok).toBe(true);
+    expect(verdict.warnings.some((w) => w.includes("存量"))).toBe(true);
+    const added = validateDocWrite(name, edited + "## A003\n- 内容：新增缺状态\n", previous);
+    expect(added.ok).toBe(false);
+    expect(added.message).toContain("A003");
+    expect(validateDocWrite(name, edited.replace("- 状态：开放\n", "- 内容：删了状态\n"), previous).ok).toBe(false);
+    expect(validateDocWrite(name, edited.replace("## A001", "## A003"), previous).ok).toBe(false);
+    expect(validateDocWrite(name, edited + "## A003\n- 状态：开放\n", previous).ok).toBe(true);
+  });
+
+  it.each(["追踪-角色状态.md", "追踪-废弃设定.md"])("%s 新条目沿用模板字段而不要求通用状态，装饰禁令仍在", (name) => {
+    const template = TRACKER_MODULES.find((m) => m.template.name === name)!.template.content;
+    const next = template + "\n## 新条目\n- 来源及最近更新章节：第2章\n";
+    expect(validateDocWrite(name, next, template)).toEqual({ ok: true, warnings: [] });
+    expect(validateDocWrite(name, next + "🎉\n", template).ok).toBe(false);
   });
 });
 
@@ -190,6 +224,26 @@ describe("file_write 接线（工具层）", () => {
     expect(r.warnings).toBeUndefined(); // 没有警告就没有这个字段
     const text = await fsp.readFile(path.join(root, "小说资料", "人物库.md"), "utf8");
     expect(text).toContain("## 乙");
+  });
+
+  it("write 已有追踪文档沿用存量豁免与 CRLF，新缺状态条目拒收且原文不动", async () => {
+    const file = path.join(root, "小说资料", "追踪-时间线.md");
+    const previous = "# 追踪-时间线\r\n\r\n## T001\r\n- 时间、地点与事件：原事件\r\n";
+    await fsp.writeFile(file, previous, "utf8");
+    const next = previous.replace("原事件", "补充后的事件");
+    const result = JSON.parse(await executeTool(ctx(), "file_write", {
+      operation: "write", path: "小说资料/追踪-时间线.md", content: next,
+    }));
+    expect(result.success).toBe(true);
+    expect(result.warnings.some((w: string) => w.includes("存量"))).toBe(true);
+    expect(await fsp.readFile(file, "utf8")).toBe(next);
+
+    const rejected = JSON.parse(await executeTool(ctx(), "file_write", {
+      operation: "write", path: "小说资料/追踪-时间线.md",
+      content: next + "\r\n## T002\r\n- 时间、地点与事件：新事件\r\n",
+    }));
+    expect(String(rejected.error)).toContain("落点校验");
+    expect(await fsp.readFile(file, "utf8")).toBe(next);
   });
 
   it("正文与审核区不受落点校验限制", async () => {

@@ -55,7 +55,7 @@ afterAll(async () => {
 
 describe("file_read", () => {
   it("operation 缺失 → 逐字错误", async () => {
-    expect(await executeTool(ctx(), "file_read", {})).toBe('{"error":"operation is required"}');
+    expect(await executeTool(ctx(), "file_read", {})).toBe(JSON.stringify({error: 'operation is required; use "read" for file content or "list" for directory entries'}));
   });
   it("path 缺失 → 逐字错误", async () => {
     expect(await executeTool(ctx(), "file_read", { operation: "read" })).toBe('{"error":"path is required"}');
@@ -103,9 +103,9 @@ describe("file_read", () => {
     await fsp.rm(path.join(root, "AAA.md"));
   });
 
-  it("不存在的路径 → 逐字 Directory not found", async () => {
+  it("不存在的文件 → File not found", async () => {
     const r = JSON.parse(await executeTool(ctx(), "file_read", { operation: "read", path: "小说资料/不存在.md" }));
-    expect(r.error).toBe("Directory not found: 小说资料/不存在.md");
+    expect(r.error).toBe("File not found: 小说资料/不存在.md");
   });
 });
 
@@ -143,6 +143,7 @@ describe("file_write", () => {
       operation: "write",
       path: "章节内容/第3章.md",
       bytes_written: 6,
+      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") },
     });
     expect(await fsp.readFile(path.join(root, "章节内容", "第3章.md"), "utf8")).toBe("正文");
   });
@@ -153,7 +154,8 @@ describe("file_write", () => {
     const r = JSON.parse(
       await executeTool(ctx(), "file_write", { operation: "append", path: "小说资料/世界观.md", content: "## 第1章 摘要\n" }),
     );
-    expect(r).toEqual({ success: true, operation: "append", path: "小说资料/世界观.md" });
+    expect(r).toEqual({ success: true, operation: "append", path: "小说资料/世界观.md",
+      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
   });
 
   it("replace → 带 replace_all 字段；默认只替换首个", async () => {
@@ -161,7 +163,9 @@ describe("file_write", () => {
     const r1 = JSON.parse(
       await executeTool(ctx(), "file_write", { operation: "replace", path: "章节内容/第4章.md", old_text: "甲", new_text: "乙" }),
     );
-    expect(r1).toEqual({ success: true, operation: "replace", path: "章节内容/第4章.md", replace_all: false });
+    expect(r1).toEqual({ success: true, operation: "replace", path: "章节内容/第4章.md", replace_all: false,
+      matches_found: 3, replacements: 1, matches_remaining: 2,
+      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
     expect(await fsp.readFile(path.join(root, "章节内容", "第4章.md"), "utf8")).toBe("乙甲甲\n");
 
     const r2 = JSON.parse(
@@ -596,7 +600,7 @@ describe("question / skill_lookup / create_project", () => {
 
   it("参数体是 null/坏 JSON → 按缺参或坏参错误回报，不抛异常", async () => {
     // 模型可能给出 "null" 这类合法 JSON 但非对象的参数体
-    expect(await executeTool(ctx(), "file_read", "null")).toBe('{"error":"operation is required"}');
+    expect(await executeTool(ctx(), "file_read", "null")).toBe(JSON.stringify({error: 'operation is required; use "read" for file content or "list" for directory entries'}));
     expect(await executeTool(ctx(), "file_read", "{坏")).toBe('{"error":"工具参数不是合法 JSON"}');
   });
 

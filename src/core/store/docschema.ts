@@ -36,6 +36,8 @@ interface Rule {
    * 缺省按「有/无」判定。没有它，"既有 1 个 emoji 的文档再被加 1 个"会被误判成存量不背锅。
    */
   magnitude?: (content: string) => number;
+  /** 条目级规则返回本次新引入的违规，避免存量缺项放行别的新缺项或误导报错。 */
+  introduced?: (next: string, previous: string | null) => string | null;
 }
 
 const BOX_RE = /[─-╿▀-▟]/; // ── 框线字符区（U+2500–257F / U+2580–259F，与 style.ts 同口径）
@@ -246,15 +248,33 @@ const STATE_PROCESS_RULE: Rule = {
   hint: "",
 };
 
-/** 追踪表：每个条目必须含 `- 状态：` 字段 */
+/** 伏笔统计是汇总节（模板标题带括号说明），不算追踪条目。 */
+function missingTrackerStatus(content: string): string[] {
+  return entryBlocks(content)
+    .filter((b) => !/^伏笔统计(?:[（(].*[）)])?$/.test(b.title) && !/^-\s*状态\s*[：:]/m.test(b.body))
+    .map((b) => b.title);
+}
+
+/** 有状态字段的追踪表：旧条目缺字段只警告，新增条目或删掉原有状态才拦。 */
 const TRACKER_RULE: Rule = {
   id: "tracker-fields",
   level: "hard",
   test: (c) => {
-    const bad = entryBlocks(c).filter((b) => b.title !== "伏笔统计" && !/^-\s*状态\s*[：:]/m.test(b.body));
-    return bad.length > 0 ? `条目「${bad[0].title}」等缺少 - 状态： 字段` : null;
+    const bad = missingTrackerStatus(c);
+    return bad.length > 0 ? `条目「${bad[0]}」等缺少 - 状态： 字段` : null;
   },
-  hint: "追踪表条目 = 「## 编号/人物名」+ 固定字段（含 - 状态：）；新增条目追加在文件末尾",
+  hint: "该追踪表条目 = 「## 编号」+ 固定字段（含 - 状态：）；新增条目追加在文件末尾",
+  introduced: (next, previous) => {
+    // 按标题及出现次数匹配存量缺项，不能用修好/删除旧项抵消另一条的新缺项。
+    const remaining = missingTrackerStatus(previous ?? "");
+    const added = missingTrackerStatus(next).find((title) => {
+      const index = remaining.indexOf(title);
+      if (index < 0) return true;
+      remaining.splice(index, 1);
+      return false;
+    });
+    return added === undefined ? null : `条目「${added}」缺少 - 状态： 字段`;
+  },
 };
 
 /** 细纲：必须有 `- 状态：` 头部字段 */
@@ -290,6 +310,8 @@ function rulesFor(fileName: string): Rule[] {
   if (fileName === "04-粗纲.md") return [DECOR_RULE, NO_TABLE_RULE, ROUGH_RULE];
   if (fileName === "06-写作风格.md") return [DECOR_RULE, NO_TABLE_RULE, STYLE_RULE, STYLE_SR_RULE];
   if (fileName === "人物库.md") return [DECOR_RULE, NO_TABLE_RULE, CAST_SEMANTIC_RULE];
+  // 这两份模板没有通用「状态」字段，不给用户凭空补造字段；其余追踪表保留原门槛。
+  if (fileName === "追踪-角色状态.md" || fileName === "追踪-废弃设定.md") return [DECOR_RULE];
   if (fileName.startsWith("追踪-")) return [DECOR_RULE, TRACKER_RULE];
   if (/^第.+[-–—~～].+章细纲(（已完成）)?\.md$/.test(fileName)) return [DECOR_RULE, NO_TABLE_RULE, XIGANG_RULE];
   if (fileName === "规则台账.md") return [DECOR_RULE, LEDGER_RULE];
@@ -310,8 +332,8 @@ const LEGACY_FORBIDDEN_NEW: Record<string, string> = {
 
 /**
  * 校验一次写入（prev = 写入前的全文，新文件传 null）。
- * 变坏才拦：同一规则在 prev 上已违反 → 本次降级为警告（存量不背锅）；
- * prev 为 null（新文件）→ 任何违规都硬拒。
+ * 变坏才拦：条目规则逐项比对存量，可数规则比较数量，其余规则比较有无；
+ * 存量未加重降级为警告；prev 为 null（新文件）→ 任何违规都硬拒。
  */
 export function validateDocWrite(fileName: string, next: string, previous: string | null): DocWriteVerdict {
   // 旧结构名新建拦截（先于一切规则；存量编辑走下面的常规规则，这些名字 rulesFor 为空 = 不拦）
@@ -327,14 +349,16 @@ export function validateDocWrite(fileName: string, next: string, previous: strin
   for (const rule of rulesFor(fileName)) {
     const badNext = rule.test(next);
     if (badNext === null) continue;
-    // 变坏才拦：可数违规比较数量（加重了才算），其余比较有无；新文件（prev=null）任何违规都算引入
-    const introduced = rule.magnitude
-      ? rule.magnitude(next) > (previous === null ? 0 : rule.magnitude(previous))
-      : previous === null || rule.test(previous) === null;
+    // 条目规则先比身份，可数违规再比数量，其余比较有无；新文件的违规都算引入
+    const regression = rule.introduced?.(next, previous);
+    const introduced = rule.introduced ? regression !== null
+      : rule.magnitude
+        ? rule.magnitude(next) > (previous === null ? 0 : rule.magnitude(previous))
+        : previous === null || rule.test(previous) === null;
     if (rule.level === "hard" && introduced) {
       return {
         ok: false,
-        message: `写入被拦截（${fileName} 落点校验）：${badNext}。${rule.hint}。把内容改成符合该文件格式后重试。`,
+        message: `写入被拦截（${fileName} 落点校验）：${regression ?? badNext}。${rule.hint}。把内容改成符合该文件格式后重试。`,
         warnings,
       };
     }

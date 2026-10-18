@@ -1,7 +1,7 @@
 {
   "name": "deepcompose",
   "private": true,
-  "version": "1.1.1",
+  "version": "1.1.2",
   "type": "module",
   "description": "DeepCompose — 长篇中文小说 AI 写作工作台",
   "license": "GPL-3.0-only",
