@@ -50,7 +50,7 @@ export const FILE_READ: ToolSchema = {
 export const FILE_WRITE: ToolSchema = {
   name: "file_write",
   description:
-    'Write, append, or edit files. Operations: "write" (overwrite/create), "append" (add to end), "replace" (find and replace text, set replace_all=true to replace ALL occurrences, default replaces first only), "insert" (insert at position), "delete_lines" (remove lines; returns deleted_content preview, truncation, remaining_lines and post_content_hash). Successful writes return snapshot location for the saved previous content. Replace reports match/replacement counts; misses suggest actual source lines without applying fuzzy edits.',
+    'Write, append, or edit files. Operations: "write" (overwrite/create), "append" (add to end), "replace" (find and replace text, set replace_all=true to replace ALL occurrences, default replaces first only), "insert" (insert at position), "delete_lines" (remove lines; returns deleted_content preview, truncation, remaining_lines and post_content_hash). Successful writes return a snapshot receipt. Use file_manage list_snapshots/read_snapshot for this exact path and receipt session_id to browse saved previous content without requesting app-data path permission; restore_snapshot requires an explicit ID and current hash. Replace reports match/replacement counts; misses suggest actual source lines without applying fuzzy edits.',
   parameters: {
     type: "object",
     properties: {
@@ -94,15 +94,15 @@ export const FILE_WRITE: ToolSchema = {
 export const FILE_MANAGE: ToolSchema = {
   name: "file_manage",
   description:
-    "File modification operations: search content in files, delete files or empty directories, rename file/directory, copy file/directory. Nonempty directory deletion is refused; delete files individually to retain snapshots. Copying a directory requires a new destination and never merges into an existing directory. This tool CANNOT list directories or read files - use file_read for that.",
+    "File modification operations: search content in files, delete files or empty directories, rename file/directory, copy file/directory. Nonempty directory deletion is refused; delete files individually to retain snapshots. Copying a directory requires a new destination and never merges into an existing directory. For live directory listing or file content use file_read. Snapshot operations list/preview previous versions for the exact project file without exposing other app-data files. To undo: list_snapshots, read_snapshot with explicit snapshot_id, then restore_snapshot with that ID and expected_current_hash; never restore an author-deleted file based on inference.",
   parameters: {
     type: "object",
     properties: {
       operation: {
         type: "string",
-        enum: ["search", "delete", "rename", "copy"],
+        enum: ["search", "list_snapshots", "read_snapshot", "restore_snapshot", "delete", "rename", "copy"],
         description:
-          'Operation type: "search" to find text in files, "delete" to remove file, "rename" to rename file, "copy" to duplicate file',
+          'Operation type: "search" to find text in files, "delete" to remove file, "list_snapshots" to list this path history, "read_snapshot" to preview a named previous version, "restore_snapshot" to restore an explicit snapshot with expected_current_hash, "rename" to rename file, "copy" to duplicate file',
       },
       path: {
         type: "string",
@@ -111,9 +111,14 @@ export const FILE_MANAGE: ToolSchema = {
       },
       search_text: { type: "string" },
       new_path: { type: "string" },
+      snapshot_id: { type: "string", description: "Required for read_snapshot and restore_snapshot; obtain IDs from list_snapshots for this exact path." },
+      session_id: { type: "string", description: "Snapshot session from a prior write receipt; defaults to current session." },
+      expected_current_hash: { type: "string", description: "Required by restore_snapshot: current SHA-256 from read_snapshot, or missing for a tool-deleted file. Refuses later edits and manual deletions." },
+      offset: { type: "integer", description: "Zero-based pagination offset for list_snapshots and read_snapshot." },
+      limit: { type: "integer", description: "Snapshot page size: at most 20 entries or 8000 text units." },
       directory: {
         type: "string",
-        description: 'Optional directory override for search. Without it, search path: any single text file (including .jsonl) or a directory recursively (common text/log formats). Binary files are rejected; excluded/unreadable files are reported. Matches use bounded excerpts with column/truncated, at most 50 lines per file, 100 returned files and 24000 excerpt characters total. Use an explicit file search and file_read for omitted content. Use path="." for the project; hidden descendant directories are skipped.',
+        description: 'Optional directory override for search. Without it, search path: any single text file (including .jsonl) or a directory recursively (common text/log formats). Binary files are rejected; excluded/unreadable files are reported. Matches use bounded excerpts with column/truncated, at most 50 lines per file, 100 returned files, 24000 excerpt UTF-16 units total and 32000 UTF-8 bytes for the COMPLETE JSON response. search_text must be at most 400 UTF-16 units. Top-level truncated is true for any clipped excerpt or omitted match/detail; total_matches counts matching lines and omitted_files counts matching files with no returned match. Quota and omission statistics are always returned. Use an explicit file search and file_read for omitted content. Use path="." for the project; hidden descendant directories are skipped.',
       },
     },
     required: ["operation", "path"],

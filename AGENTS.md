@@ -134,7 +134,7 @@ tools/              package.ps1(打包+快捷方式) · capture.ps1(真机截屏
 cd src-tauri; cargo test --lib            # 全绿（禁止 --release：lto 会压爆 rustc）
 ```
 
-当前基线（2026-10-19 工程故障维护实测）：vitest 默认 **747 通过 + 9 跳过 / 56 文件**；macOS 宿主 cargo **36 例通过**、`tsc` 干净。GB-01 至 GB-11 新回归覆盖在 `tests/tools/repair20261019.test.ts`，修复与证据见 `docs/BUGFIX-2026-10-18.md`。Linux 原生编译与桌面验收仍待执行，模拟不等于原生支持。
+当前基线（2026-10-19 工程故障维护实测）：vitest 默认 **767 通过 + 9 跳过 / 58 文件**；macOS 宿主 cargo **36 例通过**、`tsc` 干净。GB-01 至 GB-11 新回归覆盖在 `tests/tools/repair20261019.test.ts`，修复与证据见 `docs/BUGFIX-2026-10-18.md`。Linux 原生编译与桌面验收仍待执行，模拟不等于原生支持。
 基线数字随批次滚动 —— 动过测试就把它更新成本次实测值（旧值曾出现 404/390 两处不一致）。
 
 > **B13–B18（2026-10-06 表格全覆盖与手改批）**：doctable 位置感知化 + 通用回落解析器

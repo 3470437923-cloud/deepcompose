@@ -143,7 +143,7 @@ describe("file_write", () => {
       operation: "write",
       path: "章节内容/第3章.md",
       bytes_written: 6,
-      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") },
+      snapshot: { snapshot_id: expect.any(String), timestamp: expect.any(String), saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") },
     });
     expect(await fsp.readFile(path.join(root, "章节内容", "第3章.md"), "utf8")).toBe("正文");
   });
@@ -155,7 +155,7 @@ describe("file_write", () => {
       await executeTool(ctx(), "file_write", { operation: "append", path: "小说资料/世界观.md", content: "## 第1章 摘要\n" }),
     );
     expect(r).toEqual({ success: true, operation: "append", path: "小说资料/世界观.md",
-      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
+      snapshot: { snapshot_id: expect.any(String), timestamp: expect.any(String), saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
   });
 
   it("replace → 带 replace_all 字段；默认只替换首个", async () => {
@@ -165,7 +165,7 @@ describe("file_write", () => {
     );
     expect(r1).toEqual({ success: true, operation: "replace", path: "章节内容/第4章.md", replace_all: false,
       matches_found: 3, replacements: 1, matches_remaining: 2,
-      snapshot: { saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
+      snapshot: { snapshot_id: expect.any(String), timestamp: expect.any(String), saved: true, session_id: "sess-1", call_id: "call_1", file: joinRel(snapshotsDir,"sess-1.json") } });
     expect(await fsp.readFile(path.join(root, "章节内容", "第4章.md"), "utf8")).toBe("乙甲甲\n");
 
     const r2 = JSON.parse(

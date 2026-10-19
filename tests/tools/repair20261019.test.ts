@@ -78,6 +78,25 @@ it("GB-10 bounds file read output with explicit continuation",async()=>{
  while(page.truncated){ page=await call("file_read",{operation:"read",path:"doc.md",offset:page.next_offset,char_offset:page.next_char_offset}); combined+=(page.continuation_separator ?? "")+page.content; }
  expect(combined).toBe(original);
 });
+it("GB-05 restores latest write snapshot without reading app-data paths",async()=>{
+ await fs.writeFile(path.join(root,"doc.md"),"原稿");
+ const write=await call("file_write",{operation:"write",path:"doc.md",content:"误改稿"});
+ const listed=await call("file_manage",{operation:"list_snapshots",path:"doc.md"});
+ expect(listed.snapshots[0].snapshot_id).toBe(write.snapshot.snapshot_id);
+ const preview=await call("file_manage",{operation:"read_snapshot",path:"doc.md",snapshot_id:write.snapshot.snapshot_id});
+ expect(preview.content).toBe("原稿");
+ const restored=await call("file_manage",{operation:"restore_snapshot",path:"doc.md",snapshot_id:write.snapshot.snapshot_id,expected_current_hash:await contentHash("误改稿")});
+ expect(restored.success).toBe(true); expect(restored.operation).toBe("restore_snapshot");
+ expect(await fs.readFile(path.join(root,"doc.md"),"utf8")).toBe("原稿");
+ expect(restored.snapshot_id).toBeTruthy();
+});
+it("GB-10 reports cross-file quota omissions at the top level",async()=>{
+ for(let i=0;i<120;i++) await fs.writeFile(path.join(root,`hit-${String(i).padStart(3,"0")}.md`),"搜索词"+"x".repeat(500));
+ const r=await call("file_manage",{operation:"search",path:".",search_text:"搜索词"});
+ expect(r.truncated).toBe(true); expect(r.total_matches).toBe(120); expect(r.returned_matches).toBeLessThan(120);
+ expect(r.omitted_matches).toBe(r.total_matches-r.returned_matches); expect(r.omitted_files).toBeGreaterThan(0); expect(r.max_chars).toBe(24000);
+ for(const item of r.results) for(const match of item.matches) expect(match.content).toContain("搜索词");
+});
 it("snapshot failure prevents all target writes",async()=>{
  await fs.writeFile(path.join(root,"doc.md"),"原稿");
  const original=ctx.fs.writeText.bind(ctx.fs);

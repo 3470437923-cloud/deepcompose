@@ -12,7 +12,7 @@
  */
 
 import type { FsBridge } from "../fsbridge";
-import { join } from "../dirs";
+import { IS_WINDOWS, join } from "../dirs";
 import { isoMicros } from "../ids";
 
 export type SnapshotOperation =
@@ -28,6 +28,8 @@ export type SnapshotOperation =
 export type PreviousType = "none" | "file" | "directory";
 
 export interface SnapshotEntry {
+  /** 作品身份；旧条目缺失时不可恢复。 */
+  projectRoot?: string;
   snapshotId: string;
   sessionId: string;
   callId: string;
@@ -46,6 +48,7 @@ export interface SnapshotEntry {
 }
 
 export interface SessionSnapshots {
+  projectRoot?: string;
   sessionId: string;
   snapshots: SnapshotEntry[];
 }
@@ -67,6 +70,7 @@ export function parseSnapshots(text: string, sessionId: string): SessionSnapshot
     if (raw && typeof raw === "object") {
       const o = raw as Partial<SessionSnapshots>;
       return {
+        ...(typeof o.projectRoot === "string" ? { projectRoot: o.projectRoot } : {}),
         sessionId: typeof o.sessionId === "string" ? o.sessionId : sessionId,
         snapshots: Array.isArray(o.snapshots) ? (o.snapshots as SnapshotEntry[]) : [],
       };
@@ -108,6 +112,7 @@ function uuid(): string {
 
 /** recordSnapshot 的输入；previousType/renameNewPath 等缺省时按下方规则推导 */
 export interface RecordInput {
+  projectRoot?: string;
   sessionId: string;
   callId: string;
   operation: SnapshotOperation;
@@ -156,6 +161,7 @@ export async function recordSnapshot(
     const existing = (await fs.exists(file)) ? parseSnapshots(await fs.readText(file), input.sessionId) : emptySnapshots(input.sessionId);
 
     const entry: SnapshotEntry = {
+      ...(input.projectRoot ? { projectRoot: input.projectRoot } : {}),
       snapshotId: uuid(),
       sessionId: input.sessionId,
       callId: input.callId,
@@ -172,6 +178,7 @@ export async function recordSnapshot(
     };
 
     const next: SessionSnapshots = {
+      ...(input.projectRoot ? { projectRoot: input.projectRoot } : {}),
       sessionId: input.sessionId,
       snapshots: [...existing.snapshots, entry],
     };
@@ -200,4 +207,12 @@ export function lastForPath(s: SessionSnapshots, relativePath: string): Snapshot
     if (s.snapshots[i].relativePath === relativePath) return s.snapshots[i];
   }
   return null;
+}
+
+/** 只比较明确记录的作品身份，不为旧快照猜测归属。 */
+export function sameProjectRoot(a: string | undefined, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const clean = (p: string) => p.split(String.fromCharCode(92)).join("/").replace(/\/+$/, "");
+  const aa = clean(a), bb = clean(b);
+  return IS_WINDOWS ? aa.toLowerCase() === bb.toLowerCase() : aa === bb;
 }
