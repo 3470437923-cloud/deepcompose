@@ -237,6 +237,28 @@ const CAST_SEMANTIC_RULE: Rule = {
   hint: "",
 };
 
+/**
+ * 00 的交付声明软警告。
+ * 「待用户确认」表示起草、逐段修改、全文复读都已完成。此前模型改几处局部
+ * 就把进度写成这一步，而写入校验看不到工具日志，无法核验复读是否真的发生。
+ * 所以不硬拒（作者可能确实复核过，拒写会卡死），改为要求声明本身带依据：
+ * 进度写成「待用户确认」时，同一次写入须在文件里注明本次复读过的候选与结论。
+ * 没有依据就警告，警告随结果返回给模型，它能据此补上或改回真实进度。
+ */
+const PROGRESS_CLAIM = "待用户确认";
+const STATE_PROGRESS_RULE: Rule = {
+  id: "state-progress-claim",
+  level: "warn",
+  test: (c) => {
+    const line = c.split("\n").find((l) => /^-\s*正文处理进度\s*[：:]/.test(l.replace(/\r$/, "")));
+    if (!line || !line.includes(PROGRESS_CLAIM)) return null;
+    return /复读/.test(c)
+      ? null
+      : "正文处理进度写成「待用户确认」，但文件里没有复读结论。这一步表示候选已逐段修改并全文复读；请先在「下一步」写明复读过的候选与结论，或把进度改回实际所处的步骤";
+  },
+  hint: "",
+};
+
 /** 00 的过程记录软警告 */
 const STATE_PROCESS_RULE: Rule = {
   id: "state-process",
@@ -303,7 +325,7 @@ const LEDGER_RULE: Rule = {
 
 /** 按文件名取适用规则表（不认识的文件返回空 = 不校验） */
 function rulesFor(fileName: string): Rule[] {
-  if (fileName === "00-项目状态.md") return [DECOR_RULE, NO_TABLE_RULE, STATE_RULE, STATE_PROCESS_RULE];
+  if (fileName === "00-项目状态.md") return [DECOR_RULE, NO_TABLE_RULE, STATE_RULE, STATE_PROGRESS_RULE, STATE_PROCESS_RULE];
   if (fileName === "01-开书定位.md") return [DECOR_RULE, NO_TABLE_RULE, POSITIONING_RULE];
   if (fileName === "02-核心设定.md") return [DECOR_RULE, NO_TABLE_RULE, CORE_RULE];
   if (fileName === "03-全书大纲.md") return [DECOR_RULE, NO_TABLE_RULE];

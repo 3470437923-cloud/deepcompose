@@ -22,6 +22,7 @@ import { IMPLEMENTED_TOOLS } from "../tools/spec";
 import { runAgent, type AgentEvent, type StreamTransport } from "./agent";
 import { AI_ERRORS } from "./errors";
 import { buildSystemPrompt } from "./prompt";
+import { projectHasStyleDoc } from "./styleDoc";
 import { maybeCompress } from "./compress";
 import type { ChatMessage, ProviderConfig } from "./protocol";
 import {
@@ -182,6 +183,8 @@ export async function send(opts: SendOptions): Promise<SendResult> {
     enabledTools: ENABLED_TOOLS,
     // I-10：技能根绝对路径随提示词下发（技能目录是独立授权根，模型自己推不出来）
     skillsDir: opts.dirs.skillsDir,
+    // 文风优先级只在盘上真有风格文件时注入；探测失败按没有处理，不阻断发送
+    hasStyleDoc: await projectHasStyleDoc(fs, opts.projectRoot).catch(() => false),
   });
 
   // 上下文自动压缩：只影响发给 AI 的请求序列，会话记录保持完整

@@ -30,6 +30,13 @@ describe("isToolErrorResult", () => {
     expect(isToolErrorResult('{"error":"x","success":true}')).toBe(false);
   });
 
+  it("超长错误的截断标记仍判为失败（err() 超过 4000 字符时附带 truncated）", () => {
+    const r = JSON.stringify({ error: "x".repeat(4000), truncated: true });
+    expect(isToolErrorResult(r)).toBe(true);
+    // truncated 取值不是 true 时不属于 err() 的形态，不放行
+    expect(isToolErrorResult(JSON.stringify({ error: "x", truncated: false }))).toBe(false);
+  });
+
   it("空值 / 非 JSON / 非对象一律不是失败", () => {
     expect(isToolErrorResult(null)).toBe(false);
     expect(isToolErrorResult(undefined)).toBe(false);
