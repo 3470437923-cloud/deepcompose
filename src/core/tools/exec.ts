@@ -26,9 +26,10 @@ import type { FsBridge } from "../fsbridge";
 import { dirname, join, IS_WINDOWS } from "../dirs";
 import { createProject } from "../store/project";
 import { dominantEol, joinLines, splitLines } from "../store/markdown";
-import { contentHash, recordSnapshot, type PreviousType, type SnapshotOperation } from "../store/snapshot";
+import { contentHash, recordSnapshot, type PreviousType, type SnapshotEntry, type SnapshotOperation } from "../store/snapshot";
 import { validateDocWrite, isValidatedDocPath } from "../store/docschema";
 import { modeGate, type AiMode } from "../ai/mode";
+import { manageSnapshot } from "./snapshotTools";
 import {
   NEEDS_CONFIRMATION_PREFIX,
   guardPath,
@@ -97,7 +98,7 @@ type Args = Record<string, unknown>;
 
 /** 统一的错误结果形态：{"error":"…"}（既有格式，回归锁） */
 function err(message: string): string {
-  return JSON.stringify({ error: message });
+  return JSON.stringify({ error: message.slice(0, 4000), ...(message.length > 4000 ? { truncated: true } : {}) });
 }
 function linkError(path: string): string {
   return `拒绝访问链接或 junction：${path}`;
@@ -249,10 +250,11 @@ async function recordWrite(
   postContent: string | null,
   renameNewPath: string | null = null,
   previousType: PreviousType = exists ? "file" : "none",
-): Promise<void> {
+): Promise<SnapshotEntry | undefined> {
   if (ctx.snapshot === false) return;
-  await recordSnapshot(ctx.fs, ctx.snapshotsDir, {
+  const history = await recordSnapshot(ctx.fs, ctx.snapshotsDir, {
     sessionId: ctx.sessionId,
+    projectRoot: ctx.roots.projectRoot ?? undefined,
     callId: ctx.currentCallId ?? "",
     operation,
     relativePath: slashPath(relPath),
@@ -262,6 +264,7 @@ async function recordWrite(
     renameNewPath,
     postContentHash: postContent === null ? null : await contentHash(postContent),
   });
+  return history.snapshots.at(-1);
 }
 
 // ────────────────────────────── file_read ──────────────────────────────
@@ -501,8 +504,8 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
   // 顺序纪律（KL-TL-07）：**先落快照再动盘**。
   // 新内容已在内存里，写后哈希不依赖磁盘，所以快照不必等落盘 ——
   // 反过来（先写盘后落快照）在两步之间崩掉就会"改了却没有回滚依据"。
-  await recordWrite(ctx, operation as SnapshotOperation, reportPath(g.resolved), previous, exists, next);
-  extra.snapshot = { saved: ctx.snapshot !== false, session_id: ctx.sessionId, call_id: ctx.currentCallId ?? "",
+  const snapshot = await recordWrite(ctx, operation as SnapshotOperation, reportPath(g.resolved), previous, exists, next);
+  extra.snapshot = { ...(snapshot ? { snapshot_id: snapshot.snapshotId, timestamp: snapshot.timestamp } : {}), saved: ctx.snapshot !== false, session_id: ctx.sessionId, call_id: ctx.currentCallId ?? "",
     ...(ctx.snapshot !== false ? { file: join(ctx.snapshotsDir, `${ctx.sessionId}.json`) } : {}) };
   await ctx.fs.writeText(abs, next);
   return ok({ success: true, operation, path: reported, ...extra, ...(writeWarnings.length > 0 ? { warnings: writeWarnings } : {}) });
@@ -511,7 +514,7 @@ async function fileWrite(ctx: ToolContext, a: Args): Promise<string> {
 // ────────────────────────────── file_manage ──────────────────────────────
 
 /**
- * file_manage：search（全项目/指定目录内搜 md/txt 文本）/ delete / rename / copy。
+ * file_manage：常见文本检索、文件操作、按文件查询与恢复快照。
  * delete / rename / copy 一律**先落快照再动盘**（快照是回滚的唯一依据）。
  * copy 与 rename 的风险都在**目标**：目标已存在时会被直接覆盖（rename 覆盖文件、
  * copy 覆盖一切），所以目标那一侧也要各记一条写前快照（KL-TL-02）。
@@ -530,6 +533,7 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
     case "search": {
       const needle = str(a, "search_text");
       if (!needle) return err("search_text is required for search operation");
+      if (needle.length > 400) return err("search_text exceeds 400 UTF-16 units; use a shorter distinctive phrase");
       const dirArg = str(a, "directory");
       // directory 同样必须过授权判定：否则可以拿它绕过 path 的分级授权，
       // 逐文件读出根外目录里的 md/txt 内容
@@ -544,8 +548,12 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
       let searchTruncated = false;
       const skipped: { file: string; reason: string }[] = [];
       let filesFound = 0;
+      let totalMatches = 0;
+      let returnedMatches = 0;
+      let omittedMatches = 0;
+      let omittedFiles = 0;
 
-      // 递归扫 md/txt：跳过 '.' 开头的系统目录；每文件最多报 50 条命中（防止大文件刷爆结果）。
+      // 递归扫常见文本：跳过 '.' 开头的系统目录；每文件最多报 50 条命中（防止大文件刷爆结果）。
       // 单个文件/目录不可读（非 UTF-8、权限、占用）只跳过不整单失败；
       // 深度上限防 junction/符号链接成环（对照 buildContentTree 的 maxDepth 防护）。
       const MAX_SEARCH_DEPTH = 16;
@@ -575,12 +583,17 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
           const after = contextBudget - before;
           const begin = Math.max(0, at - before);
           const excerpt = l.slice(begin, Math.min(l.length, at + needle.length + after));
+          if (excerpt.length < l.length) searchTruncated = true;
           outputChars += excerpt.length;
           matches.push({ line: i + 1, content: excerpt, ...(excerpt.length < l.length ? { truncated: true, column: begin + 1 } : {}) });
         });
         if (total > 0) {
           filesFound++;
+          totalMatches += total;
+          returnedMatches += matches.length;
+          omittedMatches += total - matches.length;
           if (matches.length) results.push({ file: reported, matches, ...(total > matches.length ? { matches_total: total } : {}) });
+          else omittedFiles++;
         }
       };
       const walk = async (dir: string, rel: string, depth: number): Promise<void> => {
@@ -616,9 +629,39 @@ async function fileManage(ctx: ToolContext, a: Args): Promise<string> {
         await searchFile(start.abs, startRel);
         if (filesSkipped) return err(`Cannot search file: ${skipped[0]?.reason ?? startRel}`);
       }
-      return ok({ success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped,
-        truncated: searchTruncated, ...(skipped.length ? { skipped_files: skipped } : {}) });
+      // 字符片段预算之外，再约束完整 UTF-8 JSON（含路径、转义、行号与省略统计）。
+      let responseTrimmed = false;
+      const encode = new TextEncoder();
+      const response = () => {
+        returnedMatches = results.reduce((sum, item) => sum + item.matches.length, 0);
+        omittedMatches = totalMatches - returnedMatches;
+        omittedFiles = filesFound - results.length;
+        outputChars = results.reduce((sum, item) => sum + item.matches.reduce((n, match) => n + match.content.length, 0), 0);
+        return { success: true, search_text: needle, results, files_found: filesFound, files_skipped: filesSkipped,
+          truncated: searchTruncated || responseTrimmed || omittedMatches > 0,
+          total_matches: totalMatches, returned_matches: returnedMatches, omitted_matches: omittedMatches, omitted_files: omittedFiles,
+          returned_chars: outputChars, max_chars: 24000, max_response_bytes: 32000,
+          skipped_details_omitted: filesSkipped - skipped.length, ...(skipped.length ? { skipped_files: skipped } : {}) };
+      };
+      let serialized = ok(response());
+      while (encode.encode(serialized).length > 32000) {
+        responseTrimmed = true;
+        if (skipped.length) skipped.pop();
+        else {
+          const last = results.at(-1);
+          if (!last) return err("Search response metadata exceeds quota; narrow the search path");
+          last.matches.pop();
+          if (!last.matches.length) results.pop();
+          else if (last.matches_total === undefined) last.matches_total = last.matches.length + 1;
+        }
+        serialized = ok(response());
+      }
+      return serialized;
     }
+    case "list_snapshots":
+    case "read_snapshot":
+    case "restore_snapshot":
+      return manageSnapshot(ctx, a, abs, g.resolved.rel);
     case "delete": {
       const modeHit = modeGate(ctx.mode ?? "dev", "write", g.resolved.rel);
       if (modeHit) return err(modeHit);
