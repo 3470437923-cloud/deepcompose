@@ -118,13 +118,13 @@ export function isToolErrorResult(result: string | null | undefined): boolean {
   if (typeof result !== "string" || !result.startsWith('{"error":')) return false;
   try {
     const j: unknown = JSON.parse(result);
-    return (
-      typeof j === "object" &&
-      j !== null &&
-      !Array.isArray(j) &&
-      Object.keys(j).length === 1 &&
-      typeof (j as { error?: unknown }).error === "string"
-    );
+    if (typeof j !== "object" || j === null || Array.isArray(j)) return false;
+    const o = j as Record<string, unknown>;
+    if (typeof o.error !== "string") return false;
+    // err() 对超长错误附带 truncated 标记；它是失败的属性，不是成功形态。
+    // 其余任何额外字段都仍视为非契约失败（成功结果可能合法地带 error 键）。
+    const keys = Object.keys(o);
+    return keys.every((k) => k === "error" || (k === "truncated" && o.truncated === true));
   } catch {
     return false;
   }

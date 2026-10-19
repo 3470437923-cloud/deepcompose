@@ -76,6 +76,15 @@ describe("validateDocWrite：变坏才拦（存量不背锅）", () => {
     expect(v.warnings.some((w) => w.includes("不像人物名"))).toBe(true);
   });
 
+  it("进度写成待用户确认但没有复读结论 → 软警告，不拒写", () => {
+    const bare = "# 项目状态\n- 当前阶段：连续写作\n- 当前章节：第9章\n- 正文处理进度：待用户确认\n- 下一步：等用户看\n";
+    const v = validateDocWrite("00-项目状态.md", bare, null);
+    expect(v.ok).toBe(true);
+    expect(v.warnings.join("\n")).toContain("复读结论");
+    const withReview = bare.replace("下一步：等用户看", "下一步：已复读 待确认/第9章-候选.md，结论：声线与第7章一致");
+    expect(validateDocWrite("00-项目状态.md", withReview, null).warnings).toEqual([]);
+  });
+
   it("00 里的过程记录 → 软警告（该去 审核/）", () => {
     const content = "# 项目状态\n- 当前阶段：连续写作\n- 当前章节：第2章\n- 正文处理进度：起草中\n- 下一步：写\n\n导入说明：本次由源文件重建。\n";
     const v = validateDocWrite("00-项目状态.md", content, null);

@@ -52,12 +52,29 @@ export const TOOL_ENABLED_NOTE: Record<string, string> = {
   rank_data_query: "已启用（rank_data_query 工具可用，用法详见工具说明）",
 };
 
+/**
+ * 风格优先级声明（项目绑定且盘上有风格文件时注入）。
+ * 通用技能（如 novel-deslop 的「心理独白压到一两句」）与本书 06 的条款可能相反，
+ * 两边都是指令口吻，模型没有依据判断谁赢。这里只打破平局：文风以本书文件为准，
+ * 通用技能退为未规定部分的补充。不删除任何技能段落（误删不可见），也不触碰
+ * 工具权限与安全约束——那些不在「文风」范围内，项目文件不能覆盖。
+ */
+export const STYLE_PRIORITY_NOTE =
+  "\n\n文风优先级：本项目的 小说资料/06-写作风格.md（老作品为 06-写作规则.md）是文风的最高依据。" +
+  "通用技能里的文风默认（独白长度、对白长度、标点、描写频率、段落节奏）与该文件冲突时，以该文件的具体条款为准，通用技能只补充文件未规定的部分。" +
+  "此优先级只涉及文风，不改变工具权限、模式限制与安全约束。";
+
 /** buildSystemPrompt 的输入 */
 export interface PromptInput {
   /** 用户可编辑的系统提示词本体（prefs.systemPrompt） */
   basePrompt: string;
   /** 当前绑定的小说项目根（null = 未绑定） */
   projectRoot: string | null;
+  /**
+   * 项目是否有风格文件（06-写作风格.md 或老作品的 06-写作规则.md）。
+   * 缺省视为没有：不注入优先级声明，避免在没有依据文件时凭空宣布谁赢。
+   */
+  hasStyleDoc?: boolean;
   /** 全部技能清单（权威清单在配置键 skill_list） */
   skills: SkillMeta[];
   /** 已开启的技能 id（空 = 未做过选择，默认全部注入） */
@@ -99,6 +116,9 @@ export function buildSystemPrompt(input: PromptInput): string {
 
   // 资料形态契约短版（L1 / D-038）：静态文本，与项目是否绑定无关（新建作品时同样要遵守）
   out += MATERIALS_STYLE_NOTE;
+
+  // 文风优先级：只有绑定项目且盘上真有风格文件才注入，否则声明指向的依据不存在
+  if (input.projectRoot && input.hasStyleDoc) out += STYLE_PRIORITY_NOTE;
 
   return out;
 }
