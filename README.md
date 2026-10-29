@@ -7,7 +7,7 @@
 > 软件内置 DeepSeek 官方 API 的接入预设，只是因为它是一个常用的模型服务；软件本身不是 DeepSeek 的产品。
 > 「DeepSeek」为其权利人的商标，本项目仅在「说明兼容哪家接口」的意义上使用该名称。
 
-- 版本：`1.1.3`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
+- 版本：`1.1.4`；许可：**GPL-3.0-only**。前身 writerD → KeepCompose，旧数据格式保持兼容。
 - 平台：**Windows 原生版**（WebView2）、**macOS 版**（macOS 14+，当前已有 Apple Silicon 产物）；**Linux 适配准备中，原生构建与桌面验收尚未完成**。
 - 仓库：[3470437923-cloud/deepcompose](https://github.com/3470437923-cloud/deepcompose)。v1.1.3 增加快照查询与受保护回滚，明确跨文件搜索整体配额，提供 macOS Apple Silicon 安装包；Windows 下载仍为历史 v1.1.0，Linux 安装包尚未提供。
 - 构建入口：Windows `npm run package`；macOS `npm run package:mac`；Linux 见 [Linux 构建与验收](docs/LINUX.md)。本地 `release/` 产物不作为源码提交。
